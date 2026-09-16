@@ -48,6 +48,16 @@ export const UI = {
     incorrect: "Incorrect",
     restart: "Take it again",
   },
+  survey: {
+    heading: "How helpful was this assessment?",
+    hint: "One quick tap — it helps us improve DevGrade.",
+    low: "Not helpful",
+    high: "Very helpful",
+    submit: "Submit feedback",
+    submitting: "Submitting…",
+    thanks: "Thanks for the feedback!",
+    error: "Could not save your feedback. Please try again.",
+  },
   status: {
     creating: "Building your assessment…",
     scoring: "Scoring your answers…",

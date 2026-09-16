@@ -31,6 +31,11 @@ export interface AssessmentServices {
     sessionId: string;
     sessionToken: string;
   }) => Promise<AssessmentResult>;
+  submitSurvey: (args: {
+    sessionId: string;
+    sessionToken: string;
+    rating: number;
+  }) => Promise<{ success: true }>;
 }
 
 export interface AssessmentContext {
@@ -49,6 +54,9 @@ export interface AssessmentContext {
   /** The answer currently being persisted (kept for the submit actor + retry). */
   pendingAnswer: AnswerInput | null;
   result: AssessmentResult | null;
+  /** Candidate's post-assessment satisfaction rating (§3 KPI), once submitted. */
+  surveyRating: number | null;
+  surveyError: string | null;
   error: string | null;
 }
 
@@ -59,6 +67,7 @@ export type AssessmentEvent =
   | { type: "SUBMIT_ANSWER" }
   | { type: "FOCUS_LOSS" }
   | { type: "RETRY" }
+  | { type: "SUBMIT_SURVEY"; rating: number }
   | { type: "RESTART" };
 
 export interface AssessmentInput {
@@ -123,6 +132,23 @@ export const assessmentMachine = setup({
           sessionToken: input.sessionToken,
         }),
     ),
+    submitSurvey: fromPromise(
+      async ({
+        input,
+      }: {
+        input: {
+          services: AssessmentServices;
+          sessionId: string;
+          sessionToken: string;
+          rating: number;
+        };
+      }) =>
+        input.services.submitSurvey({
+          sessionId: input.sessionId,
+          sessionToken: input.sessionToken,
+          rating: input.rating,
+        }),
+    ),
   },
   guards: {
     isConfigured: ({ context }) =>
@@ -151,6 +177,8 @@ export const assessmentMachine = setup({
       selectedOption: null,
       pendingAnswer: null,
       result: null,
+      surveyRating: null,
+      surveyError: null,
       error: null,
       focusLossCount: 0,
     }),
@@ -171,6 +199,8 @@ export const assessmentMachine = setup({
     focusLossCount: 0,
     pendingAnswer: null,
     result: null,
+    surveyRating: null,
+    surveyError: null,
     error: null,
   }),
   initial: "configuring",
@@ -319,7 +349,41 @@ export const assessmentMachine = setup({
     },
 
     completed: {
+      initial: "surveyPrompt",
       on: { RESTART: { target: "configuring", actions: "resetSession" } },
+      states: {
+        surveyPrompt: {
+          on: {
+            SUBMIT_SURVEY: {
+              target: "submittingSurvey",
+              actions: assign({
+                surveyRating: ({ event }) => event.rating,
+                surveyError: null,
+              }),
+            },
+          },
+        },
+        submittingSurvey: {
+          invoke: {
+            src: "submitSurvey",
+            input: ({ context }) => ({
+              services: context.services,
+              sessionId: context.sessionId!,
+              sessionToken: context.sessionToken!,
+              rating: context.surveyRating!,
+            }),
+            onDone: { target: "surveyThanks" },
+            onError: {
+              target: "surveyPrompt",
+              actions: assign({
+                surveyError: ({ event }) => errorMessage(event.error),
+              }),
+            },
+          },
+        },
+        // Deliberately not `type: "final"` — that would emit a parent done event.
+        surveyThanks: {},
+      },
     },
   },
 });

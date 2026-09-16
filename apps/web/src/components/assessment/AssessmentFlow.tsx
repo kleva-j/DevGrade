@@ -145,10 +145,20 @@ export function AssessmentFlow() {
 
     if (state.matches("completed") && context.result) {
       const questionsById = new Map(context.questions.map((q) => [q.id, q]));
+      const surveyPhase = state.matches({ completed: "submittingSurvey" })
+        ? "submitting"
+        : state.matches({ completed: "surveyThanks" })
+          ? "thanks"
+          : "prompt";
       return (
         <Report
           result={context.result}
           questionsById={questionsById}
+          survey={{
+            phase: surveyPhase,
+            error: context.surveyError,
+            onSubmit: (rating) => send({ type: "SUBMIT_SURVEY", rating }),
+          }}
           onRestart={() => send({ type: "RESTART" })}
         />
       );

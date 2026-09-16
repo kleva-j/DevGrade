@@ -1,5 +1,5 @@
-import type { ProficiencyLevel } from "@/domain/constants";
 import type { AssessmentResult, PublicQuestion } from "@/domain/types";
+import type { ProficiencyLevel } from "@/domain/constants";
 
 import { WarningCircleIcon } from "@phosphor-icons/react";
 
@@ -23,12 +23,15 @@ import {
 
 import { SKILL_CATEGORY_META } from "@/domain/constants";
 
+import type { SatisfactionSurveyProps } from "./SatisfactionSurvey";
 import { PILLAR_INDICATOR_CLASS, PROFICIENCY_UI, UI } from "./copy";
+import { SatisfactionSurvey } from "./SatisfactionSurvey";
 import { SkillRadar } from "./SkillRadar";
 
 export interface ReportProps {
   result: AssessmentResult;
   questionsById: Map<string, PublicQuestion>;
+  survey: SatisfactionSurveyProps;
   onRestart: () => void;
 }
 
@@ -41,7 +44,12 @@ function TierBadge({ proficiency }: TierBadgeProps) {
   return <Badge className={tier.badgeClassName}>{tier.label}</Badge>;
 }
 
-export function Report({ result, questionsById, onRestart }: ReportProps) {
+export function Report({
+  result,
+  questionsById,
+  survey,
+  onRestart,
+}: ReportProps) {
   return (
     <section className="w-full max-w-2xl">
       <header className="text-center">
@@ -167,6 +175,8 @@ export function Report({ result, questionsById, onRestart }: ReportProps) {
           </div>
         </CardContent>
       </Card>
+
+      <SatisfactionSurvey {...survey} />
 
       <div className="mt-8 flex justify-center">
         <Button size="lg" variant="outline" onClick={onRestart}>

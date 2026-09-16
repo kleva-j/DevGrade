@@ -4,6 +4,7 @@ import {
   completeSessionFn,
   createSessionFn,
   submitAnswerFn,
+  submitSurveyFn,
 } from "@/server/assessmentFns";
 
 /** localStorage key holding the anonymous, per-browser client id. */
@@ -55,5 +56,9 @@ export const assessmentServices: AssessmentServices = {
 
   async completeSession({ sessionId, sessionToken }) {
     return completeSessionFn({ data: { sessionId, sessionToken } });
+  },
+
+  async submitSurvey({ sessionId, sessionToken, rating }) {
+    return submitSurveyFn({ data: { sessionId, sessionToken, rating } });
   },
 };
