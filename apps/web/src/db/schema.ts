@@ -20,7 +20,7 @@ import {
   real,
   text,
   uuid,
-} from "drizzle-orm/pg-core"
+} from "drizzle-orm/pg-core";
 
 import {
   PROFICIENCY_LEVELS,
@@ -29,12 +29,12 @@ import {
   CONTENT_SOURCE,
   DIFFICULTIES,
   FRAMEWORKS,
-} from "../domain/constants"
+} from "@/domain/constants";
 
-export const frameworkEnum = pgEnum("framework", FRAMEWORKS)
-export const difficultyEnum = pgEnum("difficulty", DIFFICULTIES)
-export const sessionStatusEnum = pgEnum("session_status", SESSION_STATUSES)
-export const proficiencyEnum = pgEnum("proficiency", PROFICIENCY_LEVELS)
+export const frameworkEnum = pgEnum("framework", FRAMEWORKS);
+export const difficultyEnum = pgEnum("difficulty", DIFFICULTIES);
+export const sessionStatusEnum = pgEnum("session_status", SESSION_STATUSES);
+export const proficiencyEnum = pgEnum("proficiency", PROFICIENCY_LEVELS);
 
 /** Competency pillars as data (extensible), referenced by FK from questions. */
 export const skillCategories = pgTable("skill_categories", {
@@ -42,7 +42,7 @@ export const skillCategories = pgTable("skill_categories", {
   displayName: varchar("display_name", { length: 100 }).notNull(),
   description: text("description"),
   pillarOrder: integer("pillar_order").notNull(),
-})
+});
 
 export const questions = pgTable(
   "questions",
@@ -71,13 +71,14 @@ export const questions = pgTable(
       .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
-      .defaultNow(),
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   (t) => [
     index("idx_questions_framework_difficulty").on(t.framework, t.difficulty),
     index("idx_questions_category").on(t.skillCategory),
-  ]
-)
+  ],
+);
 
 export const testSessions = pgTable(
   "test_sessions",
@@ -113,8 +114,8 @@ export const testSessions = pgTable(
   (t) => [
     index("idx_sessions_status").on(t.status),
     index("idx_sessions_client_recent").on(t.clientId, t.createdAt),
-  ]
-)
+  ],
+);
 
 export const sessionAnswers = pgTable(
   "session_answers",
@@ -137,8 +138,8 @@ export const sessionAnswers = pgTable(
     // One answer per question per session — enforces the API's 409 on duplicates.
     uniqueIndex("uq_answer_session_question").on(t.sessionId, t.questionId),
     index("idx_session_answers_session").on(t.sessionId),
-  ]
-)
+  ],
+);
 
 export const sessionResults = pgTable("session_results", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -154,7 +155,7 @@ export const sessionResults = pgTable("session_results", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-})
+});
 
 /** #4: normalized per-pillar scores (one row per competency pillar per session). */
 export const sessionCategoryScores = pgTable(
@@ -175,10 +176,10 @@ export const sessionCategoryScores = pgTable(
   (t) => [
     uniqueIndex("uq_category_session").on(t.sessionId, t.skillCategory),
     index("idx_category_scores_session").on(t.sessionId),
-  ]
-)
+  ],
+);
 
-export type QuestionRow = typeof questions.$inferSelect
-export type NewQuestion = typeof questions.$inferInsert
-export type TestSessionRow = typeof testSessions.$inferSelect
-export type SessionAnswerRow = typeof sessionAnswers.$inferSelect
+export type QuestionRow = typeof questions.$inferSelect;
+export type NewQuestion = typeof questions.$inferInsert;
+export type TestSessionRow = typeof testSessions.$inferSelect;
+export type SessionAnswerRow = typeof sessionAnswers.$inferSelect;

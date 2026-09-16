@@ -16,7 +16,7 @@
  * Id convention: `react-{level}-{pillar}-{core|adv}`.
  */
 
-import type { NewQuestion } from "./schema"
+import type { NewQuestion } from "./schema";
 
 import {
   WEIGHT_ADVANCED,
@@ -25,7 +25,7 @@ import {
   WEIGHT_CORE,
   DIFFICULTY,
   FRAMEWORK,
-} from "../domain/constants"
+} from "@/domain/constants";
 
 export const seedQuestions: NewQuestion[] = [
   // ── JUNIOR · Reactivity & State ───────────────────────────────────────────
@@ -607,4 +607,4 @@ export const seedQuestions: NewQuestion[] = [
     difficultyWeight: WEIGHT_ADVANCED,
     source: CONTENT_SOURCE.LYDIAHALLIE_JS,
   },
-]
+];

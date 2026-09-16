@@ -1,11 +1,11 @@
-import { assign, fromPromise, setup } from "xstate"
+import { assign, fromPromise, setup } from "xstate";
 
-import type { Difficulty, Framework } from "../domain/constants"
+import type { Difficulty, Framework } from "@/domain/constants";
 import type {
   AssessmentResult,
   PublicQuestion,
   AnswerInput,
-} from "../domain/types"
+} from "@/domain/types";
 
 /**
  * Client-facing service contract the machine drives. In the app these are thin
@@ -15,41 +15,41 @@ import type {
  */
 export interface AssessmentServices {
   createSession: (args: {
-    framework: Framework
-    targetLevel: Difficulty
+    framework: Framework;
+    targetLevel: Difficulty;
   }) => Promise<{
-    sessionId: string
-    sessionToken: string
-    questions: PublicQuestion[]
-  }>
+    sessionId: string;
+    sessionToken: string;
+    questions: PublicQuestion[];
+  }>;
   submitAnswer: (args: {
-    sessionId: string
-    sessionToken: string
-    answer: AnswerInput
-  }) => Promise<{ sessionComplete: boolean }>
+    sessionId: string;
+    sessionToken: string;
+    answer: AnswerInput;
+  }) => Promise<{ sessionComplete: boolean }>;
   completeSession: (args: {
-    sessionId: string
-    sessionToken: string
-  }) => Promise<AssessmentResult>
+    sessionId: string;
+    sessionToken: string;
+  }) => Promise<AssessmentResult>;
 }
 
 export interface AssessmentContext {
-  services: AssessmentServices
-  framework: Framework | null
-  targetLevel: Difficulty | null
-  sessionId: string | null
-  sessionToken: string | null
-  questions: PublicQuestion[]
-  answers: Record<string, AnswerInput>
-  currentIndex: number
-  selectedOption: number | null
+  services: AssessmentServices;
+  framework: Framework | null;
+  targetLevel: Difficulty | null;
+  sessionId: string | null;
+  sessionToken: string | null;
+  questions: PublicQuestion[];
+  answers: Record<string, AnswerInput>;
+  currentIndex: number;
+  selectedOption: number | null;
   /** Epoch ms when the current question was first shown (for time tracking). */
-  questionStartedAt: number
-  focusLossCount: number
+  questionStartedAt: number;
+  focusLossCount: number;
   /** The answer currently being persisted (kept for the submit actor + retry). */
-  pendingAnswer: AnswerInput | null
-  result: AssessmentResult | null
-  error: string | null
+  pendingAnswer: AnswerInput | null;
+  result: AssessmentResult | null;
+  error: string | null;
 }
 
 export type AssessmentEvent =
@@ -59,14 +59,14 @@ export type AssessmentEvent =
   | { type: "SUBMIT_ANSWER" }
   | { type: "FOCUS_LOSS" }
   | { type: "RETRY" }
-  | { type: "RESTART" }
+  | { type: "RESTART" };
 
 export interface AssessmentInput {
-  services: AssessmentServices
+  services: AssessmentServices;
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong."
+  return error instanceof Error ? error.message : "Something went wrong.";
 }
 
 export const assessmentMachine = setup({
@@ -81,47 +81,47 @@ export const assessmentMachine = setup({
         input,
       }: {
         input: {
-          services: AssessmentServices
-          framework: Framework
-          targetLevel: Difficulty
-        }
+          services: AssessmentServices;
+          framework: Framework;
+          targetLevel: Difficulty;
+        };
       }) =>
         input.services.createSession({
           framework: input.framework,
           targetLevel: input.targetLevel,
-        })
+        }),
     ),
     submitAnswer: fromPromise(
       async ({
         input,
       }: {
         input: {
-          services: AssessmentServices
-          sessionId: string
-          sessionToken: string
-          answer: AnswerInput
-        }
+          services: AssessmentServices;
+          sessionId: string;
+          sessionToken: string;
+          answer: AnswerInput;
+        };
       }) =>
         input.services.submitAnswer({
           sessionId: input.sessionId,
           sessionToken: input.sessionToken,
           answer: input.answer,
-        })
+        }),
     ),
     completeSession: fromPromise(
       async ({
         input,
       }: {
         input: {
-          services: AssessmentServices
-          sessionId: string
-          sessionToken: string
-        }
+          services: AssessmentServices;
+          sessionId: string;
+          sessionToken: string;
+        };
       }) =>
         input.services.completeSession({
           sessionId: input.sessionId,
           sessionToken: input.sessionToken,
-        })
+        }),
     ),
   },
   guards: {
@@ -134,11 +134,11 @@ export const assessmentMachine = setup({
   actions: {
     commitPendingAnswer: assign({
       answers: ({ context }) => {
-        if (!context.pendingAnswer) return context.answers
+        if (!context.pendingAnswer) return context.answers;
         return {
           ...context.answers,
           [context.pendingAnswer.questionId]: context.pendingAnswer,
-        }
+        };
       },
       pendingAnswer: null,
     }),
@@ -233,11 +233,11 @@ export const assessmentMachine = setup({
           guard: "hasSelection",
           actions: assign({
             pendingAnswer: ({ context }) => ({
-              questionId: context.questions[context.currentIndex].id,
+              questionId: context.questions[context.currentIndex]!.id,
               selectedAnswer: context.selectedOption!,
               timeSpentSeconds: Math.max(
                 0,
-                Math.round((Date.now() - context.questionStartedAt) / 1000)
+                Math.round((Date.now() - context.questionStartedAt) / 1000),
               ),
             }),
           }),
@@ -322,4 +322,4 @@ export const assessmentMachine = setup({
       on: { RESTART: { target: "configuring", actions: "resetSession" } },
     },
   },
-})
+});

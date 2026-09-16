@@ -1,30 +1,36 @@
-import { randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto";
 
-import { and, eq, inArray } from "drizzle-orm"
-import { z } from "zod"
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { z } from "zod";
 
-import type { QuestionRow, SessionAnswerRow } from "../db/schema"
-import type { AssessmentResult, Question } from "../domain/types"
-import type { SkillCategory } from "../domain/constants"
-import type { ScorableAnswer } from "../domain/scoring"
-import type { Db } from "../db/client"
+import type { QuestionRow, SessionAnswerRow } from "@/db/schema";
+import type { AssessmentResult, Question } from "@/domain/types";
+import type { SkillCategory } from "@/domain/constants";
+import type { ScorableAnswer } from "@/domain/scoring";
+import type { Db } from "@/db/client";
 
-import { countRecentSessionsByClient, hashClientId } from "../db/queries"
-import { createRng, seedFromString } from "../domain/random"
-import { AssessmentError, ERROR_CODE } from "./errors"
-import { stratifiedSample } from "../domain/sampling"
-import { scoreAssessment } from "../domain/scoring"
-import { toPublicQuestion } from "../domain/types"
-import { MESSAGES } from "./messages"
+import { createRng, seedFromString } from "@/domain/random";
+import { AssessmentError, ERROR_CODE } from "./errors";
+import { stratifiedSample } from "@/domain/sampling";
+import { scoreAssessment } from "@/domain/scoring";
+import { toPublicQuestion } from "@/domain/types";
+import { MESSAGES } from "./messages";
 
 import {
+  countRecentSessionsByClient,
+  isUniqueViolation,
+  hashClientId,
+} from "@/db/queries";
+
+import {
+  RATE_LIMIT_WINDOW_MINUTES,
   MAX_SESSIONS_PER_HOUR,
   TOTAL_QUESTIONS,
   MVP_FRAMEWORKS,
+  SESSION_STATUS,
   DIFFICULTIES,
   FRAMEWORKS,
-  SESSION_STATUS,
-} from "../domain/constants"
+} from "@/domain/constants";
 
 import {
   questions as questionsTable,
@@ -32,25 +38,25 @@ import {
   sessionAnswers,
   sessionResults,
   testSessions,
-} from "../db/schema"
+} from "@/db/schema";
 
 // --- Input validation (§7.2 → 400 on failure) -------------------------------
 
 export const createSessionSchema = z.object({
   framework: z.enum(FRAMEWORKS),
   targetLevel: z.enum(DIFFICULTIES),
-})
+});
 
 export const submitAnswerSchema = z.object({
   sessionToken: z.string().min(1),
   questionId: z.string().min(1),
   selectedAnswer: z.number().int().min(0),
   timeSpentSeconds: z.number().int().min(0).max(3600),
-})
+});
 
 export const completeSessionSchema = z.object({
   sessionToken: z.string().min(1),
-})
+});
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -67,7 +73,7 @@ function rowToQuestion(row: QuestionRow): Question {
     correctAnswer: row.correctAnswer,
     explanation: row.explanation,
     difficultyWeight: row.difficultyWeight,
-  }
+  };
 }
 
 /**
@@ -83,33 +89,37 @@ export function createAssessmentService(db: Db) {
      * (no answer key). The correct answers never leave the server here.
      */
     async createSession(input: {
-      framework: string
-      targetLevel: string
-      rawClientId: string
+      framework: string;
+      targetLevel: string;
+      rawClientId: string;
     }) {
-      const parsed = createSessionSchema.safeParse(input)
+      const parsed = createSessionSchema.safeParse(input);
       if (!parsed.success) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.invalidFrameworkOrLevel
-        )
+          MESSAGES.invalidFrameworkOrLevel,
+        );
       }
-      const { framework, targetLevel } = parsed.data
+      const { framework, targetLevel } = parsed.data;
 
       if (!MVP_FRAMEWORKS.includes(framework)) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.frameworkUnavailable(framework, MVP_FRAMEWORKS)
-        )
+          MESSAGES.frameworkUnavailable(framework, MVP_FRAMEWORKS),
+        );
       }
 
-      const clientId = hashClientId(input.rawClientId)
-      const recent = await countRecentSessionsByClient(db, clientId, 60)
+      const clientId = hashClientId(input.rawClientId);
+      const recent = await countRecentSessionsByClient(
+        db,
+        clientId,
+        RATE_LIMIT_WINDOW_MINUTES,
+      );
       if (recent >= MAX_SESSIONS_PER_HOUR) {
         throw new AssessmentError(
           ERROR_CODE.RATE_LIMITED,
-          MESSAGES.rateLimited(MAX_SESSIONS_PER_HOUR)
-        )
+          MESSAGES.rateLimited(MAX_SESSIONS_PER_HOUR),
+        );
       }
 
       const poolRows = await db
@@ -119,23 +129,23 @@ export function createAssessmentService(db: Db) {
           and(
             eq(questionsTable.framework, framework),
             eq(questionsTable.difficulty, targetLevel),
-            eq(questionsTable.isActive, true)
-          )
-        )
+            eq(questionsTable.isActive, true),
+          ),
+        );
 
-      const sessionToken = randomBytes(32).toString("hex")
+      const sessionToken = randomBytes(32).toString("hex");
       // Seed sampling from the token → reproducible set for a given session.
-      const rng = createRng(seedFromString(sessionToken))
+      const rng = createRng(seedFromString(sessionToken));
       const { questions, shortfalls } = stratifiedSample(
         poolRows.map(rowToQuestion),
-        rng
-      )
+        rng,
+      );
 
       if (shortfalls.length > 0 || questions.length < TOTAL_QUESTIONS) {
         throw new AssessmentError(
           ERROR_CODE.INSUFFICIENT_QUESTIONS,
-          MESSAGES.insufficientQuestions
-        )
+          MESSAGES.insufficientQuestions,
+        );
       }
 
       const [session] = await db
@@ -147,14 +157,14 @@ export function createAssessmentService(db: Db) {
           targetLevel,
           selectedQuestionIds: questions.map((q) => q.id),
         })
-        .returning({ id: testSessions.id })
+        .returning({ id: testSessions.id });
 
       return {
-        sessionId: session.id,
+        sessionId: session!.id,
         sessionToken,
         totalQuestions: questions.length,
         questions: questions.map(toPublicQuestion),
-      }
+      };
     },
 
     /**
@@ -165,48 +175,48 @@ export function createAssessmentService(db: Db) {
     async submitAnswer(
       sessionId: string,
       input: {
-        sessionToken: string
-        questionId: string
-        selectedAnswer: number
-        timeSpentSeconds: number
-      }
+        sessionToken: string;
+        questionId: string;
+        selectedAnswer: number;
+        timeSpentSeconds: number;
+      },
     ): Promise<{ success: true; sessionComplete: boolean }> {
-      const parsed = submitAnswerSchema.safeParse(input)
+      const parsed = submitAnswerSchema.safeParse(input);
       if (!parsed.success) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.invalidAnswerPayload
-        )
+          MESSAGES.invalidAnswerPayload,
+        );
       }
       const { sessionToken, questionId, selectedAnswer, timeSpentSeconds } =
-        parsed.data
+        parsed.data;
 
-      const session = await loadOpenSession(db, sessionId, sessionToken)
+      const session = await loadOpenSession(db, sessionId, sessionToken);
 
       if (!session.selectedQuestionIds.includes(questionId)) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.questionNotInSession
-        )
+          MESSAGES.questionNotInSession,
+        );
       }
 
       const [question] = await db
         .select()
         .from(questionsTable)
-        .where(eq(questionsTable.id, questionId))
+        .where(eq(questionsTable.id, questionId));
       if (!question)
         throw new AssessmentError(
           ERROR_CODE.NOT_FOUND,
-          MESSAGES.questionNotFound
-        )
+          MESSAGES.questionNotFound,
+        );
       if (selectedAnswer >= question.options.length) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.optionOutOfRange
-        )
+          MESSAGES.optionOutOfRange,
+        );
       }
 
-      const isCorrect = selectedAnswer === question.correctAnswer
+      const isCorrect = selectedAnswer === question.correctAnswer;
 
       try {
         await db.insert(sessionAnswers).values({
@@ -215,26 +225,34 @@ export function createAssessmentService(db: Db) {
           selectedAnswer,
           timeSpentSeconds,
           isCorrect,
-        })
-      } catch {
-        // Unique (session_id, question_id) violation → already answered.
-        throw new AssessmentError(ERROR_CODE.CONFLICT, MESSAGES.duplicateAnswer)
+        });
+      } catch (err) {
+        // Only a unique (session_id, question_id) violation means "already
+        // answered"; anything else is a real DB error and must surface.
+        if (isUniqueViolation(err)) {
+          throw new AssessmentError(
+            ERROR_CODE.CONFLICT,
+            MESSAGES.duplicateAnswer,
+          );
+        }
+        throw err;
       }
 
-      const answered = await db
-        .select({ questionId: sessionAnswers.questionId })
+      const [answeredRow] = await db
+        .select({ answered: sql<number>`count(*)::int` })
         .from(sessionAnswers)
-        .where(eq(sessionAnswers.sessionId, sessionId))
+        .where(eq(sessionAnswers.sessionId, sessionId));
+      const answered = answeredRow?.answered ?? 0;
 
       await db
         .update(testSessions)
         .set({ lastActivityAt: new Date() })
-        .where(eq(testSessions.id, sessionId))
+        .where(eq(testSessions.id, sessionId));
 
       return {
         success: true,
-        sessionComplete: answered.length >= session.selectedQuestionIds.length,
-      }
+        sessionComplete: answered >= session.selectedQuestionIds.length,
+      };
     },
 
     /**
@@ -244,61 +262,67 @@ export function createAssessmentService(db: Db) {
      */
     async completeSession(
       sessionId: string,
-      input: { sessionToken: string }
+      input: { sessionToken: string },
     ): Promise<AssessmentResult> {
-      const parsed = completeSessionSchema.safeParse(input)
+      const parsed = completeSessionSchema.safeParse(input);
       if (!parsed.success) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.invalidCompletionPayload
-        )
+          MESSAGES.invalidCompletionPayload,
+        );
       }
       const session = await loadOpenSession(
         db,
         sessionId,
-        parsed.data.sessionToken
-      )
+        parsed.data.sessionToken,
+      );
 
       const answers = await db
         .select()
         .from(sessionAnswers)
-        .where(eq(sessionAnswers.sessionId, sessionId))
+        .where(eq(sessionAnswers.sessionId, sessionId));
 
       if (answers.length < session.selectedQuestionIds.length) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.incompleteAssessment
-        )
+          MESSAGES.incompleteAssessment,
+        );
       }
 
       const questionRows = await db
         .select()
         .from(questionsTable)
-        .where(inArray(questionsTable.id, session.selectedQuestionIds))
+        .where(inArray(questionsTable.id, session.selectedQuestionIds));
       const questionById = new Map(
-        questionRows.map((q: QuestionRow) => [q.id, q])
-      )
+        questionRows.map((q: QuestionRow) => [q.id, q]),
+      );
 
       const scorable: ScorableAnswer[] = answers.map((a: SessionAnswerRow) => {
-        const q = questionById.get(a.questionId) as Question
+        const q = questionById.get(a.questionId);
+        if (!q) {
+          throw new AssessmentError(
+            ERROR_CODE.NOT_FOUND,
+            MESSAGES.questionNotFound,
+          );
+        }
         return {
           question: {
             id: q.id,
-            skillCategory: q.skillCategory,
+            skillCategory: q.skillCategory as SkillCategory,
             difficultyWeight: q.difficultyWeight,
             correctAnswer: q.correctAnswer,
             explanation: q.explanation,
           },
           selectedAnswer: a.selectedAnswer,
-        }
-      })
+        };
+      });
 
       const result = scoreAssessment(
         sessionId,
         session.framework,
         session.targetLevel,
-        scorable
-      )
+        scorable,
+      );
 
       await db.transaction(async (tx) => {
         await tx.insert(sessionResults).values({
@@ -307,7 +331,7 @@ export function createAssessmentService(db: Db) {
           totalScore: result.totalScore,
           maxScore: result.maxScore,
           proficiencyLevel: result.proficiencyLevel,
-        })
+        });
         await tx.insert(sessionCategoryScores).values(
           result.categoryScores.map((c) => ({
             sessionId,
@@ -316,8 +340,8 @@ export function createAssessmentService(db: Db) {
             totalWeight: c.totalWeight,
             scorePct: c.scorePct,
             proficiency: c.proficiency,
-          }))
-        )
+          })),
+        );
         await tx
           .update(testSessions)
           .set({
@@ -325,34 +349,34 @@ export function createAssessmentService(db: Db) {
             completedAt: new Date(),
             lastActivityAt: new Date(),
           })
-          .where(eq(testSessions.id, sessionId))
-      })
+          .where(eq(testSessions.id, sessionId));
+      });
 
-      return result
+      return result;
     },
-  }
+  };
 }
 
 async function loadOpenSession(
   db: Db,
   sessionId: string,
-  sessionToken: string
+  sessionToken: string,
 ) {
   const [session] = await db
     .select()
     .from(testSessions)
-    .where(eq(testSessions.id, sessionId))
+    .where(eq(testSessions.id, sessionId));
 
   if (!session || session.sessionToken !== sessionToken) {
-    throw new AssessmentError(ERROR_CODE.NOT_FOUND, MESSAGES.sessionNotFound)
+    throw new AssessmentError(ERROR_CODE.NOT_FOUND, MESSAGES.sessionNotFound);
   }
   if (session.status === SESSION_STATUS.COMPLETED) {
     throw new AssessmentError(
       ERROR_CODE.SESSION_COMPLETED,
-      MESSAGES.sessionAlreadyComplete
-    )
+      MESSAGES.sessionAlreadyComplete,
+    );
   }
-  return session
+  return session;
 }
 
-export type AssessmentService = ReturnType<typeof createAssessmentService>
+export type AssessmentService = ReturnType<typeof createAssessmentService>;

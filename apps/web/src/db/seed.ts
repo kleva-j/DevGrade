@@ -12,15 +12,15 @@
  * Run: `pnpm --filter web db:seed` (requires `DATABASE_URL`; see docker-compose).
  */
 
-import { sql } from "drizzle-orm"
+import { sql } from "drizzle-orm";
 
-import { SKILL_CATEGORY_META } from "../domain/constants"
-import { skillCategories, questions } from "./schema"
-import { seedQuestions } from "./seedData"
-import { getDb } from "./client"
+import { SKILL_CATEGORY_META } from "@/domain/constants";
+import { skillCategories, questions } from "./schema";
+import { seedQuestions } from "./seedData";
+import { getDb } from "./client";
 
 async function seed(): Promise<void> {
-  const db = getDb()
+  const db = getDb();
 
   const categoryRows = Object.entries(SKILL_CATEGORY_META).map(
     ([name, meta]) => ({
@@ -28,10 +28,21 @@ async function seed(): Promise<void> {
       displayName: meta.displayName,
       description: meta.description,
       pillarOrder: meta.order,
-    })
-  )
+    }),
+  );
 
-  await db.insert(skillCategories).values(categoryRows).onConflictDoNothing()
+  // Upsert categories so edits to SKILL_CATEGORY_META propagate on re-seed.
+  await db
+    .insert(skillCategories)
+    .values(categoryRows)
+    .onConflictDoUpdate({
+      target: skillCategories.name,
+      set: {
+        displayName: sql`excluded.display_name`,
+        description: sql`excluded.description`,
+        pillarOrder: sql`excluded.pillar_order`,
+      },
+    });
 
   // Upsert questions so re-seeding applies content edits without duplicating.
   await db
@@ -54,16 +65,16 @@ async function seed(): Promise<void> {
         isActive: sql`excluded.is_active`,
         updatedAt: new Date(),
       },
-    })
+    });
 
   console.log(
-    `Seeded ${categoryRows.length} skill categories and ${seedQuestions.length} questions.`
-  )
+    `Seeded ${categoryRows.length} skill categories and ${seedQuestions.length} questions.`,
+  );
 }
 
 seed()
   .then(() => process.exit(0))
   .catch((err) => {
-    console.error("Seed failed:", err)
-    process.exit(1)
-  })
+    console.error("Seed failed:", err);
+    process.exit(1);
+  });

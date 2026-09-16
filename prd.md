@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD): DevGrade
 
-**Document Version:** 1.2.1
+**Document Version:** 1.2.2
 
 **Status:** Approved for MVP Development
 
@@ -16,6 +16,7 @@
 | 1.1.0 | 2026-09-15 | Clarified React-only MVP; moved scoring server-side; 4-pillar stratified sampling (8 questions); added data schema, user stories, API specs, deployment, and compliance sections; reduced pricing to free tier only; corrected the report example; inline formatting cleanup. See §12 for open architectural decisions. |
 | 1.2.0 | 2026-09-15 | Resolved all open decisions and implemented the domain/DB/server/state-machine core in `apps/web`: PostgreSQL everywhere (#1), single full-stack deploy (#2), weighted core/advanced score granularity 0/33/67/100 (#3), normalized `session_category_scores` (#4), all-questions-up-front delivery (#5). Addressed rate-limiting, privacy, abandonment, and pool-size items. Reworked §5.2 schema, §7 API, §8 deployment, §12 (now resolved), and added §13 Implementation Plan. |
 | 1.2.1 | 2026-09-15 | Added §10.1 "Content sourcing & licensing" (paraphrase-not-copy policy referencing MIT-licensed `sudheerj/reactjs-interview-questions` and `lydiahallie/javascript-questions`). Added a per-question `source` provenance column (§5.2) and a pillar-tagged 24-question React starter bank (`db/seedData.ts` + idempotent `db/seed.ts` + `db:seed`). Completed Phase 0 seed/migration items (§13). |
+| 1.2.2 | 2026-09-16 | Phase 0 review fixes: unit test suite (`node:test`, 26 tests, `pnpm test`) covering scoring/sampling/proficiency/PRNG; hardened stratified sampling to pair core+advanced by weight class (robust for unbalanced pools); narrowed the duplicate-answer catch to true unique-violations; guarded the completion question lookup; `count(*)` for answered-count; auto-bump `questions.updated_at`; category upsert on re-seed; extracted `RATE_LIMIT_WINDOW_MINUTES` and computed `PROFICIENCY_THRESHOLDS` keys; declared `tsx`. Phase 0 marked complete (§13). |
 
 ---
 
@@ -23,7 +24,7 @@
 
 **DevGrade** is an adaptive, AI-ready technical skill assessment platform designed to evaluate front-end software engineers specializing in modern web frameworks. The MVP focuses on React expertise, with future phases expanding to Vue and Angular support.
 
-Traditional hiring tests and quiz apps rely on static, binary pass/fail questions that fail to identify *why* a candidate struggled. DevGrade solves this by categorizing questions across four core engineering competency pillars (Reactivity & State Management, Component Lifecycle & Architecture, Performance & Rendering, and Data Flow & Async Operations).
+Traditional hiring tests and quiz apps rely on static, binary pass/fail questions that fail to identify _why_ a candidate struggled. DevGrade solves this by categorizing questions across four core engineering competency pillars (Reactivity & State Management, Component Lifecycle & Architecture, Performance & Rendering, and Data Flow & Async Operations).
 
 The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-choice testing engine focused on React expertise, using stratified random sampling (8 questions across 4 competency pillars), client-side state management, and automated skill-gap analysis. Subsequent phases expand to Vue/Angular support, integrate live code execution sandboxes, and implement AI-driven candidate evaluation.
 
@@ -33,20 +34,20 @@ The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-cho
 
 ### Problem Statement
 
-* **For Engineers & Job Seekers:** Generic multiple-choice tests don't reflect real-world framework mechanics (e.g., stale closures, context re-renders, memoization patterns), providing no actionable feedback on how to improve.
+- **For Engineers & Job Seekers:** Generic multiple-choice tests don't reflect real-world framework mechanics (e.g., stale closures, context re-renders, memoization patterns), providing no actionable feedback on how to improve.
 
 ### Target User Personas
 
 #### Persona A: The Job Seeking Developer (Alex)
 
-* **Goal:** Wants to benchmark their React/Vue skills before applying to Senior or Mid-level roles.
-* **Pain Point:** Doesn't know where their technical knowledge falls short until failing an actual live interview.
+- **Goal:** Wants to benchmark their React/Vue skills before applying to Senior or Mid-level roles.
+- **Pain Point:** Doesn't know where their technical knowledge falls short until failing an actual live interview.
 
 #### Persona B: The Technical Recruiter / Engineering Manager (Sarah)
 
-* **Goal:** Needs to screen 50+ candidates quickly for a Senior Frontend Engineer position.
-* **Pain Point:** Screening tests yield high scores on basic syntax, but candidates fail on real-world performance and architecture tasks.
-* **MVP Scope Note:** Recruiter-facing features (candidate identity, results dashboards, and team comparisons) are **out of scope for the Phase 1 MVP** and are targeted for Phase 2+ (see §10.3). Phase 1 serves Persona A directly; Persona B informs the roadmap but is not served by MVP features.
+- **Goal:** Needs to screen 50+ candidates quickly for a Senior Frontend Engineer position.
+- **Pain Point:** Screening tests yield high scores on basic syntax, but candidates fail on real-world performance and architecture tasks.
+- **MVP Scope Note:** Recruiter-facing features (candidate identity, results dashboards, and team comparisons) are **out of scope for the Phase 1 MVP** and are targeted for Phase 2+ (see §10.3). Phase 1 serves Persona A directly; Persona B informs the roadmap but is not served by MVP features.
 
 ---
 
@@ -60,13 +61,13 @@ The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-cho
 
 ### Key Performance Indicators (KPIs)
 
-| Metric | Target (MVP) | Measurement Method |
-| --- | --- | --- |
-| **Test Completion Rate** | > 85% | Ratio of started tests to completed reports (tracked via session status) |
-| **Average Test Duration** | 8–10 minutes | Timestamp tracking from session start to completion (8 questions) |
-| **User Assessment Satisfaction** | > 4.2 / 5.0 | Post-assessment 1-question survey: "How helpful was this assessment?" |
-| **Skill Gap Precision** | > 80% agreement | Candidate follow-up survey: "Did the identified skill gaps match your self-assessment?" |
-| **Question Bank Utilization** | > 70% of active questions used within 30 days | Track question selection frequency to ensure question diversity |
+| Metric                           | Target (MVP)                                  | Measurement Method                                                                      |
+| -------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **Test Completion Rate**         | > 85%                                         | Ratio of started tests to completed reports (tracked via session status)                |
+| **Average Test Duration**        | 8–10 minutes                                  | Timestamp tracking from session start to completion (8 questions)                       |
+| **User Assessment Satisfaction** | > 4.2 / 5.0                                   | Post-assessment 1-question survey: "How helpful was this assessment?"                   |
+| **Skill Gap Precision**          | > 80% agreement                               | Candidate follow-up survey: "Did the identified skill gaps match your self-assessment?" |
+| **Question Bank Utilization**    | > 70% of active questions used within 30 days | Track question selection frequency to ensure question diversity                         |
 
 ---
 
@@ -74,9 +75,9 @@ The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-cho
 
 ### 4.1 Candidate Intake & Setup
 
-* **Framework Selection:** Candidate chooses target framework. **MVP supports React only**; **Vue** and **Angular** are shown as "coming soon" and enabled in a later phase.
-* **Target Level Selection:** Candidate selects self-assessed experience tier: **Junior**, **Mid**, or **Senior**.
-* **Session Initialization:** System creates a unique assessment session ID and initializes state tracking.
+- **Framework Selection:** Candidate chooses target framework. **MVP supports React only**; **Vue** and **Angular** are shown as "coming soon" and enabled in a later phase.
+- **Target Level Selection:** Candidate selects self-assessed experience tier: **Junior**, **Mid**, or **Senior**.
+- **Session Initialization:** System creates a unique assessment session ID and initializes state tracking.
 
 ### 4.2 Stratified Random Sampling Engine
 
@@ -104,9 +105,9 @@ Rather than pulling purely random questions, the engine selects 8 questions from
 
 ### 4.3 Test Runner & Interface
 
-* **Multi-Choice Question Display:** Renders markdown code blocks (`JetBrains Mono`), question prompt, and 4 radio options (A, B, C, D).
-* **Bi-Directional Support:** Native LTR/RTL layout support using logical CSS properties (`ms-*`, `ps-*`).
-* **Progress & Timer:** Real-time progress bar indicating question count (N / Total) and time elapsed per question.
+- **Multi-Choice Question Display:** Renders markdown code blocks (`JetBrains Mono`), question prompt, and 4 radio options (A, B, C, D).
+- **Bi-Directional Support:** Native LTR/RTL layout support using logical CSS properties (`ms-*`, `ps-*`).
+- **Progress & Timer:** Real-time progress bar indicating question count (N / Total) and time elapsed per question.
 
 ### 4.4 Rule-Based Scoring Engine & Report Generator
 
@@ -116,16 +117,18 @@ Scoring runs **server-side** (the answer key is never shipped to the client). Ea
 Category Score (%) = ( Σ(Correct Answers × Difficulty Weight) / Σ(Total Questions × Difficulty Weight) ) × 100
 ```
 
-**Score granularity (decision #3):** each pillar draws one *core* question (weight 1.0) and one *advanced* question (weight 2.0), so a pillar resolves to **0 / 33 / 67 / 100** instead of the coarse 0 / 50 / 100 of two equal questions. This gives the "Developing" band a real value (67 = advanced correct, core wrong maps to 67; core correct, advanced wrong maps to 33). Sampling enforces this weight spread while randomizing within each weight tier (see `apps/web/src/domain/sampling.ts`).
+**Score granularity (decision #3):** each pillar draws one _core_ question (weight 1.0) and one _advanced_ question (weight 2.0), so a pillar resolves to **0 / 33 / 67 / 100** instead of the coarse 0 / 50 / 100 of two equal questions. This gives the "Developing" band a real value (67 = advanced correct, core wrong maps to 67; core correct, advanced wrong maps to 33). Sampling enforces this weight spread while randomizing within each weight tier (see `apps/web/src/domain/sampling.ts`).
 
 #### Proficiency Tiering:
 
-* **>= 80%:** Proficient — Solid grasp of framework best practices with minimal edge case confusion.
-* **50% – 79%:** Developing — Understands basic usage but struggles with complex scenarios and optimization.
-* **< 50%:** Skill Gap Flagged — Fundamental misunderstanding detected; triggered in final report with targeted remediation advice and resource links.
+- **>= 80%:** Proficient — Solid grasp of framework best practices with minimal edge case confusion.
+- **50% – 79%:** Developing — Understands basic usage but struggles with complex scenarios and optimization.
+- **< 50%:** Skill Gap Flagged — Fundamental misunderstanding detected; triggered in final report with targeted remediation advice and resource links.
 
 #### Skill Gap Identification:
+
 Categories scoring below 50% are flagged with specific remediation paths:
+
 - **Reactivity & State**: Recommended React hooks patterns and state management resources
 - **Component Lifecycle**: Official React lifecycle documentation and anti-pattern guides
 - **Performance & Rendering**: Memoization strategies and React DevTools profiling tutorials
@@ -137,13 +140,13 @@ Categories scoring below 50% are flagged with specific remediation paths:
 
 ### 5.1 Tech Stack
 
-* **Monorepo Architecture:** Turborepo / pnpm workspace (`apps/web`, `packages/ui`).
-* **Framework:** TanStack Start (`@tanstack/react-router`) — a single full-stack React app (SSR + server functions). API routes (§7) are server functions within this app, not a separate service (decision #2).
-* **Styling:** Tailwind CSS v4 + `shadcn/ui` using OKLCH CSS variables.
-* **Database & ORM:** **PostgreSQL + Drizzle ORM in every environment** (dev, CI, prod) — no SQLite/Postgres split (decision #1). Migrations via Drizzle Kit.
-* **State Management:** **XState** state machine for the assessment flow (see `apps/web/src/machines/assessmentMachine.ts`); TanStack Router loaders for data. The machine owns the full question set client-side, per decision #5.
-* **Validation:** Zod schemas at the server-function boundary (maps to §7.2 error codes).
-* **Authentication:** Anonymous assessments (MVP) with optional user accounts in Phase 2. Anonymous access is keyed on an opaque `session_token`; a hashed `client_id` cookie is used only for rate limiting (no IP or device fingerprint stored).
+- **Monorepo Architecture:** Turborepo / pnpm workspace (`apps/web`, `packages/ui`).
+- **Framework:** TanStack Start (`@tanstack/react-router`) — a single full-stack React app (SSR + server functions). API routes (§7) are server functions within this app, not a separate service (decision #2).
+- **Styling:** Tailwind CSS v4 + `shadcn/ui` using OKLCH CSS variables.
+- **Database & ORM:** **PostgreSQL + Drizzle ORM in every environment** (dev, CI, prod) — no SQLite/Postgres split (decision #1). Migrations via Drizzle Kit.
+- **State Management:** **XState** state machine for the assessment flow (see `apps/web/src/machines/assessmentMachine.ts`); TanStack Router loaders for data. The machine owns the full question set client-side, per decision #5.
+- **Validation:** Zod schemas at the server-function boundary (maps to §7.2 error codes).
+- **Authentication:** Anonymous assessments (MVP) with optional user accounts in Phase 2. Anonymous access is keyed on an opaque `session_token`; a hashed `client_id` cookie is used only for rate limiting (no IP or device fingerprint stored).
 
 ### 5.2 Core Data Schema
 
@@ -242,22 +245,26 @@ CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
 ### 6.1 Epic: Candidate Assessment Flow
 
 **US-1: Framework and Level Selection**
+
 - **As a** candidate
 - **I want to** select my target framework and experience level
 - **So that** I receive appropriately challenging questions
 
 **Acceptance Criteria:**
+
 - Display framework selection (React only for MVP)
 - Display experience level options (Junior, Mid, Senior)
 - Selection persists throughout the session
 - Show estimated test duration (8-10 minutes)
 
 **US-2: Question Presentation**
+
 - **As a** candidate
 - **I want to** see questions with code examples and multiple choice options
 - **So that** I can demonstrate my technical knowledge
 
 **Acceptance Criteria:**
+
 - Display question prompt with syntax-highlighted code blocks
 - Show 4 labeled options (A, B, C, D)
 - Render markdown code blocks in JetBrains Mono font
@@ -266,11 +273,13 @@ CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
 - Display elapsed time per question
 
 **US-3: Answer Submission**
+
 - **As a** candidate
 - **I want to** select and submit my answer
 - **So that** my responses are recorded and scored
 
 **Acceptance Criteria:**
+
 - Single answer selection enforced
 - Immediate visual feedback on selection
 - Submit button enables only after selection
@@ -278,11 +287,13 @@ CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
 - Prevent answer changes after submission
 
 **US-4: Results Display**
+
 - **As a** candidate
 - **I want to** see a detailed breakdown of my performance
 - **So that** I can identify specific skill gaps
 
 **Acceptance Criteria:**
+
 - Display overall score percentage
 - Show radar chart of 4 competency pillars
 - Categorize performance: Proficient (≥80%), Developing (50-79%), Skill Gap (<50%)
@@ -293,11 +304,13 @@ CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
 ### 6.2 Epic: Assessment Management
 
 **US-5: Session Initialization**
+
 - **As a** system
 - **I want to** create a unique assessment session
 - **So that** candidate responses are properly tracked
 
 **Acceptance Criteria:**
+
 - Generate unique session token
 - Initialize empty answer state
 - Select 8 questions using stratified sampling (2 per pillar)
@@ -305,11 +318,13 @@ CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
 - Return session ID to client
 
 **US-6: Stratified Question Selection**
+
 - **As a** system
 - **I want to** select questions balanced across competency pillars
 - **So that** assessments cover all critical areas
 
 **Acceptance Criteria:**
+
 - Filter questions by framework and target level
 - Select exactly 2 questions per competency pillar
 - Randomize selection within pillar constraints
@@ -323,9 +338,11 @@ CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
 ### 7.1 REST API Endpoints
 
 #### POST /api/sessions
+
 Initialize a new assessment session.
 
 **Request Body:**
+
 ```json
 {
   "framework": "react",
@@ -334,7 +351,8 @@ Initialize a new assessment session.
 ```
 
 **Response:**
-```json
+
+````json
 {
   "session_id": "uuid",
   "session_token": "random_token",
@@ -351,17 +369,19 @@ Initialize a new assessment session.
   "total_questions": 8,
   "estimated_duration_minutes": 10
 }
-```
+````
 
 > All 8 questions are returned up front (decision #5) as **client-safe projections**: no `correct_answer` and no `explanation` — the answer key stays server-side until `/complete`. The `session_token` is the caller's handle for `/answers`, `/complete`, and data-deletion requests.
 
 #### POST /api/sessions/:id/answers
+
 Submit an answer for a specific question. The full question set is already held
 by the client (returned from `POST /api/sessions`), so this endpoint only
 persists the answer and reports whether the session is now complete
 (decision #5 — no `next_question` round-trip).
 
 **Request Body:**
+
 ```json
 {
   "session_token": "random_token",
@@ -372,6 +392,7 @@ persists the answer and reports whether the session is now complete
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -380,9 +401,11 @@ persists the answer and reports whether the session is now complete
 ```
 
 #### POST /api/sessions/:id/complete
+
 Finalize the assessment and generate results.
 
 **Response:**
+
 ```json
 {
   "session_id": "uuid",
@@ -427,6 +450,7 @@ Finalize the assessment and generate results.
 ### 8.1 Deployment Architecture
 
 **MVP Deployment:**
+
 - **Hosting**: A **single full-stack TanStack Start app** (decision #2) deployed to one Node host (e.g. Railway, Fly.io, or a Vercel Node deployment). The UI and the `/api/*` server functions ship together — there is no separately hosted API service.
 - **Database**: **PostgreSQL in every environment** (decision #1) — local via Docker, managed Postgres in production (e.g. Railway/Neon/Supabase). Drizzle Kit runs migrations on deploy.
 - **CDN**: Edge/CDN caching for static assets and the client bundle.
@@ -434,6 +458,7 @@ Finalize the assessment and generate results.
 - **Environment Variables**: `DATABASE_URL` (see `apps/web/.env.example`), managed via the host dashboard.
 
 **Infrastructure Requirements:**
+
 - Node.js 20 LTS or newer (Node 18 reaches end-of-life before the target release)
 - 1 GB RAM minimum for the app server
 - Managed PostgreSQL with connection pooling (client uses `prepare: false` for pooler compatibility)
@@ -442,6 +467,7 @@ Finalize the assessment and generate results.
 ### 8.2 Monitoring & Observability
 
 **Key Metrics to Track:**
+
 - API response times (p50, p95, p99)
 - Error rates by endpoint (and by `AssessmentError` code)
 - Session completion / abandonment rates
@@ -449,6 +475,7 @@ Finalize the assessment and generate results.
 - User engagement metrics
 
 **Tools:**
+
 - Host-native analytics for frontend performance
 - Host metrics for app health
 - Custom logging for the assessment completion funnel
@@ -476,12 +503,14 @@ Finalize the assessment and generate results.
 ### 10.1 Content Strategy
 
 **Question Bank Management:**
+
 - Initial target: 50 questions per difficulty level (150 total), with a **minimum of ~12 per (level × pillar) bucket** so stratified sampling always has a healthy pool to randomize over (anti-leakage). Each bucket needs both core (weight 1.0) and advanced (weight 2.0) items for the score-granularity model.
 - Review cycle: Quarterly validation against latest framework documentation
 - Question lifecycle: Draft → Review → Active → Deprecated
 - Contributor model: Expert review panel for technical accuracy
 
 **Quality Assurance:**
+
 - Cross-reference explanations with official documentation (React.dev)
 - Statistical analysis of question difficulty (pass rates by level)
 - A/B testing of question clarity and effectiveness
@@ -489,14 +518,15 @@ Finalize the assessment and generate results.
 
 **Content sourcing & licensing:**
 
-To reach a working, testable product quickly, the MVP seeds an *original, pillar-tagged* React question bank authored for DevGrade, with a subset **paraphrased/adapted** (never copied verbatim) from two public, permissively-licensed reference banks:
+To reach a working, testable product quickly, the MVP seeds an _original, pillar-tagged_ React question bank authored for DevGrade, with a subset **paraphrased/adapted** (never copied verbatim) from two public, permissively-licensed reference banks:
 
-| Reference | License | Used for |
-| --- | --- | --- |
-| [`sudheerj/reactjs-interview-questions`](https://github.com/sudheerj/reactjs-interview-questions) | MIT | Canonical React concepts across all four pillars (reference to author from). |
-| [`lydiahallie/javascript-questions`](https://github.com/lydiahallie/javascript-questions) | MIT | MCQ format template and the JS event-loop/async items feeding the **Async & Data** pillar. |
+| Reference                                                                                         | License | Used for                                                                                   |
+| ------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
+| [`sudheerj/reactjs-interview-questions`](https://github.com/sudheerj/reactjs-interview-questions) | MIT     | Canonical React concepts across all four pillars (reference to author from).               |
+| [`lydiahallie/javascript-questions`](https://github.com/lydiahallie/javascript-questions)         | MIT     | MCQ format template and the JS event-loop/async items feeding the **Async & Data** pillar. |
 
 **Policy:**
+
 - **No verbatim ingestion.** Copying question/answer text wholesale is both a validity risk (public banks are the first thing candidates study → answer leakage) and a licensing burden. Items are re-authored in DevGrade's voice and re-tagged to a pillar/level.
 - **Provenance is tracked at the data layer.** Every `questions` row carries a `source` (`original`, or the reference repo slug — see `CONTENT_SOURCE` in `domain/constants.ts`), so attribution obligations are auditable and reportable. MIT requires retaining the upstream license/attribution; a repo-level `NOTICE` lists the referenced banks.
 - **Trajectory:** as the bank grows toward the §10.1 targets (min per level×pillar bucket), adapted items are progressively replaced by original items so the production pool is leakage-resistant and wholly owned. Expert review still validates every item against React.dev regardless of source.
@@ -505,18 +535,21 @@ To reach a working, testable product quickly, the MVP seeds an *original, pillar
 ### 10.2 Legal & Compliance
 
 **Data Privacy:**
+
 - GDPR-compliant data handling for EU users
 - Clear data retention policy (90 days for anonymous sessions)
 - Optional data deletion request handling
 - Cookie consent mechanism for analytics
 
 **Terms of Service:**
+
 - Clear disclaimers about assessment limitations
 - No employment guarantee implications
 - Intellectual property rights for question content
 - User content licensing for community contributions
 
 **Accessibility:**
+
 - WCAG 2.1 AA compliance for UI components
 - Screen reader compatibility for code blocks
 - Keyboard navigation support
@@ -525,11 +558,13 @@ To reach a working, testable product quickly, the MVP seeds an *original, pillar
 ### 10.3 Go-to-Market Strategy
 
 **Target Market Segmentation:**
+
 - Individual developers (B2C): Self-assessment and skill benchmarking
 - Small companies (B2B): Team skill assessment and training needs
 - Recruiting agencies (B2B): Candidate pre-screening
 
 **Pricing Model:**
+
 - **Free tier (MVP):** Anonymous assessments with full skill-radar reports and remediation suggestions.
 - Additional paid tiers (e.g., unlimited assessments, team dashboards, API access) will be introduced once Phase 2+ features land. Tier definitions are intentionally deferred until that scope is implemented.
 
@@ -537,14 +572,14 @@ To reach a working, testable product quickly, the MVP seeds an *original, pillar
 
 ## 11. Risks & Mitigation Strategies
 
-| Risk | Impact | Likelihood | Mitigation Strategy |
-| --- | --- | --- | --- |
-| **Question Bank Leakage / Cheating** | High | Medium | Use randomized sampling across per-bucket pools (min ~12 per level × pillar); hashed `client_id` rate limiting (not IP, avoids shared-NAT lockout); focus-loss detection and per-question timing analysis. |
-| **Subjective Question Quality** | Medium | Medium | Validate explanations against official framework documentation (React.dev); implement statistical analysis of pass rates; expert review panel for technical accuracy. |
-| **Low Engagement on Long Tests** | Medium | Low | Limit MVP test sessions to 8 high-signal questions (<10 minutes); provide engaging results visualization; offer practice mode for low-stakes exploration. |
-| **Technical Debt from MVP Scope** | High | Medium | Design architecture with clear upgrade paths; document technical decisions; plan for framework expansion from initial React-only approach. |
-| **Insufficient Question Diversity** | Medium | High | Implement aggressive initial content creation (150+ questions); establish contributor model; A/B test question effectiveness continuously. |
-| **Performance Degradation at Scale** | Medium | Low | Design database with proper indexing; implement caching for static question content; monitor API response times; plan database scaling strategy. |
+| Risk                                 | Impact | Likelihood | Mitigation Strategy                                                                                                                                                                                        |
+| ------------------------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Question Bank Leakage / Cheating** | High   | Medium     | Use randomized sampling across per-bucket pools (min ~12 per level × pillar); hashed `client_id` rate limiting (not IP, avoids shared-NAT lockout); focus-loss detection and per-question timing analysis. |
+| **Subjective Question Quality**      | Medium | Medium     | Validate explanations against official framework documentation (React.dev); implement statistical analysis of pass rates; expert review panel for technical accuracy.                                      |
+| **Low Engagement on Long Tests**     | Medium | Low        | Limit MVP test sessions to 8 high-signal questions (<10 minutes); provide engaging results visualization; offer practice mode for low-stakes exploration.                                                  |
+| **Technical Debt from MVP Scope**    | High   | Medium     | Design architecture with clear upgrade paths; document technical decisions; plan for framework expansion from initial React-only approach.                                                                 |
+| **Insufficient Question Diversity**  | Medium | High       | Implement aggressive initial content creation (150+ questions); establish contributor model; A/B test question effectiveness continuously.                                                                 |
+| **Performance Degradation at Scale** | Medium | Low        | Design database with proper indexing; implement caching for static question content; monitor API response times; plan database scaling strategy.                                                           |
 
 ---
 
@@ -559,6 +594,7 @@ The items below were open in v1.1.0 and are now decided and implemented in `apps
 5. **Question delivery — RESOLVED: all up front.** `POST /api/sessions` returns all 8 client-safe questions; `POST /api/sessions/:id/answers` only persists and returns `{ success, session_complete }`. `next_question` removed (see §7.1).
 
 **Related considerations — addressed:**
+
 - **Level context:** `session_results.target_level` is stored so a tier is read relative to the tested level. Cross-level normalization for recruiter comparison is deferred to the recruiter-facing phase.
 - **Rate limiting:** now keyed on a hashed anonymous `client_id` cookie (not IP), avoiding shared-NAT lockouts (`MAX_SESSIONS_PER_HOUR`, `db/queries.ts`).
 - **Privacy:** raw device fingerprint (`browser_info`) removed; only the behavioral `focus_loss_count` and a non-reversible `client_id` hash are stored. Right-to-erasure is `deleteSessionByToken()` (cascades to answers/results).
@@ -571,25 +607,32 @@ The items below were open in v1.1.0 and are now decided and implemented in `apps
 
 The domain core is built and typechecks (`apps/web/src/{domain,db,server,machines}`). The phases below complete the Phase 1 MVP. Each phase is independently shippable and testable.
 
-### Phase 0 — Foundations (in progress)
-**Status:** core implemented. Remaining glue to finish this phase.
+### Phase 0 — Foundations (complete)
+
+**Status:** foundations complete; ready for Phase 1.
+
 - [x] Domain layer: constants, types, seeded sampling, weighted scoring.
 - [x] PostgreSQL schema (Drizzle) + normalized results + indexes + question `source` provenance column.
 - [x] Server service: create/submit/complete with Zod validation, rate limiting, abandonment sweep, erasure.
 - [x] XState assessment machine (configure → create → answer → complete, with retry states).
 - [x] Initial Drizzle migration (`drizzle/0000_init.sql`) committed; `docker-compose.yml` for local Postgres 16.
 - [x] Seed `skill_categories` (from `SKILL_CATEGORY_META`) and a starter React bank of **24 questions** (3 levels × 4 pillars × core/advanced), pillar-tagged with `source` provenance (`db/seedData.ts`, idempotent `db/seed.ts`, `pnpm db:seed`).
-- **Exit criteria:** `db:migrate` runs clean against local Postgres; seed content validated (24 items, full level×pillar core/advanced coverage); unit tests for `scoring` and `sampling` pass.
+- [x] Unit tests (`node:test` via `tsx`, `pnpm test`): 26 tests covering scoring (every 0/33/67/100 path), proficiency boundaries, sampling (weight-class pairing, shortfalls, seeded determinism), and the PRNG. All passing.
+- **Exit criteria:** unit tests for `scoring` and `sampling` pass (26/26 green); seed content validated (24 items, full level×pillar core/advanced coverage). Remaining before Phase 1 sign-off: run `db:migrate`/`db:seed` once against local Postgres (docker-compose) to confirm a clean apply.
 
 ### Phase 1 — API wiring (server functions)
+
 Expose the service through TanStack Start server functions / routes and wire cookies.
+
 - Create `createServerFn` handlers for `POST /api/sessions`, `/answers`, `/complete`, mapping `AssessmentError` → §7.2 status codes.
 - Issue/read the anonymous `client_id` cookie; pass the raw value into `createSession`.
 - Add a `DELETE` (or server fn) for erasure by `session_token`.
 - **Exit criteria:** full happy-path flow exercised end-to-end via HTTP (integration test with a test database); duplicate-answer returns 409; rate limit returns 429.
 
 ### Phase 2 — Candidate UI (the assessment flow)
+
 Build the screens, driven by `@xstate/react` `useMachine`.
+
 - Intake route (framework + level; React enabled, Vue/Angular "coming soon") → `CONFIGURE`/`START`.
 - Question runner: prompt + `JetBrains Mono` code block, 4 radio options, progress `N/Total`, per-question timer, `SELECT_OPTION`/`SUBMIT_ANSWER`, `FOCUS_LOSS` on `visibilitychange`.
 - Loading/error states from the machine's `creatingSession` / `*Failed` states with `RETRY`.
@@ -597,19 +640,24 @@ Build the screens, driven by `@xstate/react` `useMachine`.
 - **Exit criteria:** a candidate can complete an 8-question React assessment from intake to submission.
 
 ### Phase 3 — Report & skill radar
+
 Render the completed `AssessmentResult`.
+
 - Overall score + proficiency tier; radar chart of the 4 pillars; per-question correct/incorrect with explanations; remediation links for flagged gaps (§4.4).
 - Post-assessment 1-question satisfaction survey (feeds the Satisfaction KPI).
 - **Exit criteria:** report matches persisted `session_results` + `session_category_scores`; skill gaps render remediation.
 
 ### Phase 4 — Content & hardening
+
 Make it production-credible.
+
 - Grow the question bank from the 24-item starter set to the §10.1 targets (min per level×pillar bucket), each tagged core/advanced via `difficulty_weight`; progressively replace `source`-adapted items with `original` ones (§10.1 content-sourcing policy).
 - Scheduled `markAbandonedSessions` job; Sentry + funnel logging; rate-limit + erasure verified.
 - Analytics events for the KPI table (completion, duration, survey).
 - **Exit criteria:** KPIs in §3 are all measurable from real data; launch checklist (legal/accessibility in §10.2) green.
 
 ### Cross-cutting: testing
-- **Unit:** scoring (each 0/33/67/100 path), sampling (weight spread + seeded determinism + shortfall), proficiency boundaries.
+
+- **Unit (implemented):** scoring (each 0/33/67/100 path), sampling (weight-class pairing incl. unbalanced pools + seeded determinism + shortfall), proficiency boundaries, and PRNG determinism — `node:test`, run with `pnpm test`.
 - **Integration:** service functions against an ephemeral Postgres (create/submit/complete, 409, 429, insufficient questions, completion guard).
 - **Machine:** XState model-based tests for the flow transitions and retry paths.

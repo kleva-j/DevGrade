@@ -10,6 +10,7 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx src/db/seed.ts",
@@ -42,6 +43,7 @@
     "@vitejs/plugin-react": "^6",
     "drizzle-kit": "^0.31.5",
     "eslint": "^9",
+    "tsx": "^4.21.0",
     "typescript": "^6",
     "vite": "^8"
   }
