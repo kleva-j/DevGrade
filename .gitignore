@@ -16,5 +16,8 @@ todos.json
 # turbo
 .turbo
 
+# Open Design working files
+.od-skills/
+
 # typescript
 *.tsbuildinfo
