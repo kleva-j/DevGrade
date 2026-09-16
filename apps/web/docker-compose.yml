@@ -1,0 +1,29 @@
+# Local development Postgres for DevGrade (decision #1: PostgreSQL everywhere).
+#
+#   docker compose up -d          # start
+#   pnpm db:migrate && pnpm db:seed
+#   docker compose down           # stop (add -v to wipe data)
+#
+# Matches the default DATABASE_URL in .env.example:
+#   postgres://devgrade:devgrade@localhost:5432/devgrade
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: devgrade-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devgrade
+      POSTGRES_PASSWORD: devgrade
+      POSTGRES_DB: devgrade
+    ports:
+      - "5432:5432"
+    volumes:
+      - devgrade-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devgrade -d devgrade"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  devgrade-pgdata:
