@@ -17,6 +17,7 @@
 | 1.2.0 | 2026-09-15 | Resolved all open decisions and implemented the domain/DB/server/state-machine core in `apps/web`: PostgreSQL everywhere (#1), single full-stack deploy (#2), weighted core/advanced score granularity 0/33/67/100 (#3), normalized `session_category_scores` (#4), all-questions-up-front delivery (#5). Addressed rate-limiting, privacy, abandonment, and pool-size items. Reworked §5.2 schema, §7 API, §8 deployment, §12 (now resolved), and added §13 Implementation Plan. |
 | 1.2.1 | 2026-09-15 | Added §10.1 "Content sourcing & licensing" (paraphrase-not-copy policy referencing MIT-licensed `sudheerj/reactjs-interview-questions` and `lydiahallie/javascript-questions`). Added a per-question `source` provenance column (§5.2) and a pillar-tagged 24-question React starter bank (`db/seedData.ts` + idempotent `db/seed.ts` + `db:seed`). Completed Phase 0 seed/migration items (§13). |
 | 1.2.2 | 2026-09-16 | Phase 0 review fixes: unit test suite (`node:test`, 26 tests, `pnpm test`) covering scoring/sampling/proficiency/PRNG; hardened stratified sampling to pair core+advanced by weight class (robust for unbalanced pools); narrowed the duplicate-answer catch to true unique-violations; guarded the completion question lookup; `count(*)` for answered-count; auto-bump `questions.updated_at`; category upsert on re-seed; extracted `RATE_LIMIT_WINDOW_MINUTES` and computed `PROFICIENCY_THRESHOLDS` keys; declared `tsx`. Phase 0 marked complete (§13). |
+| 1.3.0 | 2026-09-16 | Phases 1–3 implemented in `apps/web`: TanStack Start server functions (`server/assessmentFns.ts`) as the client API boundary (answer key verified absent from the client bundle, decision #5); XState-driven candidate UI (`components/assessment/*`: intake, question runner with per-question timer + `visibilitychange` focus-loss, loading/error/retry) wired via `machines/assessmentServices.ts`; report with categorical skill radar, per-pillar breakdown, focus areas, and question review. Anonymous client id minted client-side in `localStorage` and passed to `createSession` (replaces the server cookie plan; hashed server-side, equivalent for rate limiting). Promoted categorical `--chart-*` + `--code-*` tokens into `globals.css` and documented them in `design.md` §4. |
 
 ---
 
@@ -605,7 +606,7 @@ The items below were open in v1.1.0 and are now decided and implemented in `apps
 
 ## 13. Implementation Plan (MVP)
 
-The domain core is built and typechecks (`apps/web/src/{domain,db,server,machines}`). The phases below complete the Phase 1 MVP. Each phase is independently shippable and testable.
+The domain core, server API (server functions), candidate UI, and report are built and typecheck/build clean (`apps/web/src/{domain,db,server,machines,components,routes}`). Phases 1–3 are largely delivered; the remaining work (integration tests against a live DB, erasure fn, satisfaction survey, content growth) is called out per phase below. Each phase is independently shippable and testable.
 
 ### Phase 0 — Foundations (complete)
 
@@ -622,29 +623,30 @@ The domain core is built and typechecks (`apps/web/src/{domain,db,server,machine
 
 ### Phase 1 — API wiring (server functions)
 
-Expose the service through TanStack Start server functions / routes and wire cookies.
+Expose the service through TanStack Start server functions. **Largely complete.**
 
-- Create `createServerFn` handlers for `POST /api/sessions`, `/answers`, `/complete`, mapping `AssessmentError` → §7.2 status codes.
-- Issue/read the anonymous `client_id` cookie; pass the raw value into `createSession`.
-- Add a `DELETE` (or server fn) for erasure by `session_token`.
-- **Exit criteria:** full happy-path flow exercised end-to-end via HTTP (integration test with a test database); duplicate-answer returns 409; rate limit returns 429.
+- [x] `createServerFn` handlers for create/submit/complete (`server/assessmentFns.ts`); `AssessmentError` messages are surfaced to the client as plain, user-facing errors (internals collapsed to a generic message).
+- [x] Anonymous client id: minted client-side and stored in `localStorage`, passed into `createSession` and hashed server-side for rate limiting (replaces the cookie plan — no server-side session state, equivalent anti-abuse guarantee).
+- [x] Client adapter (`machines/assessmentServices.ts`) implementing the machine's `AssessmentServices` over the server fns.
+- [ ] Erasure server fn (`DELETE` by `session_token`).
+- **Exit criteria:** client bundle verified free of the answer key (build-time grep, decision #5). Remaining: end-to-end HTTP integration test against a test database (happy path + 409 duplicate + 429 rate limit).
 
 ### Phase 2 — Candidate UI (the assessment flow)
 
-Build the screens, driven by `@xstate/react` `useMachine`.
+Build the screens, driven by `@xstate/react` `useMachine`. **Complete.**
 
-- Intake route (framework + level; React enabled, Vue/Angular "coming soon") → `CONFIGURE`/`START`.
-- Question runner: prompt + `JetBrains Mono` code block, 4 radio options, progress `N/Total`, per-question timer, `SELECT_OPTION`/`SUBMIT_ANSWER`, `FOCUS_LOSS` on `visibilitychange`.
-- Loading/error states from the machine's `creatingSession` / `*Failed` states with `RETRY`.
-- RTL/LTR via logical properties; WCAG 2.1 AA (keyboard nav, 4.5:1 contrast, screen-reader-friendly code blocks).
-- **Exit criteria:** a candidate can complete an 8-question React assessment from intake to submission.
+- [x] Intake (`components/assessment/Intake.tsx`): framework (React enabled, Vue/Angular gated "soon") + level → `CONFIGURE`/`START`.
+- [x] Question runner: prompt + `font-mono` code block, radio options, progress `N/Total` bar, per-question timer, `SELECT_OPTION`/`SUBMIT_ANSWER`; `FOCUS_LOSS` wired to `visibilitychange` in the orchestrator.
+- [x] Loading/error states from `creatingSession`/`*Failed` with `RETRY`/`RESTART` (`AssessmentFlow.tsx`).
+- [x] Repeated copy centralized in `components/assessment/copy.ts` (mirrors the server `MESSAGES` seam); RTL-safe logical classes; native radios in `fieldset/legend` for a11y.
+- **Exit criteria (pending live-DB run):** a candidate can complete an 8-question React assessment from intake to submission; flow builds and typechecks clean.
 
 ### Phase 3 — Report & skill radar
 
-Render the completed `AssessmentResult`.
+Render the completed `AssessmentResult`. **Mostly complete.**
 
-- Overall score + proficiency tier; radar chart of the 4 pillars; per-question correct/incorrect with explanations; remediation links for flagged gaps (§4.4).
-- Post-assessment 1-question satisfaction survey (feeds the Satisfaction KPI).
+- [x] Overall score + proficiency tier badge; categorical SVG skill radar (`SkillRadar.tsx`, `--chart-*` pillar colors); per-pillar breakdown bars; per-question correct/incorrect with explanations; focus areas (flagged gaps) with pillar remediation copy.
+- [ ] Post-assessment 1-question satisfaction survey (feeds the Satisfaction KPI).
 - **Exit criteria:** report matches persisted `session_results` + `session_category_scores`; skill gaps render remediation.
 
 ### Phase 4 — Content & hardening

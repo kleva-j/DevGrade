@@ -1,0 +1,1746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DevGrade — Design Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ── DESIGN TOKENS (from globals.css) ─────────────────────────── */
+:root {
+  --background:           oklch(1 0 0);
+  --foreground:           oklch(0.145 0 0);
+  --card:                 oklch(1 0 0);
+  --card-foreground:      oklch(0.145 0 0);
+  --primary:              oklch(0.527 0.154 150.069);
+  --primary-foreground:   oklch(0.982 0.018 155.826);
+  --secondary:            oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted:                oklch(0.97 0 0);
+  --muted-foreground:     oklch(0.556 0 0);
+  --accent:               oklch(0.97 0 0);
+  --accent-foreground:    oklch(0.205 0 0);
+  --destructive:          oklch(0.577 0.245 27.325);
+  --border:               oklch(0.922 0 0);
+  --input:                oklch(0.922 0 0);
+  --ring:                 oklch(0.708 0 0);
+  --radius:               0.45rem;
+  --chart-1:              oklch(0.527 0.154 150.069);
+  --chart-2:              oklch(0.60 0.12 230);
+  --chart-3:              oklch(0.65 0.14 60);
+  --chart-4:              oklch(0.58 0.15 310);
+  --font-sans:    'IBM Plex Sans', sans-serif;
+  --font-heading: 'Source Sans 3', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+.panel-dark {
+  --background:           oklch(0.145 0 0);
+  --foreground:           oklch(0.985 0 0);
+  --card:                 oklch(0.205 0 0);
+  --card-foreground:      oklch(0.985 0 0);
+  --primary:              oklch(0.448 0.119 151.328);
+  --primary-foreground:   oklch(0.982 0.018 155.826);
+  --secondary:            oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted:                oklch(0.269 0 0);
+  --muted-foreground:     oklch(0.708 0 0);
+  --accent:               oklch(0.269 0 0);
+  --accent-foreground:    oklch(0.985 0 0);
+  --destructive:          oklch(0.704 0.191 22.216);
+  --border:               oklch(1 0 0 / 10%);
+  --input:                oklch(1 0 0 / 15%);
+  --ring:                 oklch(0.556 0 0);
+}
+
+/* ── BASE ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  background: oklch(0.95 0 0);
+  color: var(--foreground);
+  min-height: 100vh;
+  font-size: 16px;
+  line-height: 1.5;
+}
+svg use { pointer-events: none; }
+
+/* ── MOCKUP CHROME ────────────────────────────────────────────── */
+.mockup-shell { max-width: 1600px; margin: 0 auto; padding: 32px 24px 80px; }
+.mockup-title {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.45 0 0);
+  margin-block-end: 20px;
+}
+
+/* Tabs */
+.tab-nav {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid oklch(0.87 0 0);
+  margin-block-end: 40px;
+}
+.tab-btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: oklch(0.5 0 0);
+  border-bottom: 2px solid transparent;
+  margin-block-end: -1px;
+  transition: color 0.15s, border-color 0.15s;
+  border-radius: 4px 4px 0 0;
+}
+.tab-btn:hover { color: oklch(0.2 0 0); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.tab-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Screen visibility */
+.screen-section { display: none; }
+.screen-section.active { display: block; }
+
+/* Side-by-side panels */
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+.panel-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.55 0 0);
+  margin-block-end: 8px;
+}
+.panel {
+  background: var(--background);
+  color: var(--foreground);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px oklch(0 0 0 / 8%), 0 4px 16px oklch(0 0 0 / 5%);
+  border: 1px solid oklch(0.88 0 0);
+}
+.panel-dark {
+  border-color: oklch(1 0 0 / 8%);
+  box-shadow: 0 1px 4px oklch(0 0 0 / 40%), 0 8px 24px oklch(0 0 0 / 25%);
+}
+
+/* ── BUTTONS ──────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:focus-visible { outline: 3px solid color-mix(in oklch, var(--ring) 50%, transparent); outline-offset: 2px; }
+.btn-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.btn-primary:hover { background: oklch(from var(--primary) calc(l - 0.04) c h); }
+.btn-primary:active { transform: translateY(1px); }
+.btn-outline { background: transparent; color: var(--foreground); border-color: var(--border); }
+.btn-outline:hover { background: var(--muted); border-color: var(--muted-foreground); }
+.btn-ghost { background: transparent; color: var(--muted-foreground); border-color: transparent; }
+.btn-ghost:hover { background: var(--muted); color: var(--foreground); }
+.btn-destructive { background: var(--destructive); color: var(--primary-foreground); border-color: var(--destructive); }
+.btn-lg { font-size: 15px; padding: 11px 24px; }
+.btn-sm { font-size: 13px; padding: 6px 12px; }
+.btn-full { width: 100%; }
+.btn:disabled, .btn-disabled { opacity: 0.5; pointer-events: none; cursor: not-allowed; }
+.btn-loading { opacity: 0.75; pointer-events: none; }
+
+/* ── CARD ─────────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+}
+
+/* ── CHIPS ────────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: calc(var(--radius) * 4);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  letter-spacing: 0.01em;
+}
+.chip-primary {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+/* ── TIER BADGE ───────────────────────────────────────────────── */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: calc(var(--radius) * 3);
+  letter-spacing: 0.03em;
+}
+.tier-proficient {
+  background: color-mix(in oklch, var(--primary) 15%, transparent);
+  color: var(--primary);
+}
+.tier-developing {
+  background: color-mix(in oklch, var(--muted-foreground) 14%, transparent);
+  color: var(--muted-foreground);
+}
+.tier-gap {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+/* ── RADIO OPTION ROW ─────────────────────────────────────────── */
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--card);
+  transition: border-color 0.15s, background 0.15s;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.radio-option:hover { border-color: var(--primary); background: var(--muted); }
+.radio-option.selected {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+.radio-option.focused {
+  outline: 3px solid color-mix(in oklch, var(--ring) 50%, transparent);
+  outline-offset: 1px;
+}
+.radio-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.radio-option.selected .radio-dot { border-color: var(--primary); background: var(--primary); }
+.radio-option.selected .radio-dot::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary-foreground);
+}
+.radio-key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  line-height: 1.4;
+}
+.radio-label { flex: 1; }
+
+/* ── CODE BLOCK ───────────────────────────────────────────────── */
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  overflow-x: auto;
+  color: var(--foreground);
+}
+.code-comment { color: var(--muted-foreground); font-style: italic; }
+.code-keyword { color: var(--primary); }
+.code-fn { color: oklch(0.52 0.13 245); }
+.panel-dark .code-fn { color: oklch(0.72 0.12 245); }
+.code-string { color: oklch(0.50 0.12 200); }
+.panel-dark .code-string { color: oklch(0.72 0.11 200); }
+.code-punct { color: var(--muted-foreground); }
+
+/* ── PROGRESS ─────────────────────────────────────────────────── */
+.progress-track {
+  height: 3px;
+  background: var(--muted);
+  border-radius: 99px;
+  overflow: hidden;
+  flex: 1;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 99px;
+  transition: width 0.35s ease;
+}
+
+/* ── TIMER ────────────────────────────────────────────────────── */
+.timer {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.timer.warning { color: var(--destructive); }
+
+/* ── WORDMARK ─────────────────────────────────────────────────── */
+.wordmark {
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wordmark-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+}
+
+/* ── FRAMEWORK TILES ──────────────────────────────────────────── */
+.fw-grid { display: flex; gap: 12px; justify-content: center; }
+.fw-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 28px;
+  border: 1.5px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  cursor: pointer;
+  background: var(--card);
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
+  min-width: 112px;
+}
+.fw-tile:hover { border-color: color-mix(in oklch, var(--primary) 60%, transparent); }
+.fw-tile.selected {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+.fw-tile.selected .fw-name { color: var(--primary); font-weight: 600; }
+.fw-tile.disabled { opacity: 0.42; pointer-events: none; }
+.fw-name { font-size: 13px; font-weight: 500; }
+.coming-soon {
+  position: absolute;
+  top: -9px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+/* ── SEGMENTED CONTROL ────────────────────────────────────────── */
+.segmented { display: inline-flex; background: var(--muted); border-radius: var(--radius); padding: 3px; gap: 2px; }
+.seg-btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 18px;
+  border: none;
+  background: none;
+  border-radius: calc(var(--radius) * 0.8);
+  cursor: pointer;
+  color: var(--muted-foreground);
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.seg-btn.active {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 10%);
+}
+.seg-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* ── META LINE ────────────────────────────────────────────────── */
+.meta-line {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.meta-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+  flex-shrink: 0;
+}
+
+/* ── SCORE ────────────────────────────────────────────────────── */
+.score-display {
+  font-family: var(--font-heading);
+  font-size: 60px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.score-denom { font-size: 26px; font-weight: 400; color: var(--muted-foreground); }
+
+/* ── PILLAR ROWS ──────────────────────────────────────────────── */
+.pillar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pillar-row:last-child { border-bottom: none; }
+.pillar-name { font-size: 14px; font-weight: 500; flex: 1; }
+.pillar-bar-wrap { width: 80px; height: 4px; background: var(--muted); border-radius: 99px; overflow: hidden; flex-shrink: 0; }
+.pillar-bar { height: 100%; border-radius: 99px; }
+.pillar-pct { font-family: var(--font-mono); font-size: 13px; font-weight: 500; width: 34px; text-align: end; flex-shrink: 0; }
+.pillar-tier-cell { min-width: 90px; }
+
+/* ── REVIEW ROW ───────────────────────────────────────────────── */
+.review-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.review-row:last-child { border-bottom: none; }
+.review-icon { flex-shrink: 0; margin-top: 1px; }
+.review-text { flex: 1; }
+.review-q { font-weight: 500; margin-block-end: 2px; line-height: 1.35; }
+.review-exp { color: var(--muted-foreground); font-size: 12px; }
+
+/* ── SKILL GAP BLOCK ──────────────────────────────────────────── */
+.gap-block {
+  background: color-mix(in oklch, var(--destructive) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--destructive) 25%, transparent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+/* ── SECTION HEADING ──────────────────────────────────────────── */
+.section-heading {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-block-end: 12px;
+}
+
+/* ── SPINNER ──────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { animation: spin 0.75s linear infinite; display: inline-block; }
+
+/* ── TOPBAR (question screen) ─────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+.topbar-progress-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+/* ── ICON HELPER ──────────────────────────────────────────────── */
+.icon { display: inline-block; width: 16px; height: 16px; flex-shrink: 0; }
+.icon-sm { width: 14px; height: 14px; }
+.icon-lg { width: 20px; height: 20px; }
+.icon-xl { width: 24px; height: 24px; }
+
+/* ── LINK ─────────────────────────────────────────────────────── */
+.link {
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.link:hover { text-decoration: underline; }
+
+/* ── DIVIDER ──────────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--border); }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     PHOSPHOR ICON SYSTEM — inline SVG symbols
+     All Regular weight, stroke-width=1.5, 16×16 viewport
+     ══════════════════════════════════════════════════════ -->
+<svg aria-hidden="true" style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Clock (Regular) -->
+  <symbol id="icon-clock" viewBox="0 0 256 256" fill="none">
+    <circle cx="128" cy="128" r="96" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="128,72 128,128 168,168" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- Timer (Regular) -->
+  <symbol id="icon-timer" viewBox="0 0 256 256" fill="none">
+    <circle cx="128" cy="144" r="88" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="104" y1="24" x2="152" y2="24" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="128" y1="24" x2="128" y2="56" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <polyline points="128,96 128,152" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- ArrowRight (Regular) -->
+  <symbol id="icon-arrow-right" viewBox="0 0 256 256" fill="none">
+    <line x1="40" y1="128" x2="216" y2="128" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="144,56 216,128 144,200" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- CheckCircle (Fill) -->
+  <symbol id="icon-check-circle" viewBox="0 0 256 256">
+    <path fill="currentColor" d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/>
+  </symbol>
+  <!-- XCircle (Fill) -->
+  <symbol id="icon-x-circle" viewBox="0 0 256 256">
+    <path fill="currentColor" d="M165.66,101.66l-28,28,28,28a8,8,0,0,1-11.32,11.32l-28-28-28,28a8,8,0,0,1-11.32-11.32l28-28-28-28A8,8,0,0,1,98.34,90.34l28,28,28-28a8,8,0,0,1,11.32,11.32ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/>
+  </symbol>
+  <!-- Warning (Regular) -->
+  <symbol id="icon-warning" viewBox="0 0 256 256" fill="none">
+    <path d="M142.74,40l86.91,150.34A16.74,16.74,0,0,1,215.15,216H40.85a16.74,16.74,0,0,1-14.5-25.66L113.26,40A16.74,16.74,0,0,1,142.74,40Z" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="128" y1="104" x2="128" y2="144" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <circle cx="128" cy="180" r="8" fill="currentColor"/>
+  </symbol>
+  <!-- ArrowSquareOut (Regular) -->
+  <symbol id="icon-arrow-square-out" viewBox="0 0 256 256" fill="none">
+    <polyline points="216,104 216,40 152,40" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="144" y1="112" x2="216" y2="40" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M184,136v72a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V80a8,8,0,0,1,8-8h72" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- StackSimple (Regular) -->
+  <symbol id="icon-stack-simple" viewBox="0 0 256 256" fill="none">
+    <polyline points="32,176 128,224 224,176" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="32,128 128,176 224,128" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polygon points="32,80 128,32 224,80 128,128 32,80" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- Lightning (Regular) -->
+  <symbol id="icon-lightning" viewBox="0 0 256 256" fill="none">
+    <polyline points="160,16 144,96 216,96 96,240 112,160 40,160 160,16" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- Cpu (Regular) -->
+  <symbol id="icon-cpu" viewBox="0 0 256 256" fill="none">
+    <rect x="80" y="80" width="96" height="96" rx="8" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="32" y="32" width="192" height="192" rx="16" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="80" y1="32" x2="80" y2="16" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="128" y1="32" x2="128" y2="16" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="176" y1="32" x2="176" y2="16" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="224" y1="80" x2="240" y2="80" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="224" y1="128" x2="240" y2="128" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="224" y1="176" x2="240" y2="176" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="80" y1="224" x2="80" y2="240" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="128" y1="224" x2="128" y2="240" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="176" y1="224" x2="176" y2="240" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="32" y1="80" x2="16" y2="80" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="32" y1="128" x2="16" y2="128" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <line x1="32" y1="176" x2="16" y2="176" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+  </symbol>
+  <!-- GitBranch (Regular) -->
+  <symbol id="icon-git-branch" viewBox="0 0 256 256" fill="none">
+    <circle cx="80" cy="56" r="24" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="80" cy="200" r="24" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="176" cy="104" r="24" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="80" y1="80" x2="80" y2="176" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M80,80c0,48,96,48,96,24" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- SpinnerGap (Regular) -->
+  <symbol id="icon-spinner-gap" viewBox="0 0 256 256" fill="none">
+    <path d="M168,128a40,40,0,1,1-40-40" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M128,32a96,96,0,0,1,96,96" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- ArrowCounterClockwise (Regular) -->
+  <symbol id="icon-arrow-ccw" viewBox="0 0 256 256" fill="none">
+    <polyline points="80,200 32,200 32,152" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M190.2,65.8A88,88,0,1,1,65.8,190.2L32,152" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- ShieldCheck (Regular) -->
+  <symbol id="icon-shield-check" viewBox="0 0 256 256" fill="none">
+    <path d="M40,114.79V56a8,8,0,0,1,8-8H208a8,8,0,0,1,8,8v58.79c0,84.18-71.31,112.07-88,117.41C111.31,226.86,40,198.97,40,114.79Z" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="88,136 112,160 168,104" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- UserCircle (Regular) — for "no sign-up" meta -->
+  <symbol id="icon-user-circle" viewBox="0 0 256 256" fill="none">
+    <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Z" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M96,120a32,32,0,1,0,32-32A32,32,0,0,0,96,120Z" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M55.92,200.34a72.09,72.09,0,0,1,144.16,0" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- CloudArrowDown (Regular) — for Async & Data Fetching pillar -->
+  <symbol id="icon-cloud-arrow-down" viewBox="0 0 256 256" fill="none">
+    <path d="M88,128h104a48,48,0,0,0-1.4-95.88A80,80,0,0,0,41.4,96a80.35,80.35,0,0,0,.6,8,48,48,0,0,0,46,24Z" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="128" y1="128" x2="128" y2="200" stroke="currentColor" stroke-width="16" stroke-linecap="round"/>
+    <polyline points="104,176 128,200 152,176" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- TrendUp (Regular) — for Developing tier badge -->
+  <symbol id="icon-trend-up" viewBox="0 0 256 256" fill="none">
+    <polyline points="24,176 104,96 152,144 232,64" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="168,64 232,64 232,128" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- ArrowsClockwise (Regular) — for Lifecycle & Effects pillar -->
+  <symbol id="icon-arrows-clockwise" viewBox="0 0 256 256" fill="none">
+    <path d="M224,128A96,96,0,1,1,60.12,60.12" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="224,48 224,128 144,128" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+</svg>
+
+<!-- ══════════════════════════════════════════════════════
+     MOCKUP SHELL
+     ══════════════════════════════════════════════════════ -->
+<div class="mockup-shell">
+  <p class="mockup-title">DevGrade — Design Mockup</p>
+
+  <!-- Tab Navigation -->
+  <nav class="tab-nav" aria-label="Screen selector">
+    <button class="tab-btn active" data-tab="intake"   aria-selected="true"  role="tab">Screen 1 · Intake</button>
+    <button class="tab-btn"        data-tab="runner"   aria-selected="false" role="tab">Screen 2 · Question Runner</button>
+    <button class="tab-btn"        data-tab="report"   aria-selected="false" role="tab">Screen 3 · Report</button>
+    <button class="tab-btn"        data-tab="components" aria-selected="false" role="tab">Component Sheet</button>
+  </nav>
+
+  <!-- ══════════════════════════════════════════════════════
+       SCREEN 1 — INTAKE / SETUP
+       ══════════════════════════════════════════════════════ -->
+  <section class="screen-section active" id="screen-intake" data-od-id="screen-intake" role="tabpanel">
+    <div class="panels">
+
+      <!-- LIGHT -->
+      <div>
+        <p class="panel-label">Light</p>
+        <div class="panel" data-od-id="intake-light" style="min-height:640px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:56px 48px;">
+          <!-- Wordmark -->
+          <div class="wordmark" style="margin-block-end:40px;" aria-label="DevGrade">
+            <span class="wordmark-dot" aria-hidden="true"></span>
+            DevGrade
+          </div>
+
+          <!-- Heading block -->
+          <div style="text-align:center; margin-block-end:36px; max-width:400px;">
+            <h1 style="font-family:var(--font-heading); font-size:28px; font-weight:700; letter-spacing:-0.02em; margin-block-end:8px; color:var(--foreground);">
+              Assess your front-end skills
+            </h1>
+            <p style="font-size:15px; color:var(--muted-foreground); line-height:1.5;">
+              Pick a framework and experience level to get a personalised skill report in minutes.
+            </p>
+          </div>
+
+          <!-- Framework tiles -->
+          <fieldset style="border:none; padding:0; margin:0 0 28px 0; text-align:center;">
+            <legend class="section-heading" style="margin-block-end:14px; display:block; width:100%;">Framework</legend>
+            <div class="fw-grid" role="radiogroup" aria-label="Choose framework">
+              <!-- React — enabled, selected -->
+              <label class="fw-tile selected" data-od-id="fw-react" tabindex="0" role="radio" aria-checked="true">
+                <input type="radio" name="framework-l" value="react" checked style="position:absolute;opacity:0;width:0;height:0;" />
+                <!-- React atom icon -->
+                <svg class="icon-xl" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <ellipse cx="20" cy="20" rx="18" ry="7" stroke="var(--primary)" stroke-width="2"/>
+                  <ellipse cx="20" cy="20" rx="18" ry="7" stroke="var(--primary)" stroke-width="2" transform="rotate(60 20 20)"/>
+                  <ellipse cx="20" cy="20" rx="18" ry="7" stroke="var(--primary)" stroke-width="2" transform="rotate(120 20 20)"/>
+                  <circle cx="20" cy="20" r="3" fill="var(--primary)"/>
+                </svg>
+                <span class="fw-name">React</span>
+              </label>
+              <!-- Vue — disabled -->
+              <label class="fw-tile disabled" data-od-id="fw-vue" tabindex="-1" role="radio" aria-checked="false" aria-disabled="true">
+                <input type="radio" name="framework-l" value="vue" disabled style="position:absolute;opacity:0;width:0;height:0;" />
+                <span class="coming-soon">Coming soon</span>
+                <svg class="icon-xl" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <polygon points="20,4 36,32 4,32" stroke="var(--muted-foreground)" stroke-width="2" fill="none"/>
+                  <polygon points="20,12 29,28 11,28" stroke="var(--muted-foreground)" stroke-width="1.5" fill="none" opacity="0.5"/>
+                </svg>
+                <span class="fw-name" style="color:var(--muted-foreground)">Vue</span>
+              </label>
+              <!-- Angular — disabled -->
+              <label class="fw-tile disabled" data-od-id="fw-angular" tabindex="-1" role="radio" aria-checked="false" aria-disabled="true">
+                <input type="radio" name="framework-l" value="angular" disabled style="position:absolute;opacity:0;width:0;height:0;" />
+                <span class="coming-soon">Coming soon</span>
+                <svg class="icon-xl" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <polygon points="20,3 37,9 34,31 20,37 6,31 3,9" stroke="var(--muted-foreground)" stroke-width="2" fill="none"/>
+                  <polyline points="12,28 20,12 28,28" stroke="var(--muted-foreground)" stroke-width="1.5" fill="none"/>
+                  <line x1="14.5" y1="23" x2="25.5" y2="23" stroke="var(--muted-foreground)" stroke-width="1.5"/>
+                </svg>
+                <span class="fw-name" style="color:var(--muted-foreground)">Angular</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <!-- Level segmented control -->
+          <fieldset style="border:none; padding:0; margin:0 0 32px 0; text-align:center;">
+            <legend class="section-heading" style="margin-block-end:14px; display:block;">Experience level</legend>
+            <div class="segmented" role="radiogroup" aria-label="Experience level" data-od-id="level-control">
+              <button class="seg-btn" data-level="junior" type="button" aria-pressed="false">Junior</button>
+              <button class="seg-btn active" data-level="mid" type="button" aria-pressed="true">Mid</button>
+              <button class="seg-btn" data-level="senior" type="button" aria-pressed="false">Senior</button>
+            </div>
+          </fieldset>
+
+          <!-- Meta line -->
+          <div class="meta-line" data-od-id="meta-line" style="margin-block-end:28px;" aria-label="Assessment details">
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground);"><use href="#icon-shield-check"/></svg>
+            <span>Anonymous</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <span>No sign-up</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground);"><use href="#icon-clock"/></svg>
+            <span>~10 min</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground);"><use href="#icon-stack-simple"/></svg>
+            <span>8 questions</span>
+          </div>
+
+          <!-- Primary CTA -->
+          <button class="btn btn-primary btn-lg" type="button" data-od-id="cta-start" style="min-width:220px; gap:8px;">
+            Start assessment
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- DARK -->
+      <div>
+        <p class="panel-label">Dark</p>
+        <div class="panel panel-dark" data-od-id="intake-dark" style="min-height:640px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:56px 48px;">
+          <div class="wordmark" style="margin-block-end:40px;" aria-label="DevGrade">
+            <span class="wordmark-dot" aria-hidden="true"></span>
+            DevGrade
+          </div>
+          <div style="text-align:center; margin-block-end:36px; max-width:400px;">
+            <h1 style="font-family:var(--font-heading); font-size:28px; font-weight:700; letter-spacing:-0.02em; margin-block-end:8px; color:var(--foreground);">
+              Assess your front-end skills
+            </h1>
+            <p style="font-size:15px; color:var(--muted-foreground); line-height:1.5;">
+              Pick a framework and experience level to get a personalised skill report in minutes.
+            </p>
+          </div>
+          <fieldset style="border:none; padding:0; margin:0 0 28px 0; text-align:center;">
+            <legend class="section-heading" style="margin-block-end:14px; display:block; width:100%;">Framework</legend>
+            <div class="fw-grid" role="radiogroup" aria-label="Choose framework">
+              <label class="fw-tile selected" tabindex="0" role="radio" aria-checked="true">
+                <input type="radio" name="framework-d" value="react" checked style="position:absolute;opacity:0;width:0;height:0;" />
+                <svg class="icon-xl" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <ellipse cx="20" cy="20" rx="18" ry="7" stroke="var(--primary)" stroke-width="2"/>
+                  <ellipse cx="20" cy="20" rx="18" ry="7" stroke="var(--primary)" stroke-width="2" transform="rotate(60 20 20)"/>
+                  <ellipse cx="20" cy="20" rx="18" ry="7" stroke="var(--primary)" stroke-width="2" transform="rotate(120 20 20)"/>
+                  <circle cx="20" cy="20" r="3" fill="var(--primary)"/>
+                </svg>
+                <span class="fw-name">React</span>
+              </label>
+              <label class="fw-tile disabled" tabindex="-1" role="radio" aria-checked="false" aria-disabled="true">
+                <input type="radio" name="framework-d" value="vue" disabled style="position:absolute;opacity:0;width:0;height:0;" />
+                <span class="coming-soon">Coming soon</span>
+                <svg class="icon-xl" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <polygon points="20,4 36,32 4,32" stroke="var(--muted-foreground)" stroke-width="2" fill="none"/>
+                  <polygon points="20,12 29,28 11,28" stroke="var(--muted-foreground)" stroke-width="1.5" fill="none" opacity="0.5"/>
+                </svg>
+                <span class="fw-name" style="color:var(--muted-foreground)">Vue</span>
+              </label>
+              <label class="fw-tile disabled" tabindex="-1" role="radio" aria-checked="false" aria-disabled="true">
+                <input type="radio" name="framework-d" value="angular" disabled style="position:absolute;opacity:0;width:0;height:0;" />
+                <span class="coming-soon">Coming soon</span>
+                <svg class="icon-xl" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <polygon points="20,3 37,9 34,31 20,37 6,31 3,9" stroke="var(--muted-foreground)" stroke-width="2" fill="none"/>
+                  <polyline points="12,28 20,12 28,28" stroke="var(--muted-foreground)" stroke-width="1.5" fill="none"/>
+                  <line x1="14.5" y1="23" x2="25.5" y2="23" stroke="var(--muted-foreground)" stroke-width="1.5"/>
+                </svg>
+                <span class="fw-name" style="color:var(--muted-foreground)">Angular</span>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset style="border:none; padding:0; margin:0 0 32px 0; text-align:center;">
+            <legend class="section-heading" style="margin-block-end:14px; display:block;">Experience level</legend>
+            <div class="segmented" role="radiogroup" aria-label="Experience level">
+              <button class="seg-btn" type="button" aria-pressed="false">Junior</button>
+              <button class="seg-btn active" type="button" aria-pressed="true">Mid</button>
+              <button class="seg-btn" type="button" aria-pressed="false">Senior</button>
+            </div>
+          </fieldset>
+          <div class="meta-line" style="margin-block-end:28px;">
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground);"><use href="#icon-shield-check"/></svg>
+            <span>Anonymous</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <span>No sign-up</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground);"><use href="#icon-clock"/></svg>
+            <span>~10 min</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground);"><use href="#icon-stack-simple"/></svg>
+            <span>8 questions</span>
+          </div>
+          <button class="btn btn-primary btn-lg" type="button" data-od-id="cta-start-dark" style="min-width:220px; gap:8px;">
+            Start assessment
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /panels -->
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════
+       SCREEN 2 — QUESTION RUNNER
+       ══════════════════════════════════════════════════════ -->
+  <section class="screen-section" id="screen-runner" data-od-id="screen-runner" role="tabpanel">
+
+    <!-- ── 2a: NORMAL STATE ───────────────────────────────── -->
+    <p class="mockup-title" style="margin-block-end:12px;">Normal state</p>
+    <div class="panels" style="margin-block-end:40px;">
+
+      <!-- LIGHT -->
+      <div>
+        <p class="panel-label">Light</p>
+        <div class="panel" data-od-id="runner-light" style="display:flex; flex-direction:column; min-height:700px;">
+          <!-- Top bar -->
+          <header class="topbar" data-od-id="runner-topbar">
+            <div class="wordmark" aria-label="DevGrade">
+              <span class="wordmark-dot" aria-hidden="true"></span>
+              DevGrade
+            </div>
+            <div style="flex:1; display:flex; align-items:center; gap:10px; justify-content:center;">
+              <span class="topbar-progress-label" aria-label="Question 3 of 8">Q 3 / 8</span>
+              <div class="progress-track" role="progressbar" aria-valuenow="37" aria-valuemin="0" aria-valuemax="100" aria-label="Progress">
+                <div class="progress-fill" style="width:37.5%"></div>
+              </div>
+            </div>
+            <div class="timer" data-od-id="timer" aria-label="Time remaining: 1 minute 24 seconds">
+              <svg class="icon-sm" aria-hidden="true"><use href="#icon-timer"/></svg>
+              1:24
+            </div>
+          </header>
+
+          <!-- Question card -->
+          <main style="flex:1; padding:32px 36px; display:flex; flex-direction:column; gap:20px;">
+            <!-- Category chip -->
+            <div>
+              <span class="chip chip-primary" data-od-id="category-chip">
+                <svg class="icon-sm" aria-hidden="true" style="color:var(--primary);"><use href="#icon-stack-simple"/></svg>
+                Reactivity &amp; State
+              </span>
+            </div>
+
+            <!-- Question heading & body -->
+            <div data-od-id="question-text">
+              <h2 style="font-family:var(--font-heading); font-size:18px; font-weight:700; margin-block-end:6px; line-height:1.35;">
+                What is the correct way to update state based on its previous value?
+              </h2>
+              <p style="font-size:14px; color:var(--muted-foreground); line-height:1.55; max-width:62ch;">
+                Given the component below, select the option that correctly handles multiple synchronous increments so no update is lost.
+              </p>
+            </div>
+
+            <!-- Code block -->
+            <pre class="code-block" data-od-id="code-block" aria-label="Code example" tabindex="0"><span class="code-keyword">function</span> <span class="code-fn">Counter</span><span class="code-punct">() {</span>
+  <span class="code-keyword">const</span> <span class="code-punct">[</span>count<span class="code-punct">,</span> setCount<span class="code-punct">]</span> <span class="code-keyword">=</span> <span class="code-fn">useState</span><span class="code-punct">(</span><span class="code-string">0</span><span class="code-punct">);</span>
+
+  <span class="code-keyword">const</span> <span class="code-fn">handleClick</span> <span class="code-keyword">=</span> <span class="code-punct">() =&gt; {</span>
+    <span class="code-comment">// How should we do this?</span>
+    setCount<span class="code-punct">(</span>count <span class="code-keyword">+</span> <span class="code-string">1</span><span class="code-punct">);</span>
+    setCount<span class="code-punct">(</span>count <span class="code-keyword">+</span> <span class="code-string">1</span><span class="code-punct">);</span>
+  <span class="code-punct">};</span>
+<span class="code-punct">}</span></pre>
+
+            <!-- Radio options -->
+            <fieldset style="border:none; padding:0; margin:0;" data-od-id="answer-options">
+              <legend style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0);">Choose your answer</legend>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <label class="radio-option">
+                  <input type="radio" name="q3-l" value="a" style="position:absolute;opacity:0;width:0;height:0;" />
+                  <span class="radio-dot" aria-hidden="true"></span>
+                  <span class="radio-key" aria-hidden="true">A</span>
+                  <span class="radio-label"><code style="font-family:var(--font-mono);font-size:12px;">setCount(count + 1)</code> — call it twice</span>
+                </label>
+                <label class="radio-option selected" data-od-id="option-selected">
+                  <input type="radio" name="q3-l" value="b" checked style="position:absolute;opacity:0;width:0;height:0;" />
+                  <span class="radio-dot" aria-hidden="true"></span>
+                  <span class="radio-key" aria-hidden="true">B</span>
+                  <span class="radio-label"><code style="font-family:var(--font-mono);font-size:12px;">setCount(prev => prev + 1)</code> — functional update, twice</span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="q3-l" value="c" style="position:absolute;opacity:0;width:0;height:0;" />
+                  <span class="radio-dot" aria-hidden="true"></span>
+                  <span class="radio-key" aria-hidden="true">C</span>
+                  <span class="radio-label">Batch both calls inside <code style="font-family:var(--font-mono);font-size:12px;">unstable_batchedUpdates</code></span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="q3-l" value="d" style="position:absolute;opacity:0;width:0;height:0;" />
+                  <span class="radio-dot" aria-hidden="true"></span>
+                  <span class="radio-key" aria-hidden="true">D</span>
+                  <span class="radio-label">Use a ref instead of state for synchronous mutation</span>
+                </label>
+              </div>
+            </fieldset>
+          </main>
+
+          <!-- Footer CTA -->
+          <footer style="padding:16px 36px; border-top:1px solid var(--border);">
+            <button class="btn btn-primary btn-full" type="button" data-od-id="submit-btn">
+              Submit answer
+              <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+            </button>
+          </footer>
+        </div>
+      </div>
+
+      <!-- DARK -->
+      <div>
+        <p class="panel-label">Dark</p>
+        <div class="panel panel-dark" data-od-id="runner-dark" style="display:flex; flex-direction:column; min-height:700px;">
+          <header class="topbar" style="background:var(--card);">
+            <div class="wordmark" aria-label="DevGrade">
+              <span class="wordmark-dot" aria-hidden="true"></span>
+              DevGrade
+            </div>
+            <div style="flex:1; display:flex; align-items:center; gap:10px; justify-content:center;">
+              <span class="topbar-progress-label">Q 3 / 8</span>
+              <div class="progress-track" role="progressbar" aria-valuenow="37" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-fill" style="width:37.5%"></div>
+              </div>
+            </div>
+            <div class="timer">
+              <svg class="icon-sm" aria-hidden="true"><use href="#icon-timer"/></svg>
+              1:24
+            </div>
+          </header>
+          <main style="flex:1; padding:32px 36px; display:flex; flex-direction:column; gap:20px;">
+            <div>
+              <span class="chip chip-primary">
+                <svg class="icon-sm" aria-hidden="true" style="color:var(--primary);"><use href="#icon-stack-simple"/></svg>
+                Reactivity &amp; State
+              </span>
+            </div>
+            <div>
+              <h2 style="font-family:var(--font-heading); font-size:18px; font-weight:700; margin-block-end:6px; line-height:1.35;">
+                What is the correct way to update state based on its previous value?
+              </h2>
+              <p style="font-size:14px; color:var(--muted-foreground); line-height:1.55; max-width:62ch;">
+                Given the component below, select the option that correctly handles multiple synchronous increments so no update is lost.
+              </p>
+            </div>
+            <pre class="code-block" aria-label="Code example" tabindex="0"><span class="code-keyword">function</span> <span class="code-fn">Counter</span><span class="code-punct">() {</span>
+  <span class="code-keyword">const</span> <span class="code-punct">[</span>count<span class="code-punct">,</span> setCount<span class="code-punct">]</span> <span class="code-keyword">=</span> <span class="code-fn">useState</span><span class="code-punct">(</span><span class="code-string">0</span><span class="code-punct">);</span>
+
+  <span class="code-keyword">const</span> <span class="code-fn">handleClick</span> <span class="code-keyword">=</span> <span class="code-punct">() =&gt; {</span>
+    <span class="code-comment">// How should we do this?</span>
+    setCount<span class="code-punct">(</span>count <span class="code-keyword">+</span> <span class="code-string">1</span><span class="code-punct">);</span>
+    setCount<span class="code-punct">(</span>count <span class="code-keyword">+</span> <span class="code-string">1</span><span class="code-punct">);</span>
+  <span class="code-punct">};</span>
+<span class="code-punct">}</span></pre>
+            <fieldset style="border:none; padding:0; margin:0;">
+              <legend style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0);">Choose your answer</legend>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <label class="radio-option"><input type="radio" name="q3-d" value="a" style="position:absolute;opacity:0;width:0;height:0;" /><span class="radio-dot" aria-hidden="true"></span><span class="radio-key" aria-hidden="true">A</span><span class="radio-label"><code style="font-family:var(--font-mono);font-size:12px;">setCount(count + 1)</code> — call it twice</span></label>
+                <label class="radio-option selected"><input type="radio" name="q3-d" value="b" checked style="position:absolute;opacity:0;width:0;height:0;" /><span class="radio-dot" aria-hidden="true"></span><span class="radio-key" aria-hidden="true">B</span><span class="radio-label"><code style="font-family:var(--font-mono);font-size:12px;">setCount(prev => prev + 1)</code> — functional update, twice</span></label>
+                <label class="radio-option"><input type="radio" name="q3-d" value="c" style="position:absolute;opacity:0;width:0;height:0;" /><span class="radio-dot" aria-hidden="true"></span><span class="radio-key" aria-hidden="true">C</span><span class="radio-label">Batch both calls inside <code style="font-family:var(--font-mono);font-size:12px;">unstable_batchedUpdates</code></span></label>
+                <label class="radio-option"><input type="radio" name="q3-d" value="d" style="position:absolute;opacity:0;width:0;height:0;" /><span class="radio-dot" aria-hidden="true"></span><span class="radio-key" aria-hidden="true">D</span><span class="radio-label">Use a ref instead of state for synchronous mutation</span></label>
+              </div>
+            </fieldset>
+          </main>
+          <footer style="padding:16px 36px; border-top:1px solid var(--border);">
+            <button class="btn btn-primary btn-full" type="button">
+              Submit answer
+              <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+            </button>
+          </footer>
+        </div>
+      </div>
+
+    </div><!-- /panels normal -->
+
+    <!-- ── 2b: LOADING VARIANT ───────────────────────────── -->
+    <p class="mockup-title" style="margin-block-end:12px;">Loading variant</p>
+    <div class="panels">
+
+      <!-- LIGHT loading -->
+      <div>
+        <p class="panel-label">Light · Loading</p>
+        <div class="panel" data-od-id="runner-loading-light" style="display:flex; flex-direction:column; min-height:400px;">
+          <header class="topbar">
+            <div class="wordmark" aria-label="DevGrade"><span class="wordmark-dot" aria-hidden="true"></span>DevGrade</div>
+            <div style="flex:1; display:flex; align-items:center; gap:10px; justify-content:center;">
+              <span class="topbar-progress-label">Q 4 / 8</span>
+              <div class="progress-track" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-fill" style="width:50%"></div>
+              </div>
+            </div>
+            <div class="timer"><svg class="icon-sm" aria-hidden="true"><use href="#icon-timer"/></svg>2:00</div>
+          </header>
+          <main style="flex:1; padding:32px 36px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; min-height:280px;">
+            <svg class="icon-xl spinner" aria-label="Loading next question" style="color:var(--primary);"><use href="#icon-spinner-gap"/></svg>
+            <p style="font-size:14px; color:var(--muted-foreground);">Loading question…</p>
+          </main>
+          <footer style="padding:16px 36px; border-top:1px solid var(--border);">
+            <button class="btn btn-primary btn-full btn-loading" type="button" disabled aria-busy="true">
+              <svg class="icon spinner" aria-hidden="true"><use href="#icon-spinner-gap"/></svg>
+              Submitting…
+            </button>
+          </footer>
+        </div>
+      </div>
+
+      <!-- DARK loading -->
+      <div>
+        <p class="panel-label">Dark · Loading</p>
+        <div class="panel panel-dark" data-od-id="runner-loading-dark" style="display:flex; flex-direction:column; min-height:400px;">
+          <header class="topbar" style="background:var(--card);">
+            <div class="wordmark" aria-label="DevGrade"><span class="wordmark-dot" aria-hidden="true"></span>DevGrade</div>
+            <div style="flex:1; display:flex; align-items:center; gap:10px; justify-content:center;">
+              <span class="topbar-progress-label">Q 4 / 8</span>
+              <div class="progress-track" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-fill" style="width:50%"></div>
+              </div>
+            </div>
+            <div class="timer"><svg class="icon-sm" aria-hidden="true"><use href="#icon-timer"/></svg>2:00</div>
+          </header>
+          <main style="flex:1; padding:32px 36px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; min-height:280px;">
+            <svg class="icon-xl spinner" aria-label="Loading next question" style="color:var(--primary);"><use href="#icon-spinner-gap"/></svg>
+            <p style="font-size:14px; color:var(--muted-foreground);">Loading question…</p>
+          </main>
+          <footer style="padding:16px 36px; border-top:1px solid var(--border);">
+            <button class="btn btn-primary btn-full btn-loading" type="button" disabled aria-busy="true">
+              <svg class="icon spinner" aria-hidden="true"><use href="#icon-spinner-gap"/></svg>
+              Submitting…
+            </button>
+          </footer>
+        </div>
+      </div>
+
+    </div><!-- /panels loading -->
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════
+       SCREEN 3 — REPORT / RESULTS
+       ══════════════════════════════════════════════════════ -->
+  <section class="screen-section" id="screen-report" data-od-id="screen-report" role="tabpanel">
+    <div class="panels" style="align-items:start;">
+
+      <!-- LIGHT -->
+      <div>
+        <p class="panel-label">Light</p>
+        <div class="panel" data-od-id="report-light" style="padding:32px 36px; display:flex; flex-direction:column; gap:28px;">
+
+          <!-- Report header -->
+          <header data-od-id="report-header">
+            <div class="wordmark" style="margin-block-end:20px;" aria-label="DevGrade"><span class="wordmark-dot" aria-hidden="true"></span>DevGrade</div>
+            <p class="section-heading">Your results</p>
+            <div style="display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap;">
+              <div class="score-display" aria-label="Score: 6 out of 8">
+                6<span class="score-denom">/8</span>
+              </div>
+              <div style="padding-block-end:6px; display:flex; flex-direction:column; gap:4px;">
+                <span class="tier-badge tier-proficient" data-od-id="tier-badge">
+                  <svg class="icon-sm" aria-hidden="true"><use href="#icon-check-circle"/></svg>
+                  Proficient
+                </span>
+                <span style="font-family:var(--font-mono); font-size:11px; color:var(--muted-foreground);">React · Mid level</span>
+              </div>
+            </div>
+          </header>
+
+          <div class="divider"></div>
+
+          <!-- Skill radar -->
+          <section aria-labelledby="radar-heading" data-od-id="skill-radar">
+            <p class="section-heading" id="radar-heading">Skill radar</p>
+            <svg viewBox="0 0 260 220" width="100%" height="200" role="img" aria-label="Skill radar showing scores for Reactivity, Lifecycle, Performance, and Async" style="overflow:visible;">
+              <defs>
+                <style>
+                  .radar-grid { fill:none; stroke:var(--border); stroke-width:1; }
+                  .radar-area { fill:oklch(0.527 0.154 150.069 / 18%); stroke:oklch(0.527 0.154 150.069); stroke-width:1.5; }
+                </style>
+              </defs>
+              <!-- Grid: 4 axes, 4 rings -->
+              <g transform="translate(130,110)">
+                <!-- Rings at 25%, 50%, 75%, 100% of r=90 -->
+                <polygon class="radar-grid" points="0,-22 21,-11 21,11 0,22 -21,11 -21,-11"/>
+                <polygon class="radar-grid" points="0,-45 39,-22 39,22 0,45 -39,22 -39,-22"/>
+                <polygon class="radar-grid" points="0,-67 58,-34 58,34 0,67 -58,34 -58,-34"/>
+                <polygon class="radar-grid" points="0,-90 78,-45 78,45 0,90 -78,45 -78,-45"/>
+                <!-- Axes -->
+                <line x1="0" y1="0" x2="0" y2="-90" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="78" y2="-45" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="78" y2="45" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="0" y2="90" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="-78" y2="45" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="-78" y2="-45" stroke="var(--border)" stroke-width="1"/>
+                <!-- Data: Reactivity 87%, Lifecycle 62%, Performance 75%, Async 50% -->
+                <!-- 4-axis hexagonal: top=Reactivity, top-right=Lifecycle, bottom-right=Performance, bottom=Async -->
+                <!-- Reactivity 87%: (0, -90*0.87) = (0, -78.3) -->
+                <!-- Lifecycle 62%: (78*0.62, -45*0.62) = (48.4, -27.9) -->
+                <!-- Performance 75%: (78*0.75, 45*0.75) = (58.5, 33.75) -->
+                <!-- Async 50%: (0, 90*0.50) = (0, 45) -->
+                <!-- then mirror: Async-left (-78*0.50, 45*0.50)=(-39, 22.5), Lifecycle-left (-78*0.62, -45*0.62)=(-48.4,-27.9) -->
+                <polygon class="radar-area" points="0,-78 48,-28 59,34 0,45 -59,34 -48,-28"/>
+                <!-- Axis labels -->
+                <text x="0" y="-96" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Reactivity</text>
+                <text x="86" y="-42" text-anchor="start" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Lifecycle</text>
+                <text x="86" y="50" text-anchor="start" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Performance</text>
+                <text x="0" y="106" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Async</text>
+                <text x="-86" y="50" text-anchor="end" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Performance</text>
+                <text x="-86" y="-42" text-anchor="end" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Lifecycle</text>
+                <!-- Score dots -->
+                <circle cx="0" cy="-78" r="4" fill="var(--primary)"/>
+                <circle cx="48" cy="-28" r="4" fill="var(--primary)"/>
+                <circle cx="59" cy="34" r="4" fill="var(--primary)"/>
+                <circle cx="0" cy="45" r="4" fill="var(--primary)"/>
+              </g>
+            </svg>
+          </section>
+
+          <div class="divider"></div>
+
+          <!-- Per-pillar rows -->
+          <section aria-labelledby="pillars-heading" data-od-id="pillar-rows">
+            <p class="section-heading" id="pillars-heading">Pillar breakdown</p>
+            <!-- Reactivity — Proficient -->
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--primary); flex-shrink:0;"><use href="#icon-lightning"/></svg>
+              <span class="pillar-name">Reactivity &amp; State</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:87%; background:var(--primary);"></div></div>
+              <span class="pillar-pct" aria-label="87 percent" style="color:var(--primary);">87%</span>
+              <div class="pillar-tier-cell">
+                <span class="tier-badge tier-proficient">
+                  <svg class="icon-sm" aria-hidden="true"><use href="#icon-check-circle"/></svg>
+                  Proficient
+                </span>
+              </div>
+            </div>
+            <!-- Lifecycle — Developing -->
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground); flex-shrink:0;"><use href="#icon-arrows-clockwise"/></svg>
+              <span class="pillar-name">Lifecycle &amp; Effects</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:62%; background:var(--muted-foreground);"></div></div>
+              <span class="pillar-pct" aria-label="62 percent" style="color:var(--muted-foreground);">62%</span>
+              <div class="pillar-tier-cell">
+                <span class="tier-badge tier-developing">
+                  <svg class="icon-sm" aria-hidden="true"><use href="#icon-trend-up"/></svg>
+                  Developing
+                </span>
+              </div>
+            </div>
+            <!-- Performance — Developing -->
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground); flex-shrink:0;"><use href="#icon-cpu"/></svg>
+              <span class="pillar-name">Performance</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:75%; background:var(--muted-foreground);"></div></div>
+              <span class="pillar-pct" aria-label="75 percent" style="color:var(--muted-foreground);">75%</span>
+              <div class="pillar-tier-cell">
+                <span class="tier-badge tier-developing">
+                  <svg class="icon-sm" aria-hidden="true"><use href="#icon-trend-up"/></svg>
+                  Developing
+                </span>
+              </div>
+            </div>
+            <!-- Async — Skill gap -->
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--destructive); flex-shrink:0;"><use href="#icon-cloud-arrow-down"/></svg>
+              <span class="pillar-name">Async &amp; Data Fetching</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:50%; background:var(--destructive);"></div></div>
+              <span class="pillar-pct" aria-label="50 percent" style="color:var(--destructive);">50%</span>
+              <div class="pillar-tier-cell">
+                <span class="tier-badge tier-gap">
+                  <svg class="icon-sm" aria-hidden="true"><use href="#icon-warning"/></svg>
+                  Skill gap
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <div class="divider"></div>
+
+          <!-- Skill gaps block -->
+          <section aria-labelledby="gaps-heading" data-od-id="skill-gaps">
+            <p class="section-heading" id="gaps-heading">Skill gaps</p>
+            <div class="gap-block">
+              <div style="display:flex; align-items:flex-start; gap:10px;">
+                <svg class="icon" aria-hidden="true" style="color:var(--destructive); margin-top:1px; flex-shrink:0;"><use href="#icon-warning"/></svg>
+                <div>
+                  <p style="font-size:14px; font-weight:600; margin-block-end:4px; color:var(--destructive);">
+                    Async &amp; Data Fetching — Skill gap
+                  </p>
+                  <p style="font-size:13px; color:var(--foreground); line-height:1.5; margin-block-end:10px;">
+                    You struggled with error boundary placement and concurrent data patterns. Focus on <code style="font-family:var(--font-mono);font-size:12px;">Suspense</code>, <code style="font-family:var(--font-mono);font-size:12px;">useTransition</code>, and fetch-on-render vs. fetch-as-you-render.
+                  </p>
+                  <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                    <a class="link" href="#" data-od-id="gap-link-1">
+                      React docs: Suspense
+                      <svg class="icon-sm" aria-hidden="true"><use href="#icon-arrow-square-out"/></svg>
+                    </a>
+                    <a class="link" href="#" data-od-id="gap-link-2">
+                      TanStack Query guide
+                      <svg class="icon-sm" aria-hidden="true"><use href="#icon-arrow-square-out"/></svg>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="divider"></div>
+
+          <!-- Per-question review -->
+          <section aria-labelledby="review-heading" data-od-id="question-review">
+            <p class="section-heading" id="review-heading">Question review</p>
+            <!-- Q1 correct -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">When does React batch state updates in event handlers?</p>
+                <p class="review-exp">React 18 batches all state updates in event handlers, timeouts, and promises automatically. Your answer correctly identified automatic batching.</p>
+              </div>
+            </div>
+            <!-- Q2 correct -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">What is the correct way to update state based on its previous value?</p>
+                <p class="review-exp">Using the functional form <code style="font-family:var(--font-mono);font-size:12px;">setCount(prev => prev + 1)</code> ensures each update sees the latest state, preventing lost updates.</p>
+              </div>
+            </div>
+            <!-- Q3 correct -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">Which hook is the right tool for syncing with an external system?</p>
+                <p class="review-exp"><code style="font-family:var(--font-mono);font-size:12px;">useEffect</code> is the correct choice for synchronising with external systems. You correctly identified it.</p>
+              </div>
+            </div>
+            <!-- Q4 incorrect -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Incorrect" style="color:var(--destructive);"><use href="#icon-x-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">How do you cancel a fetch inside a <code style="font-family:var(--font-mono);font-size:12px;">useEffect</code>?</p>
+                <p class="review-exp">The correct approach is to use an <code style="font-family:var(--font-mono);font-size:12px;">AbortController</code> and call <code style="font-family:var(--font-mono);font-size:12px;">abort()</code> in the cleanup function. You selected "return a boolean flag" which doesn't cancel the network request.</p>
+              </div>
+            </div>
+            <!-- Q5 correct -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">What does <code style="font-family:var(--font-mono);font-size:12px;">React.memo</code> do?</p>
+                <p class="review-exp">Correct — <code style="font-family:var(--font-mono);font-size:12px;">React.memo</code> skips re-rendering a component if its props haven't changed (shallow equality check).</p>
+              </div>
+            </div>
+            <!-- Q6 correct -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">When should you use <code style="font-family:var(--font-mono);font-size:12px;">useCallback</code>?</p>
+                <p class="review-exp">Correct — stabilise a function reference to prevent unnecessary child re-renders when it's passed as a prop.</p>
+              </div>
+            </div>
+            <!-- Q7 incorrect -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Incorrect" style="color:var(--destructive);"><use href="#icon-x-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">What triggers a component to re-render?</p>
+                <p class="review-exp">State changes, prop changes, and context value changes all trigger re-renders. You missed context updates as a trigger.</p>
+              </div>
+            </div>
+            <!-- Q8 correct -->
+            <div class="review-row">
+              <div class="review-icon">
+                <svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg>
+              </div>
+              <div class="review-text">
+                <p class="review-q">What is the purpose of <code style="font-family:var(--font-mono);font-size:12px;">useLayoutEffect</code>?</p>
+                <p class="review-exp">Fires synchronously after the DOM mutations, before the browser paints. Correct — use it when you need to measure or mutate the DOM before the user sees it.</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Start over CTA -->
+          <div style="padding-block-start:4px;">
+            <button class="btn btn-outline" type="button" data-od-id="start-over-btn" style="gap:8px;">
+              <svg class="icon" aria-hidden="true"><use href="#icon-arrow-ccw"/></svg>
+              Start over
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- DARK -->
+      <div>
+        <p class="panel-label">Dark</p>
+        <div class="panel panel-dark" data-od-id="report-dark" style="padding:32px 36px; display:flex; flex-direction:column; gap:28px;">
+
+          <header>
+            <div class="wordmark" style="margin-block-end:20px;" aria-label="DevGrade"><span class="wordmark-dot" aria-hidden="true"></span>DevGrade</div>
+            <p class="section-heading">Your results</p>
+            <div style="display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap;">
+              <div class="score-display" aria-label="Score: 6 out of 8">6<span class="score-denom">/8</span></div>
+              <div style="padding-block-end:6px; display:flex; flex-direction:column; gap:4px;">
+                <span class="tier-badge tier-proficient">
+                  <svg class="icon-sm" aria-hidden="true"><use href="#icon-check-circle"/></svg>
+                  Proficient
+                </span>
+                <span style="font-family:var(--font-mono); font-size:11px; color:var(--muted-foreground);">React · Mid level</span>
+              </div>
+            </div>
+          </header>
+
+          <div class="divider"></div>
+
+          <section aria-labelledby="radar-heading-d">
+            <p class="section-heading" id="radar-heading-d">Skill radar</p>
+            <svg viewBox="0 0 260 220" width="100%" height="200" role="img" aria-label="Skill radar" style="overflow:visible;">
+              <defs>
+                <style>.radar-area-d { fill:oklch(0.448 0.119 151.328 / 20%); stroke:oklch(0.448 0.119 151.328); stroke-width:1.5; }</style>
+              </defs>
+              <g transform="translate(130,110)">
+                <polygon class="radar-grid" points="0,-22 21,-11 21,11 0,22 -21,11 -21,-11"/>
+                <polygon class="radar-grid" points="0,-45 39,-22 39,22 0,45 -39,22 -39,-22"/>
+                <polygon class="radar-grid" points="0,-67 58,-34 58,34 0,67 -58,34 -58,-34"/>
+                <polygon class="radar-grid" points="0,-90 78,-45 78,45 0,90 -78,45 -78,-45"/>
+                <line x1="0" y1="0" x2="0" y2="-90" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="78" y2="-45" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="78" y2="45" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="0" y2="90" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="-78" y2="45" stroke="var(--border)" stroke-width="1"/>
+                <line x1="0" y1="0" x2="-78" y2="-45" stroke="var(--border)" stroke-width="1"/>
+                <polygon class="radar-area-d" points="0,-78 48,-28 59,34 0,45 -59,34 -48,-28"/>
+                <text x="0" y="-96" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Reactivity</text>
+                <text x="86" y="-42" text-anchor="start" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Lifecycle</text>
+                <text x="86" y="50" text-anchor="start" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Performance</text>
+                <text x="0" y="106" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Async</text>
+                <text x="-86" y="50" text-anchor="end" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Performance</text>
+                <text x="-86" y="-42" text-anchor="end" font-family="var(--font-sans)" font-size="11" fill="var(--foreground)" font-weight="500">Lifecycle</text>
+                <circle cx="0" cy="-78" r="4" fill="var(--primary)"/>
+                <circle cx="48" cy="-28" r="4" fill="var(--primary)"/>
+                <circle cx="59" cy="34" r="4" fill="var(--primary)"/>
+                <circle cx="0" cy="45" r="4" fill="var(--primary)"/>
+              </g>
+            </svg>
+          </section>
+
+          <div class="divider"></div>
+
+          <section aria-labelledby="pillars-heading-d">
+            <p class="section-heading" id="pillars-heading-d">Pillar breakdown</p>
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--primary); flex-shrink:0;"><use href="#icon-lightning"/></svg>
+              <span class="pillar-name">Reactivity &amp; State</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:87%; background:var(--primary);"></div></div>
+              <span class="pillar-pct" style="color:var(--primary);">87%</span>
+              <div class="pillar-tier-cell"><span class="tier-badge tier-proficient"><svg class="icon-sm" aria-hidden="true"><use href="#icon-check-circle"/></svg>Proficient</span></div>
+            </div>
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground); flex-shrink:0;"><use href="#icon-arrows-clockwise"/></svg>
+              <span class="pillar-name">Lifecycle &amp; Effects</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:62%; background:var(--muted-foreground);"></div></div>
+              <span class="pillar-pct" style="color:var(--muted-foreground);">62%</span>
+              <div class="pillar-tier-cell"><span class="tier-badge tier-developing"><svg class="icon-sm" aria-hidden="true"><use href="#icon-trend-up"/></svg>Developing</span></div>
+            </div>
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--muted-foreground); flex-shrink:0;"><use href="#icon-cpu"/></svg>
+              <span class="pillar-name">Performance</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:75%; background:var(--muted-foreground);"></div></div>
+              <span class="pillar-pct" style="color:var(--muted-foreground);">75%</span>
+              <div class="pillar-tier-cell"><span class="tier-badge tier-developing"><svg class="icon-sm" aria-hidden="true"><use href="#icon-trend-up"/></svg>Developing</span></div>
+            </div>
+            <div class="pillar-row">
+              <svg class="icon-sm" aria-hidden="true" style="color:var(--destructive); flex-shrink:0;"><use href="#icon-cloud-arrow-down"/></svg>
+              <span class="pillar-name">Async &amp; Data Fetching</span>
+              <div class="pillar-bar-wrap"><div class="pillar-bar" style="width:50%; background:var(--destructive);"></div></div>
+              <span class="pillar-pct" style="color:var(--destructive);">50%</span>
+              <div class="pillar-tier-cell"><span class="tier-badge tier-gap"><svg class="icon-sm" aria-hidden="true"><use href="#icon-warning"/></svg>Skill gap</span></div>
+            </div>
+          </section>
+
+          <div class="divider"></div>
+
+          <section aria-labelledby="gaps-heading-d">
+            <p class="section-heading" id="gaps-heading-d">Skill gaps</p>
+            <div class="gap-block">
+              <div style="display:flex; align-items:flex-start; gap:10px;">
+                <svg class="icon" aria-hidden="true" style="color:var(--destructive); margin-top:1px; flex-shrink:0;"><use href="#icon-warning"/></svg>
+                <div>
+                  <p style="font-size:14px; font-weight:600; margin-block-end:4px; color:var(--destructive);">Async &amp; Data Fetching — Skill gap</p>
+                  <p style="font-size:13px; color:var(--foreground); line-height:1.5; margin-block-end:10px;">Focus on <code style="font-family:var(--font-mono);font-size:12px;">Suspense</code>, <code style="font-family:var(--font-mono);font-size:12px;">useTransition</code>, and fetch-on-render vs. fetch-as-you-render.</p>
+                  <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                    <a class="link" href="#">React docs: Suspense<svg class="icon-sm" aria-hidden="true" style="margin-inline-start:3px;"><use href="#icon-arrow-square-out"/></svg></a>
+                    <a class="link" href="#">TanStack Query guide<svg class="icon-sm" aria-hidden="true" style="margin-inline-start:3px;"><use href="#icon-arrow-square-out"/></svg></a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="divider"></div>
+
+          <section aria-labelledby="review-heading-d">
+            <p class="section-heading" id="review-heading-d">Question review</p>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg></div><div class="review-text"><p class="review-q">When does React batch state updates in event handlers?</p><p class="review-exp">React 18 batches all updates automatically. Your answer was correct.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg></div><div class="review-text"><p class="review-q">Functional update form for <code style="font-family:var(--font-mono);font-size:12px;">setState</code>.</p><p class="review-exp">Correct — <code style="font-family:var(--font-mono);font-size:12px;">prev => prev + 1</code> guarantees stale-closure safety.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg></div><div class="review-text"><p class="review-q">Syncing with an external system.</p><p class="review-exp"><code style="font-family:var(--font-mono);font-size:12px;">useEffect</code> is the right tool. Correct.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Incorrect" style="color:var(--destructive);"><use href="#icon-x-circle"/></svg></div><div class="review-text"><p class="review-q">Cancelling a fetch inside <code style="font-family:var(--font-mono);font-size:12px;">useEffect</code>.</p><p class="review-exp">Use <code style="font-family:var(--font-mono);font-size:12px;">AbortController</code> + cleanup. You selected a boolean flag instead.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg></div><div class="review-text"><p class="review-q">What does <code style="font-family:var(--font-mono);font-size:12px;">React.memo</code> do?</p><p class="review-exp">Skips re-render when props haven't changed. Correct.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg></div><div class="review-text"><p class="review-q">When to use <code style="font-family:var(--font-mono);font-size:12px;">useCallback</code>.</p><p class="review-exp">Stabilise callback references passed to children. Correct.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Incorrect" style="color:var(--destructive);"><use href="#icon-x-circle"/></svg></div><div class="review-text"><p class="review-q">What triggers a re-render?</p><p class="review-exp">State, props, and context changes all do. You missed context.</p></div></div>
+            <div class="review-row"><div class="review-icon"><svg class="icon" aria-label="Correct" style="color:var(--primary);"><use href="#icon-check-circle"/></svg></div><div class="review-text"><p class="review-q"><code style="font-family:var(--font-mono);font-size:12px;">useLayoutEffect</code> purpose.</p><p class="review-exp">Fires before paint — use for DOM measurement. Correct.</p></div></div>
+          </section>
+
+          <div>
+            <button class="btn btn-outline" type="button" style="gap:8px;">
+              <svg class="icon" aria-hidden="true"><use href="#icon-arrow-ccw"/></svg>
+              Start over
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /panels -->
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════
+       COMPONENT SHEET
+       ══════════════════════════════════════════════════════ -->
+  <section class="screen-section" id="screen-components" data-od-id="screen-components" role="tabpanel">
+    <div style="background:oklch(0.98 0 0); border:1px solid oklch(0.88 0 0); border-radius:12px; padding:36px 40px; display:flex; flex-direction:column; gap:40px;">
+
+      <!-- Buttons -->
+      <div data-od-id="comp-buttons">
+        <p class="section-heading">Button variants</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button class="btn btn-primary" type="button">Primary</button>
+          <button class="btn btn-outline" type="button">Outline</button>
+          <button class="btn btn-ghost" type="button">Ghost</button>
+          <button class="btn btn-destructive" type="button">Destructive</button>
+          <button class="btn btn-primary" type="button" disabled aria-disabled="true">Disabled</button>
+          <button class="btn btn-primary btn-loading" type="button" aria-busy="true">
+            <svg class="icon spinner" aria-hidden="true"><use href="#icon-spinner-gap"/></svg>
+            Loading…
+          </button>
+          <button class="btn btn-primary btn-lg" type="button" style="gap:8px;">
+            Start assessment
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+          </button>
+          <button class="btn btn-outline btn-sm" type="button" style="gap:6px;">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-arrow-ccw"/></svg>
+            Start over
+          </button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Radio option rows -->
+      <div data-od-id="comp-radio">
+        <p class="section-heading">Radio option row</p>
+        <div style="max-width:480px; display:flex; flex-direction:column; gap:8px;">
+          <label class="radio-option">
+            <input type="radio" name="demo" value="a" style="position:absolute;opacity:0;width:0;height:0;" />
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span class="radio-key" aria-hidden="true">A</span>
+            <span class="radio-label">Default (unselected) state</span>
+          </label>
+          <label class="radio-option selected">
+            <input type="radio" name="demo" value="b" checked style="position:absolute;opacity:0;width:0;height:0;" />
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span class="radio-key" aria-hidden="true">B</span>
+            <span class="radio-label">Selected state — green border + tinted background</span>
+          </label>
+          <label class="radio-option focused">
+            <input type="radio" name="demo" value="c" style="position:absolute;opacity:0;width:0;height:0;" />
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span class="radio-key" aria-hidden="true">C</span>
+            <span class="radio-label">Focus state — ring visible for keyboard navigation</span>
+          </label>
+          <label class="radio-option" style="opacity:0.5; pointer-events:none;">
+            <input type="radio" name="demo" value="d" disabled style="position:absolute;opacity:0;width:0;height:0;" />
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span class="radio-key" aria-hidden="true">D</span>
+            <span class="radio-label">Disabled state</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Chips & tier badges -->
+      <div data-od-id="comp-chips">
+        <p class="section-heading">Chips &amp; tier badges</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <span class="chip">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-stack-simple"/></svg>
+            Reactivity &amp; State
+          </span>
+          <span class="chip chip-primary">
+            <svg class="icon-sm" aria-hidden="true" style="color:var(--primary);"><use href="#icon-lightning"/></svg>
+            Active pillar
+          </span>
+          <span class="tier-badge tier-proficient">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-check-circle"/></svg>
+            Proficient
+          </span>
+          <span class="tier-badge tier-developing">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-trend-up"/></svg>
+            Developing
+          </span>
+          <span class="tier-badge tier-gap">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-warning"/></svg>
+            Skill gap
+          </span>
+          <span class="chip" style="background:var(--muted); color:var(--muted-foreground); font-family:var(--font-mono);">Coming soon</span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Progress bar -->
+      <div data-od-id="comp-progress">
+        <p class="section-heading">Progress bar</p>
+        <div style="display:flex; flex-direction:column; gap:16px; max-width:480px;">
+          <div>
+            <div style="display:flex; justify-content:space-between; margin-block-end:6px; font-family:var(--font-mono); font-size:11px; color:var(--muted-foreground);">
+              <span>Q 3 / 8</span><span>37.5%</span>
+            </div>
+            <div class="progress-track" role="progressbar" aria-valuenow="37" aria-valuemin="0" aria-valuemax="100" aria-label="Assessment progress" style="height:4px;">
+              <div class="progress-fill" style="width:37.5%;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="margin-block-end:6px; font-size:11px; color:var(--muted-foreground);">Thin variant (default, 3px)</div>
+            <div class="progress-track" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-fill" style="width:75%;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="margin-block-end:6px; font-size:11px; color:var(--muted-foreground);">Pillar score bar (inside table cell)</div>
+            <div class="pillar-bar-wrap" style="width:160px; height:5px;" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100">
+              <div class="pillar-bar" style="width:62%; background:var(--muted-foreground);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Icon reference -->
+      <div data-od-id="comp-icons">
+        <p class="section-heading">Phosphor icon reference (Regular, 16px)</p>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:12px;">
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-clock"/></svg>
+            <span>Clock</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-timer"/></svg>
+            <span>Timer</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+            <span>ArrowRight</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-trend-up"/></svg>
+            <span>CaretRight</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--primary);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-check-circle"/></svg>
+            <span style="color:var(--foreground);">CheckCircle·Fill</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--destructive);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-x-circle"/></svg>
+            <span style="color:var(--foreground);">XCircle·Fill</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--destructive);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-warning"/></svg>
+            <span style="color:var(--foreground);">Warning</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-square-out"/></svg>
+            <span>ArrowSquareOut</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-stack-simple"/></svg>
+            <span>StackSimple</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-lightning"/></svg>
+            <span>Lightning</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-cpu"/></svg>
+            <span>Cpu</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-git-branch"/></svg>
+            <span>GitBranch</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon spinner" aria-hidden="true"><use href="#icon-spinner-gap"/></svg>
+            <span>SpinnerGap</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-ccw"/></svg>
+            <span>ArrowCCW</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-shield-check"/></svg>
+            <span>ShieldCheck</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--foreground);">
+            <svg class="icon" aria-hidden="true"><use href="#icon-user-circle"/></svg>
+            <span>UserCircle</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</div><!-- /mockup-shell -->
+
+<script>
+/* Tab navigation */
+(function() {
+  const tabs = document.querySelectorAll('.tab-btn');
+  const screens = {
+    intake:     document.getElementById('screen-intake'),
+    runner:     document.getElementById('screen-runner'),
+    report:     document.getElementById('screen-report'),
+    components: document.getElementById('screen-components'),
+  };
+
+  tabs.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      tabs.forEach(function(t) {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      Object.values(screens).forEach(function(s) { s.classList.remove('active'); });
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+      var target = screens[btn.dataset.tab];
+      if (target) target.classList.add('active');
+    });
+    btn.addEventListener('keydown', function(e) {
+      var idx = Array.from(tabs).indexOf(btn);
+      if (e.key === 'ArrowRight' && idx < tabs.length - 1) { tabs[idx + 1].focus(); tabs[idx + 1].click(); }
+      if (e.key === 'ArrowLeft'  && idx > 0)               { tabs[idx - 1].focus(); tabs[idx - 1].click(); }
+    });
+  });
+
+  /* Level segmented controls */
+  document.querySelectorAll('.segmented').forEach(function(group) {
+    group.querySelectorAll('.seg-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        group.querySelectorAll('.seg-btn').forEach(function(b) {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
+      });
+    });
+  });
+
+  /* Framework tiles */
+  document.querySelectorAll('[role="radiogroup"] .fw-tile:not(.disabled)').forEach(function(tile) {
+    tile.addEventListener('click', function() {
+      var group = tile.closest('[role="radiogroup"]');
+      group.querySelectorAll('.fw-tile').forEach(function(t) {
+        t.classList.remove('selected');
+        t.setAttribute('aria-checked', 'false');
+      });
+      tile.classList.add('selected');
+      tile.setAttribute('aria-checked', 'true');
+      var radio = tile.querySelector('input[type="radio"]');
+      if (radio) radio.checked = true;
+    });
+    tile.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tile.click(); }
+    });
+  });
+
+  /* Radio answer options */
+  document.querySelectorAll('.radio-option').forEach(function(opt) {
+    opt.addEventListener('click', function() {
+      var group = opt.closest('fieldset');
+      if (!group) return;
+      group.querySelectorAll('.radio-option').forEach(function(o) { o.classList.remove('selected'); });
+      opt.classList.add('selected');
+      var radio = opt.querySelector('input[type="radio"]');
+      if (radio) radio.checked = true;
+    });
+  });
+})();
+</script>
+</body>
