@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "node --env-file-if-exists=.env scripts/preflight-db.mjs && vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint",
@@ -13,7 +13,7 @@
     "test": "tsx --test \"src/**/*.test.ts\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/db/seed.ts",
+    "db:seed": "node --env-file-if-exists=.env --import tsx src/db/seed.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
