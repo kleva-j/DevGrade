@@ -1,0 +1,30 @@
+DevGrade
+Copyright (c) 2026 DevGrade
+
+This product includes original assessment content authored for DevGrade.
+
+A subset of the seed question bank (apps/web/src/db/seedData.ts) is paraphrased
+and adapted — never copied verbatim — from the following public, MIT-licensed
+reference works. Each affected question is tagged at the data layer with a
+`source` value (see CONTENT_SOURCE in apps/web/src/domain/constants.ts). We
+gratefully acknowledge their authors.
+
+--------------------------------------------------------------------------------
+1. reactjs-interview-questions
+   Author:  Sudheer Jonna and contributors
+   Source:  https://github.com/sudheerj/reactjs-interview-questions
+   License: MIT
+   Used as: reference for canonical React concepts across the four competency
+            pillars (reactivity, lifecycle, performance, async).
+
+2. javascript-questions
+   Author:  Lydia Hallie and contributors
+   Source:  https://github.com/lydiahallie/javascript-questions
+   License: MIT
+   Used as: MCQ format reference and source concepts for JavaScript event-loop /
+            async items feeding the "Async & Data" pillar.
+--------------------------------------------------------------------------------
+
+The MIT License grants permission to use, copy, modify, and distribute the
+above works provided the copyright notice and permission notice are retained.
+This NOTICE serves as that attribution for the adapted concepts.
