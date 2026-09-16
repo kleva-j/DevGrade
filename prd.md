@@ -1,12 +1,12 @@
 # Product Requirements Document (PRD): DevGrade
 
-**Document Version:** 1.2.2
+**Document Version:** 1.4.0
 
 **Status:** Approved for MVP Development
 
 **Target Release:** Q4 2026
 
-**Last Updated:** 2026-09-15
+**Last Updated:** 2026-09-16
 
 **Change Log:**
 
@@ -18,6 +18,7 @@
 | 1.2.1 | 2026-09-15 | Added §10.1 "Content sourcing & licensing" (paraphrase-not-copy policy referencing MIT-licensed `sudheerj/reactjs-interview-questions` and `lydiahallie/javascript-questions`). Added a per-question `source` provenance column (§5.2) and a pillar-tagged 24-question React starter bank (`db/seedData.ts` + idempotent `db/seed.ts` + `db:seed`). Completed Phase 0 seed/migration items (§13). |
 | 1.2.2 | 2026-09-16 | Phase 0 review fixes: unit test suite (`node:test`, 26 tests, `pnpm test`) covering scoring/sampling/proficiency/PRNG; hardened stratified sampling to pair core+advanced by weight class (robust for unbalanced pools); narrowed the duplicate-answer catch to true unique-violations; guarded the completion question lookup; `count(*)` for answered-count; auto-bump `questions.updated_at`; category upsert on re-seed; extracted `RATE_LIMIT_WINDOW_MINUTES` and computed `PROFICIENCY_THRESHOLDS` keys; declared `tsx`. Phase 0 marked complete (§13). |
 | 1.3.0 | 2026-09-16 | Phases 1–3 implemented in `apps/web`: TanStack Start server functions (`server/assessmentFns.ts`) as the client API boundary (answer key verified absent from the client bundle, decision #5); XState-driven candidate UI (`components/assessment/*`: intake, question runner with per-question timer + `visibilitychange` focus-loss, loading/error/retry) wired via `machines/assessmentServices.ts`; report with categorical skill radar, per-pillar breakdown, focus areas, and question review. Anonymous client id minted client-side in `localStorage` and passed to `createSession` (replaces the server cookie plan; hashed server-side, equivalent for rate limiting). Promoted categorical `--chart-*` + `--code-*` tokens into `globals.css` and documented them in `design.md` §4. |
+| 1.4.0 | 2026-09-16 | Phase 3 satisfaction survey: normalized `session_surveys` table (1..5 helpfulness, unique per session; migration `0001`), `submitSurvey` service + server fn (allowed only after completion, upserts on re-submit), and a report survey card driven by new `completed` machine substates (`surveyPrompt`/`submittingSurvey`/`surveyThanks`). Survey bounds centralized in `domain/constants.ts`; copy in `components/assessment/copy.ts`.   
 
 ---
 
@@ -237,6 +238,14 @@ CREATE TABLE session_category_scores (
     UNIQUE (session_id, skill_category)
 );
 CREATE INDEX idx_category_scores_session ON session_category_scores(session_id);
+
+-- 7. Session Surveys (post-assessment satisfaction, §3 KPI; one row per session)
+CREATE TABLE session_surveys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID UNIQUE NOT NULL REFERENCES test_sessions(id) ON DELETE CASCADE,
+    helpfulness_rating INT NOT NULL,             -- 1..5; upserted on re-submit
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 ---
@@ -435,6 +444,10 @@ Finalize the assessment and generate results.
 
 > Note: With one core (weight 1.0) and one advanced (weight 2.0) question per pillar, each `category_scores` value resolves to 0 / 33 / 67 / 100 (decision #3). `performance: 33` (core correct, advanced wrong) falls below the 50% threshold and is flagged as a skill gap; `lifecycle: 67` sits in the Developing band. `total_score` is the weighted overall percentage: correct weight 9.0 of 12.0 total weight = 75. `max_score` is fixed at 100. `skill_gaps` lists only categories below 50%. Full per-pillar rows are persisted in `session_category_scores`.
 
+#### POST /api/sessions/:id/survey
+
+Record the post-assessment satisfaction rating (§3 KPI). Accepts `{ session_token, rating }` where `rating` is `1..5`; allowed only after the session is completed and upserts, so a candidate can revise their rating without a 409. Returns `{ success: true }`. Persisted one-row-per-session in `session_surveys`.
+
 ### 7.2 Error Handling Strategy
 
 - **400 Bad Request**: Invalid input data, malformed JSON
@@ -606,7 +619,7 @@ The items below were open in v1.1.0 and are now decided and implemented in `apps
 
 ## 13. Implementation Plan (MVP)
 
-The domain core, server API (server functions), candidate UI, and report are built and typecheck/build clean (`apps/web/src/{domain,db,server,machines,components,routes}`). Phases 1–3 are largely delivered; the remaining work (integration tests against a live DB, erasure fn, satisfaction survey, content growth) is called out per phase below. Each phase is independently shippable and testable.
+The domain core, server API (server functions), candidate UI, and report are built and typecheck/build clean (`apps/web/src/{domain,db,server,machines,components,routes}`). Phases 1–3 are largely delivered; the remaining work (integration tests against a live DB, erasure fn, content growth) is called out per phase below. Each phase is independently shippable and testable.
 
 ### Phase 0 — Foundations (complete)
 
@@ -646,7 +659,7 @@ Build the screens, driven by `@xstate/react` `useMachine`. **Complete.**
 Render the completed `AssessmentResult`. **Mostly complete.**
 
 - [x] Overall score + proficiency tier badge; categorical SVG skill radar (`SkillRadar.tsx`, `--chart-*` pillar colors); per-pillar breakdown bars; per-question correct/incorrect with explanations; focus areas (flagged gaps) with pillar remediation copy.
-- [ ] Post-assessment 1-question satisfaction survey (feeds the Satisfaction KPI).
+- [x] Post-assessment 1-question satisfaction survey (feeds the Satisfaction KPI): normalized `session_surveys` table (1..5 helpfulness, unique per session, upserted on re-submit), `submitSurvey` service + server fn (only after completion), surfaced as a survey card in the report driven by the machine's `completed` substates.
 - **Exit criteria:** report matches persisted `session_results` + `session_category_scores`; skill gaps render remediation.
 
 ### Phase 4 — Content & hardening
