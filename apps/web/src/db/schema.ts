@@ -179,6 +179,22 @@ export const sessionCategoryScores = pgTable(
   ],
 );
 
+/**
+ * Post-assessment satisfaction survey — one row per session (§3 KPI).
+ * `helpfulnessRating` is a 1..5 score bounded by `SURVEY_RATING_MIN/MAX`.
+ */
+export const sessionSurveys = pgTable("session_surveys", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: uuid("session_id")
+    .notNull()
+    .unique()
+    .references(() => testSessions.id, { onDelete: "cascade" }),
+  helpfulnessRating: integer("helpfulness_rating").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export type QuestionRow = typeof questions.$inferSelect;
 export type NewQuestion = typeof questions.$inferInsert;
 export type TestSessionRow = typeof testSessions.$inferSelect;

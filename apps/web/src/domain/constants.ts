@@ -140,3 +140,12 @@ export const RATE_LIMIT_WINDOW_MINUTES = 60;
 
 /** In-progress sessions idle longer than this are swept to `abandoned`. */
 export const ABANDON_AFTER_MINUTES = 30;
+
+/**
+ * Post-assessment satisfaction survey (§3 "User Assessment Satisfaction" KPI).
+ * One question — "How helpful was this assessment?" — on a 1..5 scale. These
+ * bounds are the single source of truth for the Zod validators, the machine, and
+ * the rating control in the report UI.
+ */
+export const SURVEY_RATING_MIN = 1;
+export const SURVEY_RATING_MAX = 5;
