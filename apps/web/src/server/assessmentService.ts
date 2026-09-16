@@ -25,6 +25,8 @@ import {
 import {
   RATE_LIMIT_WINDOW_MINUTES,
   MAX_SESSIONS_PER_HOUR,
+  SURVEY_RATING_MIN,
+  SURVEY_RATING_MAX,
   TOTAL_QUESTIONS,
   MVP_FRAMEWORKS,
   SESSION_STATUS,
@@ -37,6 +39,7 @@ import {
   sessionCategoryScores,
   sessionAnswers,
   sessionResults,
+  sessionSurveys,
   testSessions,
 } from "@/db/schema";
 
@@ -56,6 +59,11 @@ export const submitAnswerSchema = z.object({
 
 export const completeSessionSchema = z.object({
   sessionToken: z.string().min(1),
+});
+
+export const submitSurveySchema = z.object({
+  sessionToken: z.string().min(1),
+  rating: z.number().int().min(SURVEY_RATING_MIN).max(SURVEY_RATING_MAX),
 });
 
 // --- Helpers -----------------------------------------------------------------
@@ -354,14 +362,48 @@ export function createAssessmentService(db: Db) {
 
       return result;
     },
+
+    /**
+     * `POST /api/sessions/:id/survey` — record the post-assessment satisfaction
+     * rating (§3 KPI). Only allowed once the session is completed; a re-submit
+     * upserts so the candidate can change their rating without a 409.
+     */
+    async submitSurvey(
+      sessionId: string,
+      input: { sessionToken: string; rating: number },
+    ): Promise<{ success: true }> {
+      const parsed = submitSurveySchema.safeParse(input);
+      if (!parsed.success) {
+        throw new AssessmentError(
+          ERROR_CODE.BAD_REQUEST,
+          MESSAGES.invalidSurveyPayload,
+        );
+      }
+      const { sessionToken, rating } = parsed.data;
+
+      const session = await loadSession(db, sessionId, sessionToken);
+      if (session.status !== SESSION_STATUS.COMPLETED) {
+        throw new AssessmentError(
+          ERROR_CODE.BAD_REQUEST,
+          MESSAGES.surveyBeforeComplete,
+        );
+      }
+
+      await db
+        .insert(sessionSurveys)
+        .values({ sessionId, helpfulnessRating: rating })
+        .onConflictDoUpdate({
+          target: sessionSurveys.sessionId,
+          set: { helpfulnessRating: rating },
+        });
+
+      return { success: true };
+    },
   };
 }
 
-async function loadOpenSession(
-  db: Db,
-  sessionId: string,
-  sessionToken: string,
-) {
+/** Load a session and verify the caller holds its opaque token, or 404. */
+async function loadSession(db: Db, sessionId: string, sessionToken: string) {
   const [session] = await db
     .select()
     .from(testSessions)
@@ -370,6 +412,16 @@ async function loadOpenSession(
   if (!session || session.sessionToken !== sessionToken) {
     throw new AssessmentError(ERROR_CODE.NOT_FOUND, MESSAGES.sessionNotFound);
   }
+  return session;
+}
+
+/** Like `loadSession`, but rejects an already-completed session (409). */
+async function loadOpenSession(
+  db: Db,
+  sessionId: string,
+  sessionToken: string,
+) {
+  const session = await loadSession(db, sessionId, sessionToken);
   if (session.status === SESSION_STATUS.COMPLETED) {
     throw new AssessmentError(
       ERROR_CODE.SESSION_COMPLETED,

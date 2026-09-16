@@ -23,5 +23,7 @@ export const MESSAGES = {
     "All questions must be answered before completing the assessment.",
   sessionNotFound: "Session not found.",
   sessionAlreadyComplete: "This assessment is already complete.",
+  invalidSurveyPayload: "Invalid survey response.",
+  surveyBeforeComplete: "You can rate the assessment after completing it.",
   unexpectedError: "An unexpected error occurred.",
 } as const;

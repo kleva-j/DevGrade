@@ -2,10 +2,16 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { createAssessmentService } from "@/server/assessmentService";
-import { DIFFICULTIES, FRAMEWORKS } from "@/domain/constants";
 import { AssessmentError } from "@/server/errors";
 import { MESSAGES } from "@/server/messages";
 import { getDb } from "@/db/client";
+
+import {
+  SURVEY_RATING_MIN,
+  SURVEY_RATING_MAX,
+  DIFFICULTIES,
+  FRAMEWORKS,
+} from "@/domain/constants";
 
 /**
  * TanStack Start server functions — the client boundary for the assessment API.
@@ -35,6 +41,12 @@ const submitAnswerInput = z.object({
 const completeSessionInput = z.object({
   sessionId: z.string().min(1),
   sessionToken: z.string().min(1),
+});
+
+const submitSurveyInput = z.object({
+  sessionId: z.string().min(1),
+  sessionToken: z.string().min(1),
+  rating: z.number().int().min(SURVEY_RATING_MIN).max(SURVEY_RATING_MAX),
 });
 
 /**
@@ -79,6 +91,20 @@ export const completeSessionFn = createServerFn({ method: "POST" })
       return await createAssessmentService(getDb()).completeSession(sessionId, {
         sessionToken,
       });
+    } catch (err) {
+      toClientError(err);
+    }
+  });
+
+export const submitSurveyFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => submitSurveyInput.parse(data))
+  .handler(async ({ data }) => {
+    const { sessionId, ...rest } = data;
+    try {
+      return await createAssessmentService(getDb()).submitSurvey(
+        sessionId,
+        rest,
+      );
     } catch (err) {
       toClientError(err);
     }
