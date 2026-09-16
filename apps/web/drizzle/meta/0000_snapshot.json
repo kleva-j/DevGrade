@@ -149,12 +149,8 @@
           "name": "questions_skill_category_skill_categories_name_fk",
           "tableFrom": "questions",
           "tableTo": "skill_categories",
-          "columnsFrom": [
-            "skill_category"
-          ],
-          "columnsTo": [
-            "name"
-          ],
+          "columnsFrom": ["skill_category"],
+          "columnsTo": ["name"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -257,12 +253,8 @@
           "name": "session_answers_session_id_test_sessions_id_fk",
           "tableFrom": "session_answers",
           "tableTo": "test_sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -270,12 +262,8 @@
           "name": "session_answers_question_id_questions_id_fk",
           "tableFrom": "session_answers",
           "tableTo": "questions",
-          "columnsFrom": [
-            "question_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["question_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -378,12 +366,8 @@
           "name": "session_category_scores_session_id_test_sessions_id_fk",
           "tableFrom": "session_category_scores",
           "tableTo": "test_sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -391,12 +375,8 @@
           "name": "session_category_scores_skill_category_skill_categories_name_fk",
           "tableFrom": "session_category_scores",
           "tableTo": "skill_categories",
-          "columnsFrom": [
-            "skill_category"
-          ],
-          "columnsTo": [
-            "name"
-          ],
+          "columnsFrom": ["skill_category"],
+          "columnsTo": ["name"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -465,12 +445,8 @@
           "name": "session_results_session_id_test_sessions_id_fk",
           "tableFrom": "session_results",
           "tableTo": "test_sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -480,9 +456,7 @@
         "session_results_session_id_unique": {
           "name": "session_results_session_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "session_id"
-          ]
+          "columns": ["session_id"]
         }
       },
       "policies": {},
@@ -656,9 +630,7 @@
         "test_sessions_session_token_unique": {
           "name": "test_sessions_session_token_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "session_token"
-          ]
+          "columns": ["session_token"]
         }
       },
       "policies": {},
@@ -670,38 +642,22 @@
     "public.difficulty": {
       "name": "difficulty",
       "schema": "public",
-      "values": [
-        "junior",
-        "mid",
-        "senior"
-      ]
+      "values": ["junior", "mid", "senior"]
     },
     "public.framework": {
       "name": "framework",
       "schema": "public",
-      "values": [
-        "react",
-        "vue",
-        "angular"
-      ]
+      "values": ["react", "vue", "angular"]
     },
     "public.proficiency": {
       "name": "proficiency",
       "schema": "public",
-      "values": [
-        "proficient",
-        "developing",
-        "skill_gap"
-      ]
+      "values": ["proficient", "developing", "skill_gap"]
     },
     "public.session_status": {
       "name": "session_status",
       "schema": "public",
-      "values": [
-        "in_progress",
-        "completed",
-        "abandoned"
-      ]
+      "values": ["in_progress", "completed", "abandoned"]
     }
   },
   "schemas": {},

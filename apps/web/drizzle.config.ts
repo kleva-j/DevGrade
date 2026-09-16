@@ -1,4 +1,4 @@
-import { defineConfig } from "drizzle-kit"
+import { defineConfig } from "drizzle-kit";
 
 /**
  * Drizzle Kit config for migrations. PostgreSQL in all environments (#1).
@@ -11,4 +11,4 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL ?? "",
   },
-})
+});

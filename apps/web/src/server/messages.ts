@@ -24,4 +24,4 @@ export const MESSAGES = {
   sessionNotFound: "Session not found.",
   sessionAlreadyComplete: "This assessment is already complete.",
   unexpectedError: "An unexpected error occurred.",
-} as const
+} as const;

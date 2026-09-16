@@ -3,7 +3,7 @@ import type {
   SkillCategory,
   Difficulty,
   Framework,
-} from "./constants"
+} from "./constants";
 
 /**
  * Full question record, including the answer key. This shape lives server-side
@@ -11,17 +11,17 @@ import type {
  * answer key off the wire until the session is completed).
  */
 export interface Question {
-  id: string
-  framework: Framework
-  difficulty: Difficulty
-  skillCategory: SkillCategory
-  title: string
-  prompt: string
-  codeBlock: string | null
-  options: string[]
-  correctAnswer: number
-  explanation: string
-  difficultyWeight: number
+  id: string;
+  framework: Framework;
+  difficulty: Difficulty;
+  skillCategory: SkillCategory;
+  title: string;
+  prompt: string;
+  codeBlock: string | null;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+  difficultyWeight: number;
 }
 
 /**
@@ -29,12 +29,12 @@ export interface Question {
  * This is what `POST /api/sessions` returns for all 8 questions up front.
  */
 export interface PublicQuestion {
-  id: string
-  skillCategory: SkillCategory
-  title: string
-  prompt: string
-  codeBlock: string | null
-  options: string[]
+  id: string;
+  skillCategory: SkillCategory;
+  title: string;
+  prompt: string;
+  codeBlock: string | null;
+  options: string[];
 }
 
 export function toPublicQuestion(q: Question): PublicQuestion {
@@ -45,40 +45,40 @@ export function toPublicQuestion(q: Question): PublicQuestion {
     prompt: q.prompt,
     codeBlock: q.codeBlock,
     options: q.options,
-  }
+  };
 }
 
 export interface AnswerInput {
-  questionId: string
-  selectedAnswer: number
-  timeSpentSeconds: number
+  questionId: string;
+  selectedAnswer: number;
+  timeSpentSeconds: number;
 }
 
 /** One pillar's weighted result. Persisted in `session_category_scores` (#4). */
 export interface CategoryScore {
-  skillCategory: SkillCategory
-  correctWeight: number
-  totalWeight: number
-  scorePct: number
-  proficiency: ProficiencyLevel
+  skillCategory: SkillCategory;
+  correctWeight: number;
+  totalWeight: number;
+  scorePct: number;
+  proficiency: ProficiencyLevel;
 }
 
 export interface QuestionResult {
-  questionId: string
-  isCorrect: boolean
-  explanation: string
+  questionId: string;
+  isCorrect: boolean;
+  explanation: string;
 }
 
 /** Final report returned by `POST /api/sessions/:id/complete`. */
 export interface AssessmentResult {
-  sessionId: string
-  framework: Framework
-  targetLevel: Difficulty
+  sessionId: string;
+  framework: Framework;
+  targetLevel: Difficulty;
   /** Weighted overall percentage, 0..100. */
-  totalScore: number
-  maxScore: 100
-  proficiencyLevel: ProficiencyLevel
-  categoryScores: CategoryScore[]
-  skillGaps: SkillCategory[]
-  questionResults: QuestionResult[]
+  totalScore: number;
+  maxScore: 100;
+  proficiencyLevel: ProficiencyLevel;
+  categoryScores: CategoryScore[];
+  skillGaps: SkillCategory[];
+  questionResults: QuestionResult[];
 }
