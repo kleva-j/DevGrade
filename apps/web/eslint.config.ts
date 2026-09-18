@@ -13,6 +13,15 @@ export default [
     },
   },
   {
-    ignores: ["eslint.config.ts", ".prettierrc"],
+    // Never lint build artifacts: Vite's client bundle (dist), the Nitro
+    // server/public output (.output), and Nitro's intermediate cache.
+    ignores: [
+      "eslint.config.ts",
+      ".prettierrc",
+      "dist/**",
+      ".output/**",
+      ".nitro/**",
+      "node_modules/**",
+    ],
   },
 ];
