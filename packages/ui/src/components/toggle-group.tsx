@@ -1,6 +1,7 @@
+import type { VariantProps } from "class-variance-authority";
+
 import { ToggleGroup as ToggleGroupPrimitive } from "@base-ui/react/toggle-group";
 import { Toggle as TogglePrimitive } from "@base-ui/react/toggle";
-import { type VariantProps } from "class-variance-authority";
 import { createContext, useContext } from "react";
 import { cn } from "cn";
 
