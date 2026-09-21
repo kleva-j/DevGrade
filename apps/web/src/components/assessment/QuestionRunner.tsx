@@ -116,7 +116,7 @@ export function QuestionRunner({
             {UI.runner.selectPrompt}
           </FieldLegend>
           <RadioGroup
-            value={selectedOption ?? undefined}
+            value={selectedOption}
             onValueChange={(value) => onSelect(value as number)}
             disabled={submitting}
           >
