@@ -1,8 +1,8 @@
 /**
  * Starter React question bank for DevGrade.
  *
- * Coverage: 3 levels (junior/mid/senior) × 4 pillars × 8 items each
- * (four `core` @ weight 1.0 and four `advanced` @ weight 2.0), i.e. 96 questions.
+ * Coverage: 3 levels (junior/mid/senior) × 4 pillars × 12 items each
+ * (six `core` @ weight 1.0 and six `advanced` @ weight 2.0), i.e. 144 questions.
  * Multiple items per weight class per bucket give stratified sampling a real pool
  * to randomize over (anti-leakage) while realizing the 0/33/67/100 score
  * granularity (#3). Per-bucket minimum depth is enforced by
@@ -2209,6 +2209,1118 @@ export const seedQuestions: NewQuestion[] = [
     correctAnswer: 1,
     explanation:
       "Optimistic updates apply the expected result right away for responsiveness, keep the prior state, and revert if the mutation fails. React 19's `useOptimistic` formalizes this; the key is storing the rollback value and handling rejection.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ══ BATCH C ════════════════════════════════════════════════════════════════
+  // A fifth and sixth core + advanced item per bucket (→ 6 core + 6 advanced
+  // each, 144 total), reaching the §10.1 pool-depth target. Topics stay distinct
+  // from every item above. Per-bucket floor enforced by
+  // db/__tests__/seedData.test.ts (MIN_CORE/ADVANCED_PER_BUCKET = 6).
+
+  // ── JUNIOR · Reactivity & State ───────────────────────────────────────────
+  {
+    id: "react-junior-reactivity-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "The initial state argument",
+    prompt:
+      "What is the role of the argument passed to `useState`?\n\n`const [count, setCount] = useState(10)`",
+    codeBlock: null,
+    options: [
+      "It is the value React uses on every render.",
+      "It permanently locks the state to that value.",
+      "It is the initial value, used only on the first render; later renders ignore it.",
+      "It re-initializes the state after every update.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "The argument is the initial state and is read only on the component's first render. On later renders React keeps the current state and ignores the argument.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-reactivity-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Removing an item from a list in state",
+    prompt:
+      "You keep a to-do list in state. How do you correctly remove one item?",
+    codeBlock: null,
+    options: [
+      "`setTodos(todos.filter((t) => t.id !== id))`, creating a new array.",
+      "`todos.splice(i, 1)` then `setTodos(todos)`.",
+      "`delete todos[i]` then re-render manually.",
+      "`todos[i] = null` then `setTodos(todos)`.",
+    ],
+    correctAnswer: 0,
+    explanation:
+      "State must be updated immutably. `filter` returns a new array without the removed item, and passing a brand-new reference lets React detect the change and re-render. `splice`/`delete` mutate the existing array in place.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-reactivity-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Object state replaces, not merges",
+    prompt: "Starting from the state below, what is `user` after the update?",
+    codeBlock: [
+      "const [user, setUser] = useState({ name: 'Ada', age: 36 })",
+      "// later:",
+      "setUser({ age: 37 })",
+    ].join("\n"),
+    options: [
+      "{ name: 'Ada', age: 37 } — React merges the objects.",
+      "{ name: 'Ada', age: 36 } — the update is ignored.",
+      "{ age: 37 } — the setter replaces the whole value, so `name` is lost.",
+      "It throws because the shape changed.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "Unlike class `this.setState`, the `useState` setter replaces the state value rather than merging it. Spread the previous state to keep other fields: `setUser((u) => ({ ...u, age: 37 }))`.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-reactivity-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Mutating an array in place",
+    prompt: "Why doesn't the list update on screen after clicking add?",
+    codeBlock: [
+      "const [items, setItems] = useState([])",
+      "function add(x) {",
+      "  items.push(x)",
+      "  setItems(items)",
+      "}",
+    ].join("\n"),
+    options: [
+      "`push` returns the new length, not the array.",
+      "`items` is the same array reference, so React skips the re-render; build a new array instead.",
+      "State can only hold primitives.",
+      "`setItems` must be awaited.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`push` mutates the existing array, so `setItems(items)` receives the same reference React already has and bails out. Use `setItems([...items, x])` (or the updater form) to pass a new array.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── JUNIOR · Lifecycle & Effects ──────────────────────────────────────────
+  {
+    id: "react-junior-lifecycle-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "When an effect runs",
+    prompt: "By default, when does the function inside `useEffect(fn)` run?",
+    codeBlock: null,
+    options: [
+      "Before the component renders.",
+      "Synchronously in the middle of rendering.",
+      "Only when the component unmounts.",
+      "After the render is committed to the screen (after paint).",
+    ],
+    correctAnswer: 3,
+    explanation:
+      "Effects run after React commits the render to the DOM and the browser paints, so they don't block the visual update. Use `useLayoutEffect` for the rare case you must run before paint.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-lifecycle-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Listing a value the effect reads",
+    prompt: "The effect reads `name`. What belongs in the dependency array?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  document.title = `Hello, ${name}`",
+      "}, [/* ? */])",
+    ].join("\n"),
+    options: [
+      "`[]`, so it only runs once.",
+      "Nothing; effects track dependencies automatically.",
+      "`[name]`, so it re-runs whenever `name` changes.",
+      "`[document.title]`.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "List every reactive value the effect reads. Because the effect uses `name`, `[name]` makes React re-run it whenever `name` changes, keeping the title in sync.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-junior-lifecycle-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Setting state after unmount",
+    prompt:
+      "A component starts a fetch in an effect and calls `setData` when it resolves, but it may unmount first. What is the correct guard?",
+    codeBlock: null,
+    options: [
+      "Nothing is needed; React ignores it silently.",
+      "Call `setData` inside the cleanup function.",
+      "Wrap the fetch in `setTimeout`.",
+      "Use a cleanup flag (or AbortController) so you don't set state after unmount.",
+    ],
+    correctAnswer: 3,
+    explanation:
+      "If the component unmounts before the request resolves, updating state is wasted work. Track an `ignore`/`cancelled` flag in the effect and check it before calling `setData`, or abort the request in cleanup.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-lifecycle-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Subscribing to a browser event",
+    prompt: "Why does this effect return a function?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  function onResize() { /* ... */ }",
+      "  window.addEventListener('resize', onResize)",
+      "  return () => window.removeEventListener('resize', onResize)",
+      "}, [])",
+    ].join("\n"),
+    options: [
+      "To run the listener immediately.",
+      "To remove the listener on unmount, preventing a leak and duplicate handlers.",
+      "To make the effect asynchronous.",
+      "It is optional and has no effect.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "The returned cleanup removes the event listener when the component unmounts (or before the effect re-runs). Without it, listeners accumulate and reference stale scope — a common memory leak.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── JUNIOR · Performance & Optimization ───────────────────────────────────
+  {
+    id: "react-junior-performance-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "How unique a key must be",
+    prompt: "How unique must a React `key` be?",
+    codeBlock: null,
+    options: [
+      "Globally unique across the entire app.",
+      "Unique per component type.",
+      "Unique among its siblings in the same list.",
+      "It does not need to be unique.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "Keys only need to be stable and unique among siblings rendered in the same array. They help React match elements between renders; they are not global ids.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-performance-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "A re-render is not a slow app",
+    prompt:
+      "Your component re-renders when its parent updates. Is that a problem?",
+    codeBlock: null,
+    options: [
+      "Yes, every re-render is a bug to eliminate.",
+      "Not by itself — re-rendering is normal and usually cheap; optimize only measured slow paths.",
+      "Yes, you must wrap everything in React.memo.",
+      "Only if it renders to the DOM.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Re-rendering means React re-runs the function and diffs the result; it does not necessarily touch the DOM and is usually inexpensive. Reach for memoization only when profiling shows a real cost.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-performance-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Changing a key resets state",
+    prompt:
+      "What happens to `Profile`'s internal state when `userId` changes?\n\n`<Profile key={userId} />`",
+    codeBlock: null,
+    options: [
+      "It is preserved across the change.",
+      "Only props update; state is untouched.",
+      "React unmounts the old instance and mounts a fresh one, resetting its state.",
+      "It throws a key error.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "A component's identity is tied to its key and position. Changing the key makes React treat it as a different element — unmounting the old one and mounting a new one with fresh state. This is a deliberate way to reset state.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-performance-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Expensive work in render",
+    prompt: "`expensiveCompare` is costly. What is the concern here?",
+    codeBlock: [
+      "function List({ items }) {",
+      "  const sorted = items.slice().sort(expensiveCompare)",
+      "  return sorted.map(/* ... */)",
+      "}",
+    ].join("\n"),
+    options: [
+      "It runs once for the whole app.",
+      "It runs on every render; memoize it with useMemo if it is actually a bottleneck.",
+      "Sorting mutates the `items` prop.",
+      "You cannot call array methods in render.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Work in the component body runs on every render. If sorting is genuinely expensive and inputs rarely change, wrap it in `useMemo(() => ..., [items])`. Note `slice()` already avoids mutating the `items` prop.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── JUNIOR · Async & Data ─────────────────────────────────────────────────
+  {
+    id: "react-junior-async-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Storing fetched data in state",
+    prompt: "You fetch data in an effect. How does it end up on screen?",
+    codeBlock: null,
+    options: [
+      "Return it from the effect.",
+      "Assign it to a local variable in the component body.",
+      "Store it in state via a setter; the state update triggers a re-render that shows it.",
+      "Write it to `window`.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "Asynchronously fetched data must be placed into state (e.g. `setData(json)`). The resulting re-render reads the new state and displays it. A plain local variable would be lost on the next render.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-async-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Clearing loading in every path",
+    prompt: "Why put `setLoading(false)` in the `finally` block?",
+    codeBlock: [
+      "setLoading(true)",
+      "try {",
+      "  const res = await fetch(url)",
+      "  setData(await res.json())",
+      "} catch (e) {",
+      "  setError(e)",
+      "} finally {",
+      "  setLoading(false)",
+      "}",
+    ].join("\n"),
+    options: [
+      "So it runs only on success.",
+      "So loading is cleared whether the request succeeds or fails.",
+      "To retry the request.",
+      "It has no effect there.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`finally` runs after either branch, guaranteeing the loading flag is cleared on both success and error. Putting it only in `try` would leave the UI stuck loading when the request throws.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-async-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "await is non-blocking",
+    prompt:
+      "While an `async` function is paused at `await fetch(...)`, what happens to the rest of the app?",
+    codeBlock: null,
+    options: [
+      "The whole page freezes until the response arrives.",
+      "React stops all other components.",
+      "Other effects are cancelled.",
+      "Nothing freezes — `await` only suspends that function; the UI stays responsive.",
+    ],
+    correctAnswer: 3,
+    explanation:
+      "`await` suspends only the enclosing async function and yields control back to the event loop. The browser keeps handling events, rendering, and other work, so the UI remains interactive.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.LYDIAHALLIE_JS,
+  },
+  {
+    id: "react-junior-async-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "await vs a .then chain",
+    prompt: "How do snippets A and B relate?",
+    codeBlock: [
+      "// A",
+      "const res = await fetch(url)",
+      "const data = await res.json()",
+      "// B",
+      "fetch(url).then((res) => res.json()).then((data) => { /* ... */ })",
+    ].join("\n"),
+    options: [
+      "They behave differently; only await actually waits.",
+      "They are equivalent ways to sequence async steps; await is sugar over promises/then.",
+      "B runs synchronously.",
+      "A blocks the main thread, B does not.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`async/await` is built on promises; awaiting a promise is equivalent to chaining `.then`. Both sequence the steps without blocking the main thread — `await` is just more readable for linear flows.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.LYDIAHALLIE_JS,
+  },
+
+  // ── MID · Reactivity & State ──────────────────────────────────────────────
+  {
+    id: "react-mid-reactivity-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Lazy initialization",
+    prompt:
+      "Why pass a function to useState instead of calling it inline?\n\n`useState(() => expensiveInit())` vs `useState(expensiveInit())`",
+    codeBlock: null,
+    options: [
+      "It makes the state lazy-loaded from the server.",
+      "The initializer runs only on the first render; the inline call runs `expensiveInit()` on every render.",
+      "It memoizes the state across components.",
+      "Functions cannot be stored in state otherwise.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`useState(fn)` calls `fn` once, on mount. Writing `useState(expensiveInit())` computes the value on every render (even though it is discarded after the first), wasting work. Lazy initialization avoids that.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-reactivity-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Updating one object in an array",
+    prompt: "Why map with a spread instead of `todos[i].done = true`?",
+    codeBlock: [
+      "setTodos(todos.map((t) =>",
+      "  t.id === id ? { ...t, done: true } : t",
+      "))",
+    ].join("\n"),
+    options: [
+      "map is faster than indexing.",
+      "Spreading deep-clones the whole list.",
+      "It updates immutably: a new array with a new object for the changed item, leaving others by reference.",
+      "Direct assignment is not valid JavaScript.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "Immutable updates require new references for what changed. `map` yields a new array, and the spread creates a new object only for the matched item; unchanged items keep their identity, which helps memoized children skip re-rendering.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-reactivity-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Passing a setter to a child",
+    prompt:
+      "A child needs to update a piece of the parent's state. What is the idiomatic approach?",
+    codeBlock: null,
+    options: [
+      "Give the child direct access to the parent's variable.",
+      "Pass a callback (or the setter) down as a prop; the child calls it to request the change.",
+      "Use a global mutable object.",
+      "Re-declare the state in the child.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "State lives in the parent that owns it; children request changes by calling a function passed as a prop (e.g. `onChange`). This keeps a single source of truth and unidirectional data flow.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-reactivity-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Custom hooks don't share state",
+    prompt:
+      "Two different components each call `useCounter()`. Do they share the same counter?",
+    codeBlock: [
+      "function useCounter() {",
+      "  const [n, setN] = useState(0)",
+      "  return [n, () => setN((c) => c + 1)]",
+      "}",
+    ].join("\n"),
+    options: [
+      "Yes, custom hooks create shared/global state.",
+      "Only if they have the same props.",
+      "No — each component that calls the hook gets its own independent state.",
+      "Yes, until one unmounts.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "A custom hook is just a function that calls hooks; it does not create shared state. Every component instance that uses it gets its own separate state. To share state, lift it up or use context/an external store.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── MID · Lifecycle & Effects ─────────────────────────────────────────────
+  {
+    id: "react-mid-lifecycle-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Effect run order",
+    prompt:
+      "A component defines two `useEffect`s. In what order do they run after a render?",
+    codeBlock: null,
+    options: [
+      "In reverse order.",
+      "Alphabetically by dependency.",
+      "Top-to-bottom, in the order they are defined.",
+      "Randomly.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "React runs effects in the order they are declared in the component, top to bottom, after commit. Cleanup functions run in the same order before the next run or unmount.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-lifecycle-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Subscription dependencies",
+    prompt: "Why is `source` in the dependency array?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  const sub = source.subscribe(onData)",
+      "  return () => sub.unsubscribe()",
+      "}, [source])",
+    ].join("\n"),
+    options: [
+      "So the component re-renders when source changes.",
+      "So React re-subscribes (cleanup + re-run) when `source` changes to a new object.",
+      "It is unnecessary; subscriptions ignore deps.",
+      "To memoize `onData`.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "The effect subscribes to `source`, so `source` is a dependency. When it changes, React runs the cleanup (unsubscribe from the old one) and re-runs the effect (subscribe to the new one), keeping the subscription correct.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-lifecycle-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Declaring a function inside the effect",
+    prompt: "Why declare `handle` inside the effect instead of outside?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  function handle() { doThing(url) }",
+      "  handle()",
+      "}, [url])",
+    ].join("\n"),
+    options: [
+      "To make it run twice.",
+      "So it is not an outside dependency; the effect then depends only on the values it uses (url).",
+      "Functions cannot be declared outside effects.",
+      "To avoid using url.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Declaring the function inside the effect means you do not have to add the function itself to the dependency array (its identity changes each render). The effect then depends only on the reactive values it reads, like `url`.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-lifecycle-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Debouncing inside an effect",
+    prompt: "What does this effect pattern achieve?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  const id = setTimeout(() => search(query), 300)",
+      "  return () => clearTimeout(id)",
+      "}, [query])",
+    ].join("\n"),
+    options: [
+      "It runs search on every keystroke immediately.",
+      "It debounces: each new `query` cancels the pending timer, so search runs 300ms after typing stops.",
+      "It caches search results.",
+      "It throttles to one call per render.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "On each `query` change the cleanup clears the previous timeout before setting a new one, so `search` fires only once the user pauses for 300ms. This is the canonical effect-based debounce.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── MID · Performance & Optimization ──────────────────────────────────────
+  {
+    id: "react-mid-performance-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "useMemo vs useCallback",
+    prompt: "What is the difference between `useMemo` and `useCallback`?",
+    codeBlock: null,
+    options: [
+      "They are identical.",
+      "`useCallback` runs after render, `useMemo` before.",
+      "`useMemo` memoizes a computed value; `useCallback` memoizes a function (≡ `useMemo(() => fn, deps)`).",
+      "`useMemo` is only for arrays.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "`useMemo(fn, deps)` caches the return value of `fn`. `useCallback(fn, deps)` caches the function itself so its identity is stable across renders — useful when passing callbacks to memoized children. `useCallback(fn, d)` ≡ `useMemo(() => fn, d)`.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-performance-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "useMemo is a hint",
+    prompt:
+      "Can you rely on `useMemo` to keep a value cached forever between renders?",
+    codeBlock: null,
+    options: [
+      "Yes, it is a guaranteed permanent cache.",
+      "No — it is a performance hint; React may discard and recompute it, so don't depend on it for correctness.",
+      "Yes, until the app reloads.",
+      "Only for primitives.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`useMemo` may recompute even when deps did not change (e.g. to free memory). Treat it as an optimization, not a semantic guarantee — code must stay correct if the value is recomputed.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-performance-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Custom comparator for React.memo",
+    prompt: "What does the second argument to `React.memo` do?",
+    codeBlock: [
+      "export default React.memo(Row, (prev, next) =>",
+      "  prev.item.id === next.item.id && prev.item.v === next.item.v",
+      ")",
+    ].join("\n"),
+    options: [
+      "Sorts the props.",
+      "A custom `areEqual` comparator: return true to skip the re-render, false to render.",
+      "Deep-clones props before comparing.",
+      "It is a fallback component.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "By default `React.memo` shallow-compares props. Supplying `areEqual(prev, next)` lets you decide equality; returning `true` means 'props are equal, skip rendering'. Note the inverted return compared to `shouldComponentUpdate`.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-performance-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Moving state down",
+    prompt:
+      "A parent holds `hovered` state that only one small child uses, but updating it re-renders the whole subtree. Best fix?",
+    codeBlock: null,
+    options: [
+      "Wrap every child in React.memo.",
+      "Move the `hovered` state down into the small component that uses it (colocation).",
+      "Lift the state even higher.",
+      "Store it in a ref and force updates.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "If only a small part of the tree needs a piece of state, colocate it there. Updates then re-render only that component instead of the whole parent subtree — often simpler and more effective than blanket memoization.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── MID · Async & Data ────────────────────────────────────────────────────
+  {
+    id: "react-mid-async-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "try/catch around await",
+    prompt: "What does the `catch` block handle here?",
+    codeBlock: [
+      "try {",
+      "  const res = await fetch(url)",
+      "  const data = await res.json()",
+      "} catch (err) {",
+      "  // ...",
+      "}",
+    ].join("\n"),
+    options: [
+      "HTTP 404 and 500 responses.",
+      "Network/rejection errors from the awaited promises — fetch rejects on network failure, not on HTTP errors.",
+      "Nothing; await cannot throw.",
+      "Syntax errors in the response.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`await` rethrows a rejected promise, so `try/catch` catches network failures and JSON parse errors. Note `fetch` does NOT reject on 4xx/5xx — check `res.ok` separately to treat those as errors.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.LYDIAHALLIE_JS,
+  },
+  {
+    id: "react-mid-async-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "What Promise.race does",
+    prompt: "What does `Promise.race([a, b])` settle with?",
+    codeBlock: null,
+    options: [
+      "An array of both results.",
+      "Only after both settle.",
+      "The settlement (value or error) of whichever promise settles first.",
+      "The slower of the two.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "`Promise.race` settles as soon as the first input settles, adopting its value or rejection. It is useful for timeouts — race a request against a delayed reject.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-async-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Ignore flag in an async effect",
+    prompt: "What problem does the `ignore` flag solve?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  let ignore = false",
+      "  fetchUser(id).then((u) => { if (!ignore) setUser(u) })",
+      "  return () => { ignore = true }",
+      "}, [id])",
+    ].join("\n"),
+    options: [
+      "It caches the user.",
+      "It prevents a stale/late response from a previous `id` from overwriting newer state (and setting state after unmount).",
+      "It retries the request.",
+      "It makes the effect synchronous.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "When `id` changes quickly, an older request may resolve after a newer one. The cleanup sets `ignore = true` for the previous run, so its late `setUser` is skipped — avoiding out-of-order overwrites and post-unmount updates.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-async-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Retry with backoff",
+    prompt:
+      "A flaky endpoint occasionally fails. What is a reasonable resilience pattern?",
+    codeBlock: null,
+    options: [
+      "Retry immediately in an infinite loop.",
+      "Retry a bounded number of times with increasing (exponential) backoff, then surface the error.",
+      "Never retry; always fail.",
+      "Reload the whole page on any error.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Bounded retries with exponential backoff (e.g. 200ms, 400ms, 800ms) smooth over transient failures without hammering the server or looping forever. After the cap, report the error so the user is not stuck.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── SENIOR · Reactivity & State ───────────────────────────────────────────
+  {
+    id: "react-senior-reactivity-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "When Context fits",
+    prompt: "Which use is React Context best suited for?",
+    codeBlock: null,
+    options: [
+      "High-frequency state that changes many times per second.",
+      "Low-frequency, widely-read values like theme, locale, or the current user.",
+      "Replacing all component props.",
+      "Local state of a single component.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Context broadcasts a value to all consumers and re-renders them when it changes, so it fits relatively static, widely-needed data (theme, auth). For hot, frequently-updating state, an external store with selectors avoids re-rendering every consumer.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-reactivity-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Splitting a large reducer",
+    prompt:
+      "A `useReducer` has grown to handle many unrelated action groups. A clean refactor is to…",
+    codeBlock: null,
+    options: [
+      "Keep everything in one giant switch forever.",
+      "Split it into smaller reducer functions and compose them by state slice.",
+      "Replace it with dozens of useState calls.",
+      "Move the logic into the render body.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "As reducers grow, decompose them by state slice into smaller pure reducers and combine them, mirroring how `combineReducers` works. Each stays focused and testable while the top-level reducer delegates.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-reactivity-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Lazy reducer initializer",
+    prompt:
+      "What is the third argument `init`?\n\n`useReducer(reducer, initialArg, init)`",
+    codeBlock: null,
+    options: [
+      "A middleware function.",
+      "A lazy initializer: React calls `init(initialArg)` once to compute the initial state.",
+      "The action creator.",
+      "A selector.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`useReducer`'s optional third argument computes initial state lazily as `init(initialArg)`, running only on mount. It is handy for expensive setup or to reset state to a computed baseline.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-reactivity-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "state vs ref for mutable data",
+    prompt:
+      "You need to keep a mutable value (e.g. a WebSocket instance) across renders that should NOT trigger re-renders. What do you use?",
+    codeBlock: null,
+    options: [
+      "useState.",
+      "useRef — its `.current` persists across renders and mutating it does not re-render.",
+      "A module-level global.",
+      "A plain local variable.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`useRef` gives a stable, mutable container that survives renders without causing them. State is for values that should re-render the UI when they change; refs are for mutable data (timers, sockets, previous values) that should not.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── SENIOR · Lifecycle & Effects ──────────────────────────────────────────
+  {
+    id: "react-senior-lifecycle-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Removing the exact listener",
+    prompt: "For cleanup to work, the removed handler must be…",
+    codeBlock: [
+      "useEffect(() => {",
+      "  window.addEventListener('scroll', onScroll)",
+      "  return () => window.removeEventListener('scroll', onScroll)",
+      "}, [onScroll])",
+    ].join("\n"),
+    options: [
+      "Any function with the same name.",
+      "The same function reference passed to addEventListener.",
+      "An inline arrow function.",
+      "Recreated on every render.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`removeEventListener` matches by reference. Passing a different function instance (e.g. a fresh inline arrow) leaves the original listener attached. Keep the handler's identity stable and pass the same reference to both calls.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-lifecycle-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Rules of hooks",
+    prompt: "Why is calling `useState` inside this `if` invalid?",
+    codeBlock: [
+      "if (loggedIn) {",
+      "  const [name, setName] = useState('')",
+      "}",
+    ].join("\n"),
+    options: [
+      "useState cannot hold strings.",
+      "Hooks must be called unconditionally at the top level so their call order stays stable across renders.",
+      "You need useEffect instead.",
+      "It re-renders infinitely.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "React tracks hook state by call order. Calling a hook conditionally changes that order between renders and breaks the mapping. Always call hooks at the top level; put the condition inside the hook or in render logic instead.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-senior-lifecycle-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "forwardRef to a DOM node",
+    prompt: "What does `forwardRef` enable here?",
+    codeBlock: [
+      "const Input = forwardRef((props, ref) => (",
+      "  <input ref={ref} {...props} />",
+      "))",
+    ].join("\n"),
+    options: [
+      "It memoizes the component.",
+      "It lets a parent pass a ref through to the child's underlying DOM node.",
+      "It forwards props automatically without spreading.",
+      "It creates a portal.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Function components do not receive `ref` as a normal prop. `forwardRef` exposes it as a second argument so a parent can attach a ref to a child's DOM node (e.g. to focus an input). React 19 also allows `ref` as a prop directly.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-lifecycle-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "useLayoutEffect to avoid flicker",
+    prompt:
+      "You measure a tooltip and reposition it. `useEffect` causes a visible flicker; why does `useLayoutEffect` fix it?",
+    codeBlock: null,
+    options: [
+      "It runs the effect on the server.",
+      "It runs synchronously after DOM mutations but before the browser paints, so the user never sees the intermediate position.",
+      "It skips the measurement.",
+      "It debounces the layout.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`useLayoutEffect` fires after DOM updates but before paint, letting you measure and adjust layout in the same frame. With `useEffect` the browser paints the un-repositioned tooltip first, then the correction, producing a flicker.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── SENIOR · Performance & Optimization ───────────────────────────────────
+  {
+    id: "react-senior-performance-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Code splitting with React.lazy",
+    prompt: "What is the main benefit of `React.lazy` here?",
+    codeBlock: [
+      "const Settings = React.lazy(() => import('./Settings'))",
+      "// <Suspense fallback={<Spinner/>}><Settings/></Suspense>",
+    ].join("\n"),
+    options: [
+      "It memoizes Settings.",
+      "It code-splits Settings into a separate bundle loaded on demand, shrinking the initial JS.",
+      "It renders Settings on the server.",
+      "It prevents Settings from ever re-rendering.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`React.lazy` + dynamic `import()` splits the component into its own chunk fetched only when rendered, reducing initial bundle size and time-to-interactive. A `Suspense` boundary shows a fallback while it loads.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-performance-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Throttling an expensive handler",
+    prompt:
+      "A `scroll` handler runs expensive work and janks the page. Best mitigation?",
+    codeBlock: null,
+    options: [
+      "Add more state.",
+      "Throttle/debounce the handler (or batch work into requestAnimationFrame) so it runs less often.",
+      "Wrap the component in React.memo.",
+      "Move it into useMemo.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "High-frequency events like scroll/resize fire far more often than needed. Throttling (rate-limit) or debouncing (run after quiet), or batching work into `requestAnimationFrame`, keeps the main thread free.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-performance-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "useTransition vs useDeferredValue",
+    prompt: "How do `useTransition` and `useDeferredValue` differ?",
+    codeBlock: null,
+    options: [
+      "They are the same API.",
+      "`useTransition` marks a state update you own as non-urgent; `useDeferredValue` defers a value you receive without owning the update.",
+      "`useDeferredValue` blocks rendering.",
+      "`useTransition` is only for data fetching.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Both keep the UI responsive by deprioritizing work. Use `useTransition` when you own the state update and can wrap it in `startTransition`; use `useDeferredValue` when you only have the value (e.g. a prop) and want a lagging copy for expensive rendering.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-performance-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Offloading heavy computation",
+    prompt:
+      "A pure CPU-heavy computation freezes the UI even with memoization. What is the structural fix?",
+    codeBlock: null,
+    options: [
+      "Add useCallback.",
+      "Move the computation off the main thread (e.g. a Web Worker), then update state with the result.",
+      "Wrap it in useMemo again.",
+      "Render it inside Suspense.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Memoization only avoids repeat work; it cannot make a single heavy synchronous computation non-blocking. Offloading to a Web Worker keeps the main thread free to render and handle input, posting the result back to update state.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── SENIOR · Async & Data ─────────────────────────────────────────────────
+  {
+    id: "react-senior-async-core-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Event-handler fetches and Suspense",
+    prompt:
+      "You fetch data in a click handler (not during render). Do you need a Suspense boundary?",
+    codeBlock: null,
+    options: [
+      "Yes, always.",
+      "No — Suspense is for data read during render; event-handler fetches just update state normally.",
+      "Only in development.",
+      "Yes, or React throws.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Suspense suspends components that read a pending resource during render. A fetch kicked off by an event handler resolves and calls a state setter like any async work — no Suspense boundary required.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-async-core-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Request deduplication",
+    prompt:
+      "Several components mount at once and each fetches `/user/1`. How do data libraries avoid N duplicate requests?",
+    codeBlock: null,
+    options: [
+      "They cancel all but the first randomly.",
+      "They dedupe by caching in-flight requests by key, so concurrent callers share one promise/result.",
+      "They queue them strictly sequentially.",
+      "They disable fetching.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Data libraries (React Query, SWR) key requests and share a single in-flight promise plus a cache entry, so simultaneous callers for the same key get one network request and the same cached result.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-async-adv-05",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Streaming SSR with Suspense",
+    prompt: "How does Suspense improve server-side rendering?",
+    codeBlock: null,
+    options: [
+      "It disables SSR.",
+      "It enables streaming: the server sends ready HTML first and streams slower, suspended sections as they resolve.",
+      "It renders everything on the client only.",
+      "It inlines all data as globals.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "With streaming SSR, a `Suspense` boundary lets the server flush the shell and already-ready content immediately, then stream in the slow parts (with their fallbacks shown meanwhile) as their data resolves — improving TTFB and perceived load.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-async-adv-06",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Transitions for async actions",
+    prompt: "What do transitions give async 'actions' in React 19?",
+    codeBlock: [
+      "const [isPending, startTransition] = useTransition()",
+      "// startTransition(async () => { await save(form) })",
+    ].join("\n"),
+    options: [
+      "They cancel the request.",
+      "They provide a built-in pending state and keep the UI responsive while the async update runs.",
+      "They make fetch synchronous.",
+      "They memoize the form.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "React 19 actions build on transitions: wrapping an async update gives you `isPending` for free and lets React keep the app interactive, apply the result, and integrate with `useOptimistic`/form actions — without hand-managing loading flags.",
     difficultyWeight: WEIGHT_ADVANCED,
     source: CONTENT_SOURCE.ORIGINAL,
   },
