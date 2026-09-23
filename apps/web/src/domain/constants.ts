@@ -126,6 +126,18 @@ export const TOTAL_QUESTIONS = SKILL_CATEGORIES.length * QUESTIONS_PER_PILLAR; /
 export const WEIGHT_CORE = 1.0;
 export const WEIGHT_ADVANCED = 2.0;
 
+/**
+ * Minimum pool depth per (framework × level × pillar) bucket, split by weight
+ * class. `stratifiedSample` draws one core and one advanced item per pillar, so
+ * a bucket must hold at least one of each just to be playable — but a pool at
+ * that floor returns the *same* eight questions every session (no randomization,
+ * high leakage risk). These are the enforced floors the seed-bank guard test
+ * (`db/__tests__/seedData.test.ts`) checks; raise them as batches land until the
+ * §10.1 target (~6 core / ~6 advanced per bucket) is reached.
+ */
+export const MIN_CORE_PER_BUCKET = 2;
+export const MIN_ADVANCED_PER_BUCKET = 2;
+
 /** Proficiency tier thresholds, in percent. Level-relative (see report context). */
 export const PROFICIENCY_THRESHOLDS = {
   [PROFICIENCY.PROFICIENT]: 80,

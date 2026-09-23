@@ -1,9 +1,12 @@
 /**
- * Starter React question bank for DevGrade (Phase 0 seed content).
+ * Starter React question bank for DevGrade.
  *
- * Coverage: 3 levels (junior/mid/senior) × 4 pillars × 2 items each
- * (one `core` @ weight 1.0 and one `advanced` @ weight 2.0), so every level is
- * immediately playable and realizes the 0/33/67/100 score granularity (#3).
+ * Coverage: 3 levels (junior/mid/senior) × 4 pillars × 4 items each
+ * (two `core` @ weight 1.0 and two `advanced` @ weight 2.0), i.e. 48 questions.
+ * Two items per weight class per bucket give stratified sampling a real pool to
+ * randomize over (anti-leakage) while realizing the 0/33/67/100 score
+ * granularity (#3). Per-bucket minimum depth is enforced by
+ * `db/__tests__/seedData.test.ts` (`MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET`).
  *
  * Provenance & licensing (see PRD §10.1 "Content sourcing & licensing"):
  * every row carries a `source`. `ORIGINAL` items are authored here for DevGrade.
@@ -13,7 +16,8 @@
  *   - `sudheerj/reactjs-interview-questions` (MIT)
  *   - `lydiahallie/javascript-questions` (MIT)
  *
- * Id convention: `react-{level}-{pillar}-{core|adv}`.
+ * Id convention: `react-{level}-{pillar}-{core|adv}`, with an optional two-digit
+ * suffix (`-02`, `-03`, ...) for additional items in the same bucket.
  */
 
 import type { NewQuestion } from "./schema";
@@ -606,5 +610,553 @@ export const seedQuestions: NewQuestion[] = [
       "`console.log(3)` runs first. Calling `run()` logs `1` synchronously up to the `await`, which schedules the continuation (`2`) as a microtask and returns. `console.log(4)` runs next, then the microtask logs `2` → 3, 1, 4, 2.",
     difficultyWeight: WEIGHT_ADVANCED,
     source: CONTENT_SOURCE.LYDIAHALLIE_JS,
+  },
+
+  // ══ BATCH A ════════════════════════════════════════════════════════════════
+  // A second core + advanced item per (level × pillar) bucket, so stratified
+  // sampling has a real pool to randomize over (min depth enforced by
+  // db/__tests__/seedData.test.ts). Topics are distinct from the items above.
+
+  // ── JUNIOR · Reactivity & State ───────────────────────────────────────────
+  {
+    id: "react-junior-reactivity-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Controlling an input",
+    prompt: "How do you make a text `<input>` a controlled component in React?",
+    codeBlock: null,
+    options: [
+      "Set only `defaultValue` and read the DOM node when you need the value.",
+      "Bind `value` to state and update that state in an `onChange` handler.",
+      "Assign to `input.value` directly inside the render body.",
+      "Wrap the input in `useMemo`.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "A controlled input derives its `value` from React state and pushes user edits back into state via `onChange`, making React the single source of truth. `defaultValue` alone leaves the input uncontrolled.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-junior-reactivity-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Adding to an array in state",
+    prompt:
+      "Which line correctly adds `next` to the list and triggers a re-render?",
+    codeBlock: "const [todos, setTodos] = useState([])",
+    options: [
+      "todos.push(next)",
+      "setTodos(todos.push(next))",
+      "setTodos([...todos, next])",
+      "todos = [...todos, next]",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "State must be updated immutably through its setter. `push` mutates the existing array (and returns a length, not the array), so React sees no new reference. `setTodos([...todos, next])` passes a fresh array, scheduling a re-render.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── JUNIOR · Lifecycle & Effects ──────────────────────────────────────────
+  {
+    id: "react-junior-lifecycle-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Effect with no dependency array",
+    prompt:
+      "How often does this effect run?\n\n`useEffect(() => { doThing() })`",
+    codeBlock: null,
+    options: [
+      "Once, after mount only.",
+      "After every render — the initial mount and every update.",
+      "Never, because there is no dependency array.",
+      "Only when props change.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Omitting the second argument entirely runs the effect after every completed render. `[]` would run it once after mount; `[dep]` would run it whenever `dep` changes.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-junior-lifecycle-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "What re-runs this effect",
+    prompt: "After mount, what causes this effect to run again?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  loadProfile(userId)",
+      "}, [userId])",
+    ].join("\n"),
+    options: [
+      "Any re-render of the component.",
+      "A change to the `userId` value between renders.",
+      "Nothing; it runs only once.",
+      "A change to any state anywhere in the component.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "React re-runs an effect only when a value in its dependency array changes between renders (compared with `Object.is`). Here that is `userId`; unrelated re-renders do not re-trigger it.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── JUNIOR · Performance & Optimization ───────────────────────────────────
+  {
+    id: "react-junior-performance-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "What triggers a re-render",
+    prompt: "Which of these causes a React function component to re-render?",
+    codeBlock: null,
+    options: [
+      "Mutating a plain local variable inside the component.",
+      "Logging to the console during render.",
+      "A change to its state (via a setter) or to the props it receives.",
+      "Editing a module-level variable it happens to read.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "A component re-renders when its own state changes through a setter, when its parent re-renders and passes new props, or when a context it consumes changes. Mutating plain variables does not notify React.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-junior-performance-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Do children re-render with the parent?",
+    prompt:
+      "A parent's state changes and it re-renders. By default, what happens to its child components?",
+    codeBlock: null,
+    options: [
+      "Only children whose props changed re-render.",
+      "No children re-render unless they hold their own state.",
+      "They re-render too, whether or not their props changed — unless memoized.",
+      "React throws if the children lack keys.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "By default React re-renders the whole subtree below a component that re-renders, including children whose props are unchanged. `React.memo` with stable props is what lets a child skip that work.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── JUNIOR · Async & Data ─────────────────────────────────────────────────
+  {
+    id: "react-junior-async-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Showing a loading state",
+    prompt:
+      "You fetch data on mount and want a spinner until it arrives. What is the standard approach?",
+    codeBlock: null,
+    options: [
+      "Block rendering with a `while` loop until the data is ready.",
+      "Keep a `loading` status in state; show the spinner while it is true and flip it when the fetch settles.",
+      "Read `document.readyState` during render.",
+      "Fetch synchronously so no spinner is needed.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Track request status in state (e.g. loading / error / data). Render the spinner while loading is true, then set it false in the effect once the promise resolves or rejects, keeping rendering declarative.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-junior-async-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.JUNIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "An async useEffect callback",
+    prompt:
+      "Why is passing an `async` function directly to `useEffect` a mistake?",
+    codeBlock: [
+      "useEffect(async () => {",
+      "  const data = await load()",
+      "  setData(data)",
+      "}, [])",
+    ].join("\n"),
+    options: [
+      "`await` is not allowed inside effects at all.",
+      "An `async` function returns a Promise, but React expects an effect to return nothing or a cleanup function — declare the async function inside and call it.",
+      "It forces the effect to run twice.",
+      "`setData` cannot be called after an `await`.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "An `async` function always returns a Promise, which React would mistake for a cleanup function. Declare the async function inside the effect and invoke it — `useEffect(() => { (async () => { ... })() }, [])` — returning a real cleanup if needed.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── MID · Reactivity & State ──────────────────────────────────────────────
+  {
+    id: "react-mid-reactivity-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Reading state right after setting it",
+    prompt:
+      "Starting from a count of 0, what does this log on the first click?",
+    codeBlock: [
+      "function onClick() {",
+      "  setCount(count + 1)",
+      "  console.log(count)",
+      "}",
+    ].join("\n"),
+    options: ["1", "0", "undefined", "It logs twice."],
+    correctAnswer: 1,
+    explanation:
+      "`setCount` schedules an update; it does not reassign the `count` binding in the current render's scope. `console.log(count)` still sees this render's value (0). The new value is visible on the next render.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-reactivity-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Mutation with the same reference",
+    prompt: "After clicking, the list on screen does not update. Why?",
+    codeBlock: [
+      "function add(item) {",
+      "  items.push(item)",
+      "  setItems(items)",
+      "}",
+    ].join("\n"),
+    options: [
+      "`push` is asynchronous.",
+      "`setItems` receives the same array reference it already holds, so React bails out of re-rendering; pass a new array instead.",
+      "You must call `setItems` twice.",
+      "Arrays cannot be stored in state.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "React compares the next state to the previous with `Object.is`. Mutating the array in place and passing the same reference looks unchanged, so React skips the render. Create a new array: `setItems([...items, item])`.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── MID · Lifecycle & Effects ─────────────────────────────────────────────
+  {
+    id: "react-mid-lifecycle-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Object literal in the dependency array",
+    prompt:
+      "This effect runs on every render even though the data looks stable. What is the cause?",
+    codeBlock: [
+      "useEffect(() => {",
+      "  subscribe(options)",
+      "}, [{ id }])",
+    ].join("\n"),
+    options: [
+      "`subscribe` mutates state.",
+      "A new object literal `{ id }` is created each render, so its reference always differs and the effect re-runs; depend on the primitive `id` instead.",
+      "Objects cannot be used inside effects.",
+      "The dependency array needs a second element.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Dependencies are compared by identity. A fresh object or array literal in the deps array is a new reference every render, so the effect never sees it as equal. Depend on the primitive fields (`[id]`) or memoize the object.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-mid-lifecycle-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Persisting a value without re-rendering",
+    prompt:
+      "You need to remember a timer id across renders without causing a re-render when it changes. What fits best?",
+    codeBlock: null,
+    options: [
+      "A `useState` value.",
+      "A module-level variable shared by all instances.",
+      "A `useRef` — its `.current` persists across renders and updating it does not trigger a render.",
+      "A `useMemo` with an empty dependency array.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "`useRef` gives each component instance a stable, mutable container whose `.current` survives renders and, unlike state, can be updated without scheduling a re-render — ideal for timer ids, previous values, and instance-local bookkeeping.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+
+  // ── MID · Performance & Optimization ──────────────────────────────────────
+  {
+    id: "react-mid-performance-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "When React.memo helps",
+    prompt: "Wrapping a component in `React.memo` is most useful when…",
+    codeBlock: null,
+    options: [
+      "the component receives no props.",
+      "it re-renders often with the same props while its render work is non-trivial, and its props keep a stable identity.",
+      "you want it to render only once, ever.",
+      "it manages its own local state.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`React.memo` skips a re-render when props are shallowly equal. It pays off for components that would otherwise re-render frequently with unchanged, referentially-stable props. If props change every render (inline objects/functions), memo adds cost without benefit.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-mid-performance-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Isolating an expensive subtree",
+    prompt:
+      "A fast-changing input sits beside an expensive chart in the same component, and typing re-renders the chart. What is the cleanest fix?",
+    codeBlock: null,
+    options: [
+      "Wrap the whole component in `useMemo`.",
+      "Move the input and its state into a small child component, so the parent (and the chart) no longer re-render on every keystroke.",
+      "Debounce every render of the component.",
+      "Store the input value on `window`.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "The re-render comes from the input's state living too high in the tree. Colocating that state in a dedicated child limits re-renders to that child, leaving the expensive sibling untouched — a structural fix that beats sprinkling memoization.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── MID · Async & Data ────────────────────────────────────────────────────
+  {
+    id: "react-mid-async-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "fetch and HTTP error codes",
+    prompt:
+      "A `fetch` to an endpoint returning 500 never hits your `.catch`. Why?",
+    codeBlock: null,
+    options: [
+      "`fetch` retries 5xx responses automatically.",
+      "`fetch` rejects only on network failures; HTTP 4xx/5xx still resolve, so you must check `response.ok` yourself.",
+      "500 responses are served from cache.",
+      "You must use `XMLHttpRequest` to catch errors.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`fetch` rejects only when the request cannot complete (network error, CORS, abort). An HTTP error status still resolves successfully, so inspect `response.ok` (or `response.status`) and throw to route 4xx/5xx into your error handling.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.LYDIAHALLIE_JS,
+  },
+  {
+    id: "react-mid-async-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.MID,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "One request among many fails",
+    prompt:
+      "You load three independent resources with `Promise.all` and one rejects. What happens, and how do you still use the successful ones?",
+    codeBlock: null,
+    options: [
+      "`Promise.all` returns the successes and ignores the failure.",
+      "`Promise.all` rejects as soon as any input rejects, discarding the others; use `Promise.allSettled` to get each result's status independently.",
+      "It waits and retries the failed request.",
+      "It resolves with `undefined` in place of the failure.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`Promise.all` short-circuits: the first rejection rejects the whole thing and the fulfilled values are lost. `Promise.allSettled` waits for every promise and returns a `{ status, value | reason }` per entry, so partial success is usable.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.LYDIAHALLIE_JS,
+  },
+
+  // ── SENIOR · Reactivity & State ───────────────────────────────────────────
+  {
+    id: "react-senior-reactivity-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Subscribing to an external store",
+    prompt:
+      "Which hook is designed to read from an external (non-React) store safely under concurrent rendering?",
+    codeBlock: null,
+    options: [
+      "`useEffect` combined with `useState`.",
+      "`useMemo`.",
+      "`useSyncExternalStore`.",
+      "`useReducer`.",
+    ],
+    correctAnswer: 2,
+    explanation:
+      "`useSyncExternalStore` subscribes to an external store and reads its snapshot without tearing — inconsistent reads across a concurrent render. The ad-hoc `useEffect` + `useState` pattern can surface stale or torn values under concurrency.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-reactivity-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.REACTIVITY,
+    title: "Automatic batching in React 18",
+    prompt:
+      "Two `setState` calls inside a `setTimeout` — how many re-renders in React 18?",
+    codeBlock: ["setTimeout(() => {", "  setA(1)", "  setB(2)", "}, 0)"].join(
+      "\n",
+    ),
+    options: [
+      "Two — updates outside React events are never batched.",
+      "One — React 18 automatically batches updates from timeouts, promises, and native handlers too.",
+      "Zero until the next user event.",
+      "It depends on how deep the component is.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Before React 18, batching applied only inside React's own event handlers, so timeouts and promises caused a render per `setState`. React 18's automatic batching groups these updates as well, yielding a single re-render. Use `flushSync` to opt out.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── SENIOR · Lifecycle & Effects ──────────────────────────────────────────
+  {
+    id: "react-senior-lifecycle-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "When not to use an effect",
+    prompt:
+      "You compute a filtered list from `items` and `query`. Where should that computation live?",
+    codeBlock: null,
+    options: [
+      "In a `useEffect` that writes the result into separate state.",
+      "Directly during render — optionally wrapped in `useMemo` — with no effect at all.",
+      "In a `useLayoutEffect`.",
+      "In a ref updated on every render.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Data derived from props/state should be computed during render, not synced into state via an effect. An effect there adds an extra render and a chance for the copy to drift. Compute it inline, reaching for `useMemo` only if the calculation is genuinely expensive.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-senior-lifecycle-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.LIFECYCLE,
+    title: "Exposing an imperative API",
+    prompt:
+      "A parent needs to call `.focus()` on a custom `<TextField>` child. Which pair exposes that cleanly?",
+    codeBlock: null,
+    options: [
+      "`useMemo` and context.",
+      "`forwardRef` together with `useImperativeHandle` to expose a limited method surface.",
+      "A global event bus.",
+      "`useState` storing the DOM node.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`forwardRef` lets the parent's ref reach the child, and `useImperativeHandle(ref, () => ({ focus }))` defines exactly which imperative methods are exposed — a controlled escape hatch instead of leaking the whole DOM node.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+
+  // ── SENIOR · Performance & Optimization ───────────────────────────────────
+  {
+    id: "react-senior-performance-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Rendering very long lists",
+    prompt:
+      "A list of 10,000 rows makes the page sluggish. What is the most effective rendering strategy?",
+    codeBlock: null,
+    options: [
+      "Wrap every row in `React.memo`.",
+      "Virtualize the list — render only the rows in and near the viewport, recycling them as the user scrolls.",
+      "Move the list rendering into a `useEffect`.",
+      "Re-fetch a page on every scroll pixel.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "The cost is in mounting thousands of DOM nodes. List virtualization (windowing) renders only the visible slice plus a small buffer, keeping the node count small regardless of dataset size. Memoizing rows does not remove the nodes.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+  {
+    id: "react-senior-performance-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.PERFORMANCE,
+    title: "Deferring an expensive derived render",
+    prompt:
+      "You want a text input to stay snappy while a heavy list derived from its value renders behind it. Which hook renders that list from a lagging copy of the value?",
+    codeBlock: null,
+    options: [
+      "`useMemo`.",
+      "`useDeferredValue`, which returns a deferred copy of the value so the expensive render can lag behind the urgent input update.",
+      "`useRef`.",
+      "`useLayoutEffect`.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "`useDeferredValue(value)` yields a version of the value that updates at lower priority. The input reflects keystrokes immediately while the expensive list re-renders from the deferred value, avoiding jank — the value-based complement to `useTransition`.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
+  },
+
+  // ── SENIOR · Async & Data ─────────────────────────────────────────────────
+  {
+    id: "react-senior-async-core-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "How Suspense handles pending data",
+    prompt:
+      "With a Suspense-enabled data source, what happens while a component's data is still loading?",
+    codeBlock: null,
+    options: [
+      "The component renders with `undefined` data.",
+      "The component suspends and React shows the nearest `<Suspense>` boundary's `fallback` until the data resolves.",
+      "React throws an unhandled error.",
+      "The effect retries silently in the background.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "A component reading not-yet-ready data 'suspends'; React walks up to the nearest `<Suspense>` boundary and renders its `fallback` meanwhile, then swaps in the real content once the data resolves — no manual loading flag in that component.",
+    difficultyWeight: WEIGHT_CORE,
+    source: CONTENT_SOURCE.SUDHEERJ_REACT,
+  },
+  {
+    id: "react-senior-async-adv-02",
+    framework: FRAMEWORK.REACT,
+    difficulty: DIFFICULTY.SENIOR,
+    skillCategory: SKILL_CATEGORY.ASYNC,
+    title: "Avoiding a request waterfall",
+    prompt:
+      "A page fetches the user, then the user's posts in a child effect, then comments in a grandchild — each awaiting the previous to mount. What is the problem and fix?",
+    codeBlock: null,
+    options: [
+      "Nothing; this is already optimal.",
+      "It is a waterfall: each request waits for a parent to render and fetch first; hoist or parallelize the independent fetches (or preload) so they run concurrently.",
+      "Effects cannot fetch, so it never completes.",
+      "Only the last request actually runs.",
+    ],
+    correctAnswer: 1,
+    explanation:
+      "Chaining fetches through nested components serializes them into a waterfall, adding a round-trip per level. Kick off independent requests together (lift data loading, `Promise.all`, or route-level preloading) so total latency is one round-trip, not N.",
+    difficultyWeight: WEIGHT_ADVANCED,
+    source: CONTENT_SOURCE.ORIGINAL,
   },
 ];
