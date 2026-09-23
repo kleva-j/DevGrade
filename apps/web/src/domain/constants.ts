@@ -135,8 +135,8 @@ export const WEIGHT_ADVANCED = 2.0;
  * (`db/__tests__/seedData.test.ts`) checks; raise them as batches land until the
  * §10.1 target (~6 core / ~6 advanced per bucket) is reached.
  */
-export const MIN_CORE_PER_BUCKET = 2;
-export const MIN_ADVANCED_PER_BUCKET = 2;
+export const MIN_CORE_PER_BUCKET = 4;
+export const MIN_ADVANCED_PER_BUCKET = 4;
 
 /** Proficiency tier thresholds, in percent. Level-relative (see report context). */
 export const PROFICIENCY_THRESHOLDS = {
