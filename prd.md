@@ -20,6 +20,10 @@
 | 1.3.0 | 2026-09-16 | Phases 1–3 implemented in `apps/web`: TanStack Start server functions (`server/assessmentFns.ts`) as the client API boundary (answer key verified absent from the client bundle, decision #5); XState-driven candidate UI (`components/assessment/*`: intake, question runner with per-question timer + `visibilitychange` focus-loss, loading/error/retry) wired via `machines/assessmentServices.ts`; report with categorical skill radar, per-pillar breakdown, focus areas, and question review. Anonymous client id minted client-side in `localStorage` and passed to `createSession` (replaces the server cookie plan; hashed server-side, equivalent for rate limiting). Promoted categorical `--chart-*` + `--code-*` tokens into `globals.css` and documented them in `design.md` §4. |
 | 1.4.0 | 2026-09-16 | Phase 3 satisfaction survey: normalized `session_surveys` table (1..5 helpfulness, unique per session; migration `0001`), `submitSurvey` service + server fn (allowed only after completion, upserts on re-submit), and a report survey card driven by new `completed` machine substates (`surveyPrompt`/`submittingSurvey`/`surveyThanks`). Survey bounds centralized in `domain/constants.ts`; copy in `components/assessment/copy.ts`.   
 
+| 1.5.0 | 2026-09-23 | Question-bank Batch A: grew the React starter bank from 24 to **48 questions** (3 levels × 4 pillars × **two** core + **two** advanced per bucket), so stratified sampling has a real pool to randomize over (anti-leakage) instead of returning a fixed set. Added a seed-bank integrity guard test (`db/__tests__/seedData.test.ts`) enforcing id/shape/answer-range/provenance and per-bucket minimum depth via new `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` constants (`domain/constants.ts`). New items favor `original` provenance with a subset paraphrased from the MIT banks (§10.1). Updated §10.1, §12, §13. |
+
+| 1.6.0 | 2026-09-23 | Question-bank Batch B: grew the React bank from 48 to **96 questions** (3 levels × 4 pillars × **four** core + **four** advanced per bucket), deepening the sampling pool (1-of-4 core × 1-of-4 advanced per pillar → far more distinct sessions). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 4 (guard test green at 29 tests). Topics remain distinct across all items in a bucket; provenance tracked per row (§10.1). Remaining toward the §10.1 target (~6/6 per bucket, ~144 total): a future Batch C. |
+
 ---
 
 ## 1. Executive Summary
@@ -518,7 +522,7 @@ Record the post-assessment satisfaction rating (§3 KPI). Accepts `{ session_tok
 
 **Question Bank Management:**
 
-- Initial target: 50 questions per difficulty level (150 total), with a **minimum of ~12 per (level × pillar) bucket** so stratified sampling always has a healthy pool to randomize over (anti-leakage). Each bucket needs both core (weight 1.0) and advanced (weight 2.0) items for the score-granularity model.
+- Initial target: 50 questions per difficulty level (150 total), with a **minimum of ~12 per (level × pillar) bucket** so stratified sampling always has a healthy pool to randomize over (anti-leakage). Each bucket needs both core (weight 1.0) and advanced (weight 2.0) items for the score-granularity model. **Current progress:** 96 items live (Batches A–B — 4 core + 4 advanced per bucket); the enforced per-bucket floor lives in `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` (currently 4/4) and is asserted by `db/__tests__/seedData.test.ts`, raised toward the target as later batches land.
 - Review cycle: Quarterly validation against latest framework documentation
 - Question lifecycle: Draft → Review → Active → Deprecated
 - Contributor model: Expert review panel for technical accuracy
@@ -612,7 +616,7 @@ The items below were open in v1.1.0 and are now decided and implemented in `apps
 - **Level context:** `session_results.target_level` is stored so a tier is read relative to the tested level. Cross-level normalization for recruiter comparison is deferred to the recruiter-facing phase.
 - **Rate limiting:** now keyed on a hashed anonymous `client_id` cookie (not IP), avoiding shared-NAT lockouts (`MAX_SESSIONS_PER_HOUR`, `db/queries.ts`).
 - **Privacy:** raw device fingerprint (`browser_info`) removed; only the behavioral `focus_loss_count` and a non-reversible `client_id` hash are stored. Right-to-erasure is `deleteSessionByToken()` (cascades to answers/results).
-- **Pool sizing:** content target set to a minimum per (level × pillar) bucket — see §10.1. Sampling fails closed with an `insufficient_questions` error when a balanced set can't be built. A pillar-tagged 24-question React starter bank ships in `db/seedData.ts`, with per-row `source` provenance for licensing (see §10.1 "Content sourcing & licensing").
+- **Pool sizing:** content target set to a minimum per (level × pillar) bucket — see §10.1. Sampling fails closed with an `insufficient_questions` error when a balanced set can't be built. A pillar-tagged **96-question** React bank ships in `db/seedData.ts` (four core + four advanced per bucket), with per-row `source` provenance for licensing (see §10.1 "Content sourcing & licensing") and a guard test (`db/__tests__/seedData.test.ts`) enforcing the per-bucket minimum depth.
 - **Abandonment:** `markAbandonedSessions()` transitions idle `in_progress` sessions (default 30 min) so the completion-rate KPI is measurable; runs as a scheduled job (see §8.1).
 
 ---
@@ -666,7 +670,7 @@ Render the completed `AssessmentResult`. **Mostly complete.**
 
 Make it production-credible.
 
-- Grow the question bank from the 24-item starter set to the §10.1 targets (min per level×pillar bucket), each tagged core/advanced via `difficulty_weight`; progressively replace `source`-adapted items with `original` ones (§10.1 content-sourcing policy).
+- Grow the question bank from the 96-item bank (Batches A–B, 4 core + 4 advanced per bucket) to the §10.1 targets (min per level×pillar bucket), each tagged core/advanced via `difficulty_weight`; raise `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` as batches land so `db/__tests__/seedData.test.ts` keeps depth honest; progressively replace `source`-adapted items with `original` ones (§10.1 content-sourcing policy).
 - Scheduled `markAbandonedSessions` job; Sentry + funnel logging; rate-limit + erasure verified.
 - Analytics events for the KPI table (completion, duration, survey).
 - **Exit criteria:** KPIs in §3 are all measurable from real data; launch checklist (legal/accessibility in §10.2) green.
