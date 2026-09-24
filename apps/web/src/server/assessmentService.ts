@@ -15,6 +15,7 @@ import { stratifiedSample } from "@/domain/sampling";
 import { scoreAssessment } from "@/domain/scoring";
 import { toPublicQuestion } from "@/domain/types";
 import { MESSAGES } from "./messages";
+import { createSessionInput } from "./assessmentValidation";
 
 import {
   countRecentSessionsByClient,
@@ -27,11 +28,8 @@ import {
   MAX_SESSIONS_PER_HOUR,
   SURVEY_RATING_MIN,
   SURVEY_RATING_MAX,
-  TOTAL_QUESTIONS,
   MVP_FRAMEWORKS,
   SESSION_STATUS,
-  DIFFICULTIES,
-  FRAMEWORKS,
 } from "@/domain/constants";
 
 import {
@@ -44,11 +42,6 @@ import {
 } from "@/db/schema";
 
 // --- Input validation (§7.2 → 400 on failure) -------------------------------
-
-export const createSessionSchema = z.object({
-  framework: z.enum(FRAMEWORKS),
-  targetLevel: z.enum(DIFFICULTIES),
-});
 
 export const submitAnswerSchema = z.object({
   sessionToken: z.string().min(1),
@@ -92,23 +85,24 @@ function rowToQuestion(row: QuestionRow): Question {
 export function createAssessmentService(db: Db) {
   return {
     /**
-     * `POST /api/sessions` — rate-limit, sample 8 questions, persist the session,
+     * `POST /api/sessions` — rate-limit, sample the requested count, persist it,
      * and return ALL questions up front (decision #5) as client-safe projections
      * (no answer key). The correct answers never leave the server here.
      */
     async createSession(input: {
       framework: string;
       targetLevel: string;
+      questionCount?: number;
       rawClientId: string;
     }) {
-      const parsed = createSessionSchema.safeParse(input);
+      const parsed = createSessionInput.safeParse(input);
       if (!parsed.success) {
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
-          MESSAGES.invalidFrameworkOrLevel,
+          MESSAGES.invalidSessionConfiguration,
         );
       }
-      const { framework, targetLevel } = parsed.data;
+      const { framework, targetLevel, questionCount } = parsed.data;
 
       if (!MVP_FRAMEWORKS.includes(framework)) {
         throw new AssessmentError(
@@ -139,17 +133,19 @@ export function createAssessmentService(db: Db) {
             eq(questionsTable.difficulty, targetLevel),
             eq(questionsTable.isActive, true),
           ),
-        );
+        )
+        .orderBy(questionsTable.id);
 
       const sessionToken = randomBytes(32).toString("hex");
       // Seed sampling from the token → reproducible set for a given session.
       const rng = createRng(seedFromString(sessionToken));
       const { questions, shortfalls } = stratifiedSample(
         poolRows.map(rowToQuestion),
+        questionCount,
         rng,
       );
 
-      if (shortfalls.length > 0 || questions.length < TOTAL_QUESTIONS) {
+      if (shortfalls.length > 0 || questions.length !== questionCount) {
         throw new AssessmentError(
           ERROR_CODE.INSUFFICIENT_QUESTIONS,
           MESSAGES.insufficientQuestions,

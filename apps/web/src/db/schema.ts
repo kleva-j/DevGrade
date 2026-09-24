@@ -93,7 +93,7 @@ export const testSessions = pgTable(
     status: sessionStatusEnum("status")
       .notNull()
       .default(SESSION_STATUS.IN_PROGRESS),
-    /** The 8 selected question ids, in presentation order. */
+    /** Fixed selected ids in presentation order; length is the session's total. */
     selectedQuestionIds: jsonb("selected_question_ids")
       .$type<string[]>()
       .notNull(),

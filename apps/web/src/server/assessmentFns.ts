@@ -1,17 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { SURVEY_RATING_MIN, SURVEY_RATING_MAX } from "@/domain/constants";
 import { createAssessmentService } from "@/server/assessmentService";
 import { AssessmentError } from "@/server/errors";
 import { MESSAGES } from "@/server/messages";
 import { getDb } from "@/db/client";
 
-import {
-  SURVEY_RATING_MIN,
-  SURVEY_RATING_MAX,
-  DIFFICULTIES,
-  FRAMEWORKS,
-} from "@/domain/constants";
+import { createSessionInput } from "./assessmentValidation";
 
 /**
  * TanStack Start server functions — the client boundary for the assessment API.
@@ -21,14 +17,6 @@ import {
  * client, `node:crypto`) never ships to the client (decision #5). The client
  * adapter in `machines/assessmentServices.ts` wires them into the XState machine.
  */
-
-const createSessionInput = z.object({
-  framework: z.enum(FRAMEWORKS),
-  targetLevel: z.enum(DIFFICULTIES),
-  // Stable anonymous id minted client-side (localStorage); hashed server-side
-  // for rate limiting, so it never identifies a person (decision #6 / §7).
-  rawClientId: z.string().min(1),
-});
 
 const submitAnswerInput = z.object({
   sessionId: z.string().min(1),

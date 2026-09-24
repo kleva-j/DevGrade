@@ -6,6 +6,7 @@ import type { SkillCategory } from "@/domain/constants";
 
 import { proficiencyFor, scoreAssessment } from "@/domain/scoring";
 import {
+  ASSESSMENT_LENGTHS,
   WEIGHT_ADVANCED,
   SKILL_CATEGORIES,
   SKILL_CATEGORY,
@@ -128,6 +129,63 @@ describe("scoreAssessment — per-pillar 0/33/67/100 resolution", () => {
     assert.equal(c.correctWeight, 3);
     assert.equal(c.proficiency, PROFICIENCY.PROFICIENT);
   });
+});
+
+describe("scoreAssessment — all assessment lengths", () => {
+  for (const count of ASSESSMENT_LENGTHS) {
+    test(`${count}: equal pillar contribution and unchanged proficiency thresholds`, () => {
+      const pairs = count / (SKILL_CATEGORIES.length * 2);
+      for (const [coreCorrect, advancedCorrect, expected] of [
+        [true, true, 100],
+        [false, false, 0],
+        [true, false, 33.33],
+        [false, true, 66.67],
+      ] as const) {
+        const answers = SKILL_CATEGORIES.flatMap((category) =>
+          Array.from({ length: pairs }, (_, i) =>
+            pillarPair(category, coreCorrect, advancedCorrect).map((item) => ({
+              ...item,
+              question: { ...item.question, id: `${item.question.id}-${i}` },
+            })),
+          ).flat(),
+        );
+        const result = scoreAssessment(
+          "session",
+          FRAMEWORK.REACT,
+          DIFFICULTY.MID,
+          answers,
+        );
+        assert.equal(result.questionResults.length, count);
+        assert.equal(result.totalScore, expected);
+        assert.equal(result.proficiencyLevel, proficiencyFor(expected));
+        assert.ok(
+          result.categoryScores.every(
+            (c) => c.totalWeight === pairs * (WEIGHT_CORE + WEIGHT_ADVANCED),
+          ),
+        );
+      }
+
+      for (const correctCategory of SKILL_CATEGORIES) {
+        const answers = SKILL_CATEGORIES.flatMap((category) =>
+          Array.from({ length: pairs }, (_, i) =>
+            pillarPair(
+              category,
+              category === correctCategory,
+              category === correctCategory,
+            ).map((item) => ({
+              ...item,
+              question: { ...item.question, id: `${item.question.id}-${i}` },
+            })),
+          ).flat(),
+        );
+        assert.equal(
+          scoreAssessment("session", FRAMEWORK.REACT, DIFFICULTY.MID, answers)
+            .totalScore,
+          25,
+        );
+      }
+    });
+  }
 });
 
 describe("scoreAssessment — full 8-question assessment", () => {

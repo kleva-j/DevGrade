@@ -6,7 +6,8 @@
  * interpolation lives here rather than at the throw site.
  */
 export const MESSAGES = {
-  invalidFrameworkOrLevel: "Invalid framework or level.",
+  invalidSessionConfiguration:
+    "Invalid framework, level, assessment length, or client id.",
   frameworkUnavailable: (framework: string, supported: readonly string[]) =>
     `${framework} is not available yet. The MVP supports: ${supported.join(", ")}.`,
   rateLimited: (maxPerHour: number) =>

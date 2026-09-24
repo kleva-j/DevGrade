@@ -2,6 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  ASSESSMENT_LENGTHS,
   MIN_ADVANCED_PER_BUCKET,
   MIN_CORE_PER_BUCKET,
   WEIGHT_ADVANCED,
@@ -75,6 +76,15 @@ describe("seedQuestions bank integrity", () => {
         CONTENT_SOURCES.includes(q.source as (typeof CONTENT_SOURCES)[number]),
         `${q.id}: unknown source ${q.source}`,
       );
+    }
+  });
+
+  test("seed depth leaves a reserve beyond every preset quota", () => {
+    for (const count of ASSESSMENT_LENGTHS) {
+      const quota = count / (SKILL_CATEGORIES.length * 2);
+      assert.ok(Number.isInteger(quota));
+      assert.ok(MIN_CORE_PER_BUCKET > quota);
+      assert.ok(MIN_ADVANCED_PER_BUCKET > quota);
     }
   });
 

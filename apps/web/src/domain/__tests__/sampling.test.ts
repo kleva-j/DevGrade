@@ -4,13 +4,15 @@ import assert from "node:assert/strict";
 import type { SkillCategory } from "@/domain/constants";
 import type { Question } from "@/domain/types";
 
-import { createRng, seedFromString } from "@/domain/random";
+import { createRng } from "@/domain/random";
 import { stratifiedSample } from "@/domain/sampling";
 import {
+  ASSESSMENT_LENGTHS,
+  ASSESSMENT_LENGTH,
+  DEFAULT_ASSESSMENT_LENGTH,
   WEIGHT_ADVANCED,
   SKILL_CATEGORIES,
   SKILL_CATEGORY,
-  TOTAL_QUESTIONS,
   WEIGHT_CORE,
   DIFFICULTY,
   FRAMEWORK,
@@ -32,105 +34,149 @@ function q(id: string, category: SkillCategory, weight: number): Question {
   };
 }
 
-/** A balanced pool: one core + one advanced for every pillar. */
-function balancedPool(): Question[] {
-  return SKILL_CATEGORIES.flatMap((c) => [
-    q(`${c}-core`, c, WEIGHT_CORE),
-    q(`${c}-adv`, c, WEIGHT_ADVANCED),
-  ]);
+function balancedPool(depth = 6): Question[] {
+  return SKILL_CATEGORIES.flatMap((category) =>
+    Array.from({ length: depth }, (_, index) => [
+      q(`${category}-core-${index}`, category, WEIGHT_CORE),
+      q(`${category}-adv-${index}`, category, WEIGHT_ADVANCED),
+    ]).flat(),
+  );
 }
 
-function weightsByCategory(questions: Question[], category: SkillCategory) {
-  return questions
-    .filter((x) => x.skillCategory === category)
-    .map((x) => x.difficultyWeight)
-    .sort((a, b) => a - b);
-}
+const weights = [WEIGHT_CORE, WEIGHT_ADVANCED];
 
 describe("stratifiedSample", () => {
-  test("balanced pool → 8 questions, no shortfalls, core+advanced per pillar", () => {
-    const rng = createRng(seedFromString("balanced"));
-    const { questions, shortfalls } = stratifiedSample(balancedPool(), rng);
-
-    assert.equal(questions.length, TOTAL_QUESTIONS);
-    assert.equal(shortfalls.length, 0);
-    for (const c of SKILL_CATEGORIES) {
-      assert.deepEqual(
-        weightsByCategory(questions, c),
-        [WEIGHT_CORE, WEIGHT_ADVANCED],
-        `pillar ${c} should draw one core + one advanced`,
-      );
-    }
-  });
-
-  test("C2: unbalanced pool still pairs core+advanced across many seeds", () => {
-    // REACTIVITY holds 3 core + 1 advanced; a median split could pick two cores.
-    const pool: Question[] = [
-      q("react-core-1", SKILL_CATEGORY.REACTIVITY, WEIGHT_CORE),
-      q("react-core-2", SKILL_CATEGORY.REACTIVITY, WEIGHT_CORE),
-      q("react-core-3", SKILL_CATEGORY.REACTIVITY, WEIGHT_CORE),
-      q("react-adv-1", SKILL_CATEGORY.REACTIVITY, WEIGHT_ADVANCED),
-      ...SKILL_CATEGORIES.filter(
-        (c) => c !== SKILL_CATEGORY.REACTIVITY,
-      ).flatMap((c) => [
-        q(`${c}-core`, c, WEIGHT_CORE),
-        q(`${c}-adv`, c, WEIGHT_ADVANCED),
-      ]),
-    ];
-
-    for (let seed = 0; seed < 25; seed++) {
-      const { questions, shortfalls } = stratifiedSample(pool, createRng(seed));
-      assert.equal(shortfalls.length, 0);
-      assert.deepEqual(
-        weightsByCategory(questions, SKILL_CATEGORY.REACTIVITY),
-        [WEIGHT_CORE, WEIGHT_ADVANCED],
-        `seed ${seed} must still yield one core + one advanced`,
-      );
-    }
-  });
-
-  test("records a shortfall when a pillar cannot supply the quota", () => {
-    const pool = balancedPool().filter(
-      (x) => x.skillCategory !== SKILL_CATEGORY.LIFECYCLE,
-    );
-    // Give LIFECYCLE a single question (needs 2).
-    pool.push(q("life-only", SKILL_CATEGORY.LIFECYCLE, WEIGHT_CORE));
-
-    const { questions, shortfalls } = stratifiedSample(
-      pool,
-      createRng(seedFromString("short")),
-    );
-
-    assert.equal(shortfalls.length, 1);
-    assert.deepEqual(shortfalls[0], {
-      skillCategory: SKILL_CATEGORY.LIFECYCLE,
-      needed: 2,
-      available: 1,
+  for (const count of ASSESSMENT_LENGTHS) {
+    test(`${count}: exact class quotas, unique ids, deterministic order, unchanged input`, () => {
+      const pool = balancedPool();
+      const before = structuredClone(pool);
+      const quota = count / (SKILL_CATEGORIES.length * weights.length);
+      for (let seed = 0; seed < 25; seed++) {
+        const result = stratifiedSample(pool, count, createRng(seed));
+        assert.deepEqual(result.shortfalls, []);
+        assert.equal(result.questions.length, count);
+        assert.equal(new Set(result.questions.map((x) => x.id)).size, count);
+        for (const category of SKILL_CATEGORIES) {
+          for (const weight of weights) {
+            assert.equal(
+              result.questions.filter(
+                (x) =>
+                  x.skillCategory === category && x.difficultyWeight === weight,
+              ).length,
+              quota,
+            );
+          }
+        }
+        assert.deepEqual(
+          result,
+          stratifiedSample(pool, count, createRng(seed)),
+        );
+      }
+      assert.deepEqual(pool, before);
     });
-    assert.ok(questions.length < TOTAL_QUESTIONS);
-  });
 
-  test("empty pillar reports available: 0", () => {
-    const pool = balancedPool().filter(
-      (x) => x.skillCategory !== SKILL_CATEGORY.ASYNC,
-    );
-    const { shortfalls } = stratifiedSample(
-      pool,
-      createRng(seedFromString("empty")),
-    );
-    const asyncShort = shortfalls.find(
-      (s) => s.skillCategory === SKILL_CATEGORY.ASYNC,
-    );
-    assert.ok(asyncShort);
-    assert.equal(asyncShort.available, 0);
-  });
-
-  test("seeded sampling is deterministic (same seed → identical order)", () => {
-    const pool = balancedPool();
-    const ids = () =>
-      stratifiedSample(pool, createRng(seedFromString("repeat"))).questions.map(
-        (x) => x.id,
+    test(`${count}: samples the exact minimum pool and varies selection with larger pools`, () => {
+      const quota = count / (SKILL_CATEGORIES.length * weights.length);
+      assert.equal(
+        stratifiedSample(balancedPool(quota), count).questions.length,
+        count,
       );
-    assert.deepEqual(ids(), ids());
+      const pool = balancedPool();
+      const sets = new Set(
+        Array.from({ length: 10 }, (_, seed) =>
+          stratifiedSample(pool, count, createRng(seed))
+            .questions.map((x) => x.id)
+            .sort()
+            .join(","),
+        ),
+      );
+      assert.ok(sets.size > 1);
+    });
+
+    for (const missingWeight of weights) {
+      test(`${count}: surplus in one class cannot mask a shortfall in the other`, () => {
+        const quota = count / (SKILL_CATEGORIES.length * weights.length);
+        const pool = balancedPool().filter(
+          (x) =>
+            x.skillCategory !== SKILL_CATEGORY.LIFECYCLE ||
+            x.difficultyWeight !== missingWeight,
+        );
+        for (let i = 0; i < quota - 1; i++) {
+          pool.push(
+            q(`remaining-${i}`, SKILL_CATEGORY.LIFECYCLE, missingWeight),
+          );
+        }
+        const result = stratifiedSample(pool, count, createRng(1));
+        assert.deepEqual(result.questions, []);
+        assert.deepEqual(result.shortfalls, [
+          {
+            skillCategory: SKILL_CATEGORY.LIFECYCLE,
+            difficultyWeight: missingWeight,
+            needed: quota,
+            available: quota - 1,
+          },
+        ]);
+      });
+    }
+  }
+
+  test("omitted length preserves Quick", () => {
+    const result = stratifiedSample(balancedPool(1));
+    assert.equal(result.questions.length, DEFAULT_ASSESSMENT_LENGTH);
+    assert.deepEqual(result.shortfalls, []);
+  });
+
+  test("unbalanced pools still supply exact core/advanced pairs", () => {
+    const pool = balancedPool(1);
+    for (let i = 0; i < 10; i++)
+      pool.push(q(`extra-${i}`, SKILL_CATEGORY.REACTIVITY, WEIGHT_CORE));
+    for (let seed = 0; seed < 25; seed++) {
+      const result = stratifiedSample(
+        pool,
+        ASSESSMENT_LENGTH.QUICK,
+        createRng(seed),
+      );
+      assert.deepEqual(result.shortfalls, []);
+      assert.equal(
+        result.questions.filter((x) => x.difficultyWeight === WEIGHT_ADVANCED)
+          .length,
+        SKILL_CATEGORIES.length,
+      );
+    }
+  });
+
+  test("empty pool reports every missing class without returning a partial assessment", () => {
+    const result = stratifiedSample([]);
+    assert.deepEqual(result.questions, []);
+    assert.equal(
+      result.shortfalls.length,
+      SKILL_CATEGORIES.length * weights.length,
+    );
+    assert.ok(
+      result.shortfalls.every((x) => x.available === 0 && x.needed === 1),
+    );
+  });
+
+  test("unknown weights do not substitute for core or advanced", () => {
+    const pool = balancedPool(1).map((x) => ({
+      ...x,
+      difficultyWeight: x.difficultyWeight + 10,
+    }));
+    assert.equal(
+      stratifiedSample(pool).shortfalls.length,
+      SKILL_CATEGORIES.length * weights.length,
+    );
+  });
+
+  test("duplicate ids do not fill a larger quota", () => {
+    const pool = balancedPool(1);
+    const result = stratifiedSample(
+      [...pool, ...pool],
+      ASSESSMENT_LENGTH.STANDARD,
+    );
+    assert.deepEqual(result.questions, []);
+    assert.ok(
+      result.shortfalls.every((x) => x.available === 1 && x.needed === 2),
+    );
   });
 });

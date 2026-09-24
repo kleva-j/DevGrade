@@ -112,28 +112,38 @@ export const SESSION_STATUS = {
 export const SESSION_STATUSES = values(SESSION_STATUS);
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
+/** Free assessment lengths. Each draws equal core/advanced pairs per pillar. */
+export const ASSESSMENT_LENGTH = {
+  QUICK: 8,
+  STANDARD: 16,
+  DEEP: 32,
+} as const;
+export type AssessmentLength =
+  (typeof ASSESSMENT_LENGTH)[keyof typeof ASSESSMENT_LENGTH];
+export const ASSESSMENT_LENGTHS = Object.values(ASSESSMENT_LENGTH) as [
+  AssessmentLength,
+  ...AssessmentLength[],
+];
+export const DEFAULT_ASSESSMENT_LENGTH = ASSESSMENT_LENGTH.QUICK;
+
+export function isAssessmentLength(value: unknown): value is AssessmentLength {
+  return ASSESSMENT_LENGTHS.some((length) => length === value);
+}
+
 /**
- * Score granularity (open decision #3).
- *
- * Each pillar draws exactly two questions with distinct difficulty weights:
- * a "core" item (1.0) and an "advanced" item (2.0). Weighted category scores
- * therefore resolve to 0 / 33.33 / 66.67 / 100 rather than the coarse
- * 0 / 50 / 100 you get from two equally weighted questions. This gives the
- * "Developing" band real values (66.67) instead of collapsing it to 50.
+ * Decision #3: Quick draws one core/advanced pair per pillar (0/33.33/66.67/100).
+ * Standard draws two pairs and Deep four, refining resolution without changing
+ * the weighted scoring formula or the equal contribution of each pillar.
  */
-export const QUESTIONS_PER_PILLAR = 2;
-export const TOTAL_QUESTIONS = SKILL_CATEGORIES.length * QUESTIONS_PER_PILLAR; // 8
 export const WEIGHT_CORE = 1.0;
 export const WEIGHT_ADVANCED = 2.0;
 
 /**
  * Minimum pool depth per (framework × level × pillar) bucket, split by weight
- * class. `stratifiedSample` draws one core and one advanced item per pillar, so
- * a bucket must hold at least one of each just to be playable — but a pool at
- * that floor returns the *same* eight questions every session (no randomization,
- * high leakage risk). These are the enforced floors the seed-bank guard test
- * (`db/__tests__/seedData.test.ts`) checks; raise them as batches land until the
- * §10.1 target (~6 core / ~6 advanced per bucket) is reached.
+ * class. Deep draws four of each per pillar; six of each leaves room for
+ * randomization even at the longest preset. These are the seed-bank guard
+ * test's enforced floors (§10.1), not a guarantee that a deployed database has
+ * enough active content — session creation checks its actual pool as well.
  */
 export const MIN_CORE_PER_BUCKET = 6;
 export const MIN_ADVANCED_PER_BUCKET = 6;

@@ -1,9 +1,17 @@
 import type {
   ProficiencyLevel,
+  AssessmentLength,
   SkillCategory,
   Difficulty,
   Framework,
 } from "./constants";
+
+/** Candidate choices fixed when the session is created. */
+export interface AssessmentConfiguration {
+  framework: Framework;
+  targetLevel: Difficulty;
+  questionCount: AssessmentLength;
+}
 
 /**
  * Full question record, including the answer key. This shape lives server-side
@@ -26,7 +34,7 @@ export interface Question {
 
 /**
  * Client-safe projection of a question: no `correctAnswer`, no `explanation`.
- * This is what `POST /api/sessions` returns for all 8 questions up front.
+ * Session creation returns the entire selected set up front.
  */
 export interface PublicQuestion {
   id: string;
