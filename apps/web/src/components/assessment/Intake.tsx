@@ -1,9 +1,16 @@
-import { useState } from "react";
-
 import type { Difficulty, Framework } from "@/domain/constants";
+import type { AssessmentConfiguration } from "@/domain/types";
 
-import { Field, FieldLabel } from "@workspace/ui/components/field";
 import { Button } from "@workspace/ui/components/button";
+import { cn } from "@workspace/ui/lib/utils";
+import { useId, useState } from "react";
+
+import {
+  FieldDescription,
+  FieldLegend,
+  FieldGroup,
+  FieldSet,
+} from "@workspace/ui/components/field";
 import {
   CardDescription,
   CardContent,
@@ -18,6 +25,9 @@ import {
 } from "@workspace/ui/components/toggle-group";
 
 import {
+  DEFAULT_ASSESSMENT_LENGTH,
+  ASSESSMENT_LENGTHS,
+  isAssessmentLength,
   MVP_FRAMEWORKS,
   DIFFICULTIES,
   DIFFICULTY,
@@ -25,10 +35,16 @@ import {
   FRAMEWORK,
 } from "@/domain/constants";
 
-import { DIFFICULTY_LABELS, FRAMEWORK_LABELS, UI } from "./copy";
+import {
+  ASSESSMENT_LENGTH_LABELS,
+  DIFFICULTY_LABELS,
+  FRAMEWORK_LABELS,
+  UI,
+} from "./copy";
 
 export interface IntakeProps {
-  onStart: (framework: Framework, targetLevel: Difficulty) => void;
+  initialConfiguration: AssessmentConfiguration | null;
+  onStart: (configuration: AssessmentConfiguration) => void;
 }
 
 /**
@@ -40,79 +56,147 @@ export interface IntakeProps {
 const SELECTED_ITEM_CLASS =
   "data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:text-primary aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary";
 
-export function Intake({ onStart }: IntakeProps) {
-  const [framework, setFramework] = useState<Framework>(FRAMEWORK.REACT);
-  const [level, setLevel] = useState<Difficulty>(DIFFICULTY.MID);
+export function Intake({ initialConfiguration, onStart }: IntakeProps) {
+  const id = useId();
+  const [configuration, setConfiguration] = useState<AssessmentConfiguration>(
+    () =>
+      initialConfiguration ?? {
+        framework: FRAMEWORK.REACT,
+        targetLevel: DIFFICULTY.MID,
+        questionCount: DEFAULT_ASSESSMENT_LENGTH,
+      },
+  );
+  const { framework, targetLevel, questionCount } = configuration;
 
   return (
-    <Card className="w-full max-w-lg [--card-spacing:--spacing(8)]">
+    <Card className="w-full max-w-lg [--card-spacing:--spacing(4)] sm:[--card-spacing:--spacing(8)]">
       <CardHeader>
         <p className="text-sm font-semibold text-primary">{UI.appName}</p>
         <CardTitle className="text-2xl font-bold text-balance">
           {UI.intake.heading}
         </CardTitle>
         <CardDescription className="leading-relaxed">
-          {UI.intake.subheading}
+          {UI.intake.subheading(questionCount)}
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-6">
-        <Field>
-          <FieldLabel>{UI.intake.frameworkLabel}</FieldLabel>
-          <ToggleGroup
-            variant="outline"
-            value={[framework]}
-            onValueChange={(value) => {
-              const next = value[0] as Framework | undefined;
-              if (next) setFramework(next);
-            }}
-          >
-            {FRAMEWORKS.map((f) => (
-              <ToggleGroupItem
-                key={f}
-                value={f}
-                disabled={!MVP_FRAMEWORKS.includes(f)}
-                className={SELECTED_ITEM_CLASS}
-              >
-                {FRAMEWORK_LABELS[f]}
-                {MVP_FRAMEWORKS.includes(f) ? null : (
-                  <span className="ms-1.5 text-xs text-muted-foreground">
-                    soon
-                  </span>
-                )}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </Field>
+      <CardContent>
+        <FieldGroup className="gap-6">
+          <FieldSet>
+            <FieldLegend id={`${id}-framework`} variant="label">
+              {UI.intake.frameworkLabel}
+            </FieldLegend>
+            <ToggleGroup
+              variant="outline"
+              aria-labelledby={`${id}-framework`}
+              multiple={false}
+              value={[framework]}
+              onValueChange={(value) => {
+                const next = value[0] as Framework | undefined;
+                if (next)
+                  setConfiguration((current) => ({
+                    ...current,
+                    framework: next,
+                  }));
+              }}
+            >
+              {FRAMEWORKS.map((f) => (
+                <ToggleGroupItem
+                  key={f}
+                  value={f}
+                  disabled={!MVP_FRAMEWORKS.includes(f)}
+                  className={SELECTED_ITEM_CLASS}
+                >
+                  {FRAMEWORK_LABELS[f]}
+                  {MVP_FRAMEWORKS.includes(f) ? null : (
+                    <span className="ms-1.5 text-xs text-muted-foreground">
+                      soon
+                    </span>
+                  )}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </FieldSet>
 
-        <Field>
-          <FieldLabel>{UI.intake.levelLabel}</FieldLabel>
-          <ToggleGroup
-            variant="outline"
-            value={[level]}
-            onValueChange={(value) => {
-              const next = value[0] as Difficulty | undefined;
-              if (next) setLevel(next);
-            }}
-          >
-            {DIFFICULTIES.map((d) => (
-              <ToggleGroupItem
-                key={d}
-                value={d}
-                className={SELECTED_ITEM_CLASS}
-              >
-                {DIFFICULTY_LABELS[d]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </Field>
+          <FieldSet>
+            <FieldLegend id={`${id}-level`} variant="label">
+              {UI.intake.levelLabel}
+            </FieldLegend>
+            <ToggleGroup
+              variant="outline"
+              aria-labelledby={`${id}-level`}
+              multiple={false}
+              value={[targetLevel]}
+              onValueChange={(value) => {
+                const next = value[0] as Difficulty | undefined;
+                if (next)
+                  setConfiguration((current) => ({
+                    ...current,
+                    targetLevel: next,
+                  }));
+              }}
+            >
+              {DIFFICULTIES.map((d) => (
+                <ToggleGroupItem
+                  key={d}
+                  value={d}
+                  className={SELECTED_ITEM_CLASS}
+                >
+                  {DIFFICULTY_LABELS[d]}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </FieldSet>
+
+          <FieldSet>
+            <FieldLegend id={`${id}-length`} variant="label">
+              {UI.intake.lengthLabel}
+            </FieldLegend>
+            <ToggleGroup
+              variant="outline"
+              multiple={false}
+              aria-labelledby={`${id}-length`}
+              aria-describedby={`${id}-length-hint`}
+              className="grid w-full grid-cols-3"
+              value={[String(questionCount)]}
+              onValueChange={(value) => {
+                const next = Number(value[0]);
+                if (isAssessmentLength(next)) {
+                  setConfiguration((current) => ({
+                    ...current,
+                    questionCount: next,
+                  }));
+                }
+              }}
+            >
+              {ASSESSMENT_LENGTHS.map((count) => (
+                <ToggleGroupItem
+                  key={count}
+                  value={String(count)}
+                  className={cn(
+                    "h-auto min-w-0 flex-col gap-1 px-1 py-3 whitespace-normal sm:px-3",
+                    SELECTED_ITEM_CLASS,
+                  )}
+                >
+                  <span>{ASSESSMENT_LENGTH_LABELS[count]}</span>
+                  <span className="text-xs">
+                    {UI.intake.questionCount(count)}
+                  </span>
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            <FieldDescription id={`${id}-length-hint`}>
+              {UI.intake.lengthHint}
+            </FieldDescription>
+          </FieldSet>
+        </FieldGroup>
       </CardContent>
 
-      <CardFooter className="justify-between gap-4">
+      <CardFooter className="flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs text-muted-foreground">
-          {UI.intake.metaNote}
+          {UI.intake.metaNote(questionCount)}
         </span>
-        <Button size="lg" onClick={() => onStart(framework, level)}>
+        <Button size="lg" onClick={() => onStart(configuration)}>
           {UI.intake.start}
         </Button>
       </CardFooter>

@@ -1,5 +1,7 @@
 import type { AssessmentServices } from "@/machines/assessmentMachine";
 
+import { createSessionAdapter } from "./createSessionAdapter";
+
 import {
   completeSessionFn,
   createSessionFn,
@@ -30,16 +32,7 @@ export function getRawClientId(): string {
  * a thin translation between the machine's argument shape and the server fns.
  */
 export const assessmentServices: AssessmentServices = {
-  async createSession({ framework, targetLevel }) {
-    const res = await createSessionFn({
-      data: { framework, targetLevel, rawClientId: getRawClientId() },
-    });
-    return {
-      sessionId: res.sessionId,
-      sessionToken: res.sessionToken,
-      questions: res.questions,
-    };
-  },
+  createSession: createSessionAdapter(createSessionFn, getRawClientId),
 
   async submitAnswer({ sessionId, sessionToken, answer }) {
     const res = await submitAnswerFn({

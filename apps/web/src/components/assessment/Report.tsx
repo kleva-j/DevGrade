@@ -1,10 +1,10 @@
 import type { AssessmentResult, PublicQuestion } from "@/domain/types";
 import type { ProficiencyLevel } from "@/domain/constants";
 
-import { WarningCircleIcon } from "@phosphor-icons/react";
-
 import { Separator } from "@workspace/ui/components/separator";
 import { Progress } from "@workspace/ui/components/progress";
+import { WarningCircleIcon } from "@phosphor-icons/react";
+import { SKILL_CATEGORY_META } from "@/domain/constants";
 import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
@@ -14,6 +14,7 @@ import {
   AlertTitle,
   Alert,
 } from "@workspace/ui/components/alert";
+
 import {
   CardContent,
   CardHeader,
@@ -21,9 +22,8 @@ import {
   Card,
 } from "@workspace/ui/components/card";
 
-import { SKILL_CATEGORY_META } from "@/domain/constants";
-
 import type { SatisfactionSurveyProps } from "./SatisfactionSurvey";
+
 import { PILLAR_INDICATOR_CLASS, PROFICIENCY_UI, UI } from "./copy";
 import { SatisfactionSurvey } from "./SatisfactionSurvey";
 import { SkillRadar } from "./SkillRadar";
@@ -57,6 +57,9 @@ export function Report({
         <h1 className="mt-1 font-heading text-2xl font-bold">
           {UI.report.heading}
         </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {UI.report.attemptedQuestions(result.questionResults.length)}
+        </p>
       </header>
 
       {/* Overall + radar */}

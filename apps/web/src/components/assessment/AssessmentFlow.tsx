@@ -1,20 +1,18 @@
-import { useEffect } from "react";
+import type { AssessmentConfiguration } from "@/domain/types";
 
 import { useMachine } from "@xstate/react";
+import { useEffect } from "react";
 
-import type { Difficulty, Framework } from "@/domain/constants";
-
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@workspace/ui/components/alert";
-import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent, CardFooter } from "@workspace/ui/components/card";
-import { Spinner } from "@workspace/ui/components/spinner";
-
 import { assessmentServices } from "@/machines/assessmentServices";
 import { assessmentMachine } from "@/machines/assessmentMachine";
+import { Spinner } from "@workspace/ui/components/spinner";
+import { Button } from "@workspace/ui/components/button";
+import {
+  AlertDescription,
+  AlertTitle,
+  Alert,
+} from "@workspace/ui/components/alert";
 
 import { QuestionRunner } from "./QuestionRunner";
 import { Intake } from "./Intake";
@@ -83,14 +81,19 @@ export function AssessmentFlow() {
 
   const { context } = state;
 
-  function onStart(framework: Framework, targetLevel: Difficulty) {
-    send({ type: "CONFIGURE", framework, targetLevel });
+  function onStart(configuration: AssessmentConfiguration) {
+    send({ type: "CONFIGURE", configuration });
     send({ type: "START" });
   }
 
   function renderScreen() {
     if (state.matches("configuring")) {
-      return <Intake onStart={onStart} />;
+      return (
+        <Intake
+          initialConfiguration={context.configuration}
+          onStart={onStart}
+        />
+      );
     }
 
     if (state.matches("creatingSession")) {

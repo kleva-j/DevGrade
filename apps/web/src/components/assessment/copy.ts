@@ -1,11 +1,13 @@
 import type {
   ProficiencyLevel,
+  AssessmentLength,
   SkillCategory,
   Difficulty,
   Framework,
 } from "@/domain/constants";
 
 import {
+  ASSESSMENT_LENGTH,
   SKILL_CATEGORY,
   PROFICIENCY,
   DIFFICULTY,
@@ -23,12 +25,16 @@ export const UI = {
   tagline: "Anonymous React skill assessment",
   intake: {
     heading: "Assess your React skills",
-    subheading:
-      "Eight multiple-choice questions across four competency pillars. No sign-up, no personal data — just an instant, rule-based skill report.",
+    subheading: (count: AssessmentLength) =>
+      `${count} multiple-choice questions across four competency pillars. No sign-up, no personal data — just an instant, rule-based skill report.`,
     frameworkLabel: "Framework",
     levelLabel: "Target level",
+    lengthLabel: "Assessment length",
+    lengthHint: "All lengths are free. Choose how many questions to answer.",
+    questionCount: (count: AssessmentLength) => `${count} questions`,
     start: "Start assessment",
-    metaNote: "8 questions · no account needed",
+    metaNote: (count: AssessmentLength) =>
+      `${count} questions · no account needed`,
   },
   runner: {
     progress: (current: number, total: number) =>
@@ -40,6 +46,8 @@ export const UI = {
   report: {
     heading: "Your skill report",
     overallLabel: "Overall score",
+    attemptedQuestions: (count: number) =>
+      `${count} ${count === 1 ? "question" : "questions"} attempted`,
     pillarsHeading: "Competency pillars",
     gapsHeading: "Focus areas",
     noGaps: "No skill gaps detected — solid across all pillars.",
@@ -63,7 +71,7 @@ export const UI = {
     scoring: "Scoring your answers…",
     errorTitle: "Something went wrong",
     retry: "Try again",
-    restart: "Start over",
+    restart: "Back to setup",
   },
 } as const;
 
@@ -71,6 +79,12 @@ export const FRAMEWORK_LABELS: Record<Framework, string> = {
   [FRAMEWORK.REACT]: "React",
   [FRAMEWORK.VUE]: "Vue",
   [FRAMEWORK.ANGULAR]: "Angular",
+};
+
+export const ASSESSMENT_LENGTH_LABELS: Record<AssessmentLength, string> = {
+  [ASSESSMENT_LENGTH.QUICK]: "Quick",
+  [ASSESSMENT_LENGTH.STANDARD]: "Standard",
+  [ASSESSMENT_LENGTH.DEEP]: "Deep",
 };
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {

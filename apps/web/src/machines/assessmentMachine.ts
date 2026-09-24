@@ -1,7 +1,7 @@
 import { assign, fromPromise, setup } from "xstate";
 
-import type { Difficulty, Framework } from "@/domain/constants";
 import type {
+  AssessmentConfiguration,
   AssessmentResult,
   PublicQuestion,
   AnswerInput,
@@ -14,10 +14,7 @@ import type {
  * `input` makes the machine decoupled and fully unit-testable.
  */
 export interface AssessmentServices {
-  createSession: (args: {
-    framework: Framework;
-    targetLevel: Difficulty;
-  }) => Promise<{
+  createSession: (configuration: AssessmentConfiguration) => Promise<{
     sessionId: string;
     sessionToken: string;
     questions: PublicQuestion[];
@@ -40,8 +37,7 @@ export interface AssessmentServices {
 
 export interface AssessmentContext {
   services: AssessmentServices;
-  framework: Framework | null;
-  targetLevel: Difficulty | null;
+  configuration: AssessmentConfiguration | null;
   sessionId: string | null;
   sessionToken: string | null;
   questions: PublicQuestion[];
@@ -61,7 +57,7 @@ export interface AssessmentContext {
 }
 
 export type AssessmentEvent =
-  | { type: "CONFIGURE"; framework: Framework; targetLevel: Difficulty }
+  | { type: "CONFIGURE"; configuration: AssessmentConfiguration }
   | { type: "START" }
   | { type: "SELECT_OPTION"; option: number }
   | { type: "SUBMIT_ANSWER" }
@@ -91,14 +87,9 @@ export const assessmentMachine = setup({
       }: {
         input: {
           services: AssessmentServices;
-          framework: Framework;
-          targetLevel: Difficulty;
+          configuration: AssessmentConfiguration;
         };
-      }) =>
-        input.services.createSession({
-          framework: input.framework,
-          targetLevel: input.targetLevel,
-        }),
+      }) => input.services.createSession(input.configuration),
     ),
     submitAnswer: fromPromise(
       async ({
@@ -151,8 +142,7 @@ export const assessmentMachine = setup({
     ),
   },
   guards: {
-    isConfigured: ({ context }) =>
-      context.framework !== null && context.targetLevel !== null,
+    isConfigured: ({ context }) => context.configuration !== null,
     hasSelection: ({ context }) => context.selectedOption !== null,
     isLastQuestion: ({ context }) =>
       context.currentIndex >= context.questions.length - 1,
@@ -175,6 +165,7 @@ export const assessmentMachine = setup({
       answers: {},
       currentIndex: 0,
       selectedOption: null,
+      questionStartedAt: 0,
       pendingAnswer: null,
       result: null,
       surveyRating: null,
@@ -187,8 +178,7 @@ export const assessmentMachine = setup({
   id: "assessment",
   context: ({ input }) => ({
     services: input.services,
-    framework: null,
-    targetLevel: null,
+    configuration: null,
     sessionId: null,
     sessionToken: null,
     questions: [],
@@ -209,8 +199,7 @@ export const assessmentMachine = setup({
       on: {
         CONFIGURE: {
           actions: assign({
-            framework: ({ event }) => event.framework,
-            targetLevel: ({ event }) => event.targetLevel,
+            configuration: ({ event }) => ({ ...event.configuration }),
           }),
         },
         START: { target: "creatingSession", guard: "isConfigured" },
@@ -222,8 +211,7 @@ export const assessmentMachine = setup({
         src: "createSession",
         input: ({ context }) => ({
           services: context.services,
-          framework: context.framework!,
-          targetLevel: context.targetLevel!,
+          configuration: context.configuration!,
         }),
         onDone: {
           target: "answering",
@@ -344,7 +332,7 @@ export const assessmentMachine = setup({
     setupFailed: {
       on: {
         RETRY: { target: "creatingSession" },
-        RESTART: { target: "configuring" },
+        RESTART: { target: "configuring", actions: "resetSession" },
       },
     },
 
