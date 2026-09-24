@@ -261,15 +261,18 @@ Non-negotiable baseline (PRD §4.3 / §10.2):
 
 Domain-specific guidance for the candidate flow (PRD §4).
 
-**Intake (framework + level):** clear single-choice selection; React enabled,
-Vue/Angular shown as disabled "coming soon". Primary CTA to start.
+**Intake (framework + level + length):** clear single-choice selection; React
+enabled, Vue/Angular shown as disabled "coming soon". Offer **Quick (8, default),
+Standard (16), Deep (32)**, all free. Lock configuration once started and preserve
+it through retries. Primary CTA to start; no time estimates or statistical
+confidence/comparability claims.
 
 **Question runner:**
 
 - A single `card` per question: title (`font-heading`), prompt (`font-sans`),
   optional monospace code block, and **4 radio options (A–D)**.
-- **Progress** (`N / Total`, 8 total) and a **per-question timer** are always
-  visible; progress fill uses `primary`.
+- **Progress** (`N / Total`, total from the selected-question snapshot: 8, 16,
+  or 32) and a **per-question timer** are always visible; progress fill uses `primary`.
 - Selected option uses `primary` emphasis; keep the selection obvious and
   keyboard-navigable.
 - Loading and error/retry states come from the flow's states — show a calm inline

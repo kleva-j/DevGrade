@@ -1,12 +1,12 @@
 # Product Requirements Document (PRD): DevGrade
 
-**Document Version:** 1.4.0
+**Document Version:** 1.8.0
 
 **Status:** Approved for MVP Development
 
 **Target Release:** Q4 2026
 
-**Last Updated:** 2026-09-16
+**Last Updated:** 2026-09-24
 
 **Change Log:**
 
@@ -18,13 +18,11 @@
 | 1.2.1 | 2026-09-15 | Added §10.1 "Content sourcing & licensing" (paraphrase-not-copy policy referencing MIT-licensed `sudheerj/reactjs-interview-questions` and `lydiahallie/javascript-questions`). Added a per-question `source` provenance column (§5.2) and a pillar-tagged 24-question React starter bank (`db/seedData.ts` + idempotent `db/seed.ts` + `db:seed`). Completed Phase 0 seed/migration items (§13). |
 | 1.2.2 | 2026-09-16 | Phase 0 review fixes: unit test suite (`node:test`, 26 tests, `pnpm test`) covering scoring/sampling/proficiency/PRNG; hardened stratified sampling to pair core+advanced by weight class (robust for unbalanced pools); narrowed the duplicate-answer catch to true unique-violations; guarded the completion question lookup; `count(*)` for answered-count; auto-bump `questions.updated_at`; category upsert on re-seed; extracted `RATE_LIMIT_WINDOW_MINUTES` and computed `PROFICIENCY_THRESHOLDS` keys; declared `tsx`. Phase 0 marked complete (§13). |
 | 1.3.0 | 2026-09-16 | Phases 1–3 implemented in `apps/web`: TanStack Start server functions (`server/assessmentFns.ts`) as the client API boundary (answer key verified absent from the client bundle, decision #5); XState-driven candidate UI (`components/assessment/*`: intake, question runner with per-question timer + `visibilitychange` focus-loss, loading/error/retry) wired via `machines/assessmentServices.ts`; report with categorical skill radar, per-pillar breakdown, focus areas, and question review. Anonymous client id minted client-side in `localStorage` and passed to `createSession` (replaces the server cookie plan; hashed server-side, equivalent for rate limiting). Promoted categorical `--chart-*` + `--code-*` tokens into `globals.css` and documented them in `design.md` §4. |
-| 1.4.0 | 2026-09-16 | Phase 3 satisfaction survey: normalized `session_surveys` table (1..5 helpfulness, unique per session; migration `0001`), `submitSurvey` service + server fn (allowed only after completion, upserts on re-submit), and a report survey card driven by new `completed` machine substates (`surveyPrompt`/`submittingSurvey`/`surveyThanks`). Survey bounds centralized in `domain/constants.ts`; copy in `components/assessment/copy.ts`.   
-
+| 1.4.0 | 2026-09-16 | Phase 3 satisfaction survey: normalized `session_surveys` table (1..5 helpfulness, unique per session; migration `0001`), `submitSurvey` service + server fn (allowed only after completion, upserts on re-submit), and a report survey card driven by new `completed` machine substates (`surveyPrompt`/`submittingSurvey`/`surveyThanks`). Survey bounds centralized in `domain/constants.ts`; copy in `components/assessment/copy.ts`. |
 | 1.5.0 | 2026-09-23 | Question-bank Batch A: grew the React starter bank from 24 to **48 questions** (3 levels × 4 pillars × **two** core + **two** advanced per bucket), so stratified sampling has a real pool to randomize over (anti-leakage) instead of returning a fixed set. Added a seed-bank integrity guard test (`db/__tests__/seedData.test.ts`) enforcing id/shape/answer-range/provenance and per-bucket minimum depth via new `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` constants (`domain/constants.ts`). New items favor `original` provenance with a subset paraphrased from the MIT banks (§10.1). Updated §10.1, §12, §13. |
-
 | 1.6.0 | 2026-09-23 | Question-bank Batch B: grew the React bank from 48 to **96 questions** (3 levels × 4 pillars × **four** core + **four** advanced per bucket), deepening the sampling pool (1-of-4 core × 1-of-4 advanced per pillar → far more distinct sessions). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 4 (guard test green at 29 tests). Topics remain distinct across all items in a bucket; provenance tracked per row (§10.1). Remaining toward the §10.1 target (~6/6 per bucket, ~144 total): a future Batch C. |
-
 | 1.7.0 | 2026-09-23 | Question-bank Batch C: grew the React bank from 96 to **144 questions** (3 levels × 4 pillars × **six** core + **six** advanced per bucket), reaching the §10.1 pool-depth target (~6/6 per bucket). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 6 (guard test green at 29 tests; typecheck + lint clean). New `-05`/`-06` items are topic-distinct from every prior item in each bucket and vary the `correctAnswer` index to reduce answer-position leakage; provenance tracked per row (§10.1). Updated §10.1, §12, §13. |
+| 1.8.0 | 2026-09-24 | Implemented free selectable lengths: Quick (8, default), Standard (16), Deep (32). Strict core/advanced sampling, shared exact numeric `questionCount` validation, unchanged scoring/schema, fixed selected-ID snapshot, and XState configuration preserved through retries. Intake and report copy now reflect the selected length without time or statistical confidence claims. Added sampler, validation, machine, and isolated PostgreSQL tests; verification and the unrelated typecheck blocker are recorded in §13. |
 
 ---
 
@@ -34,7 +32,7 @@
 
 Traditional hiring tests and quiz apps rely on static, binary pass/fail questions that fail to identify _why_ a candidate struggled. DevGrade solves this by categorizing questions across four core engineering competency pillars (Reactivity & State Management, Component Lifecycle & Architecture, Performance & Rendering, and Data Flow & Async Operations).
 
-The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-choice testing engine focused on React expertise, using stratified random sampling (8 questions across 4 competency pillars), client-side state management, and automated skill-gap analysis. Subsequent phases expand to Vue/Angular support, integrate live code execution sandboxes, and implement AI-driven candidate evaluation.
+The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-choice testing engine focused on React expertise, using stratified random sampling (free Quick 8-question default, Standard 16-question, or Deep 32-question assessments across 4 competency pillars), client-side state management, and automated skill-gap analysis. Subsequent phases expand to Vue/Angular support, integrate live code execution sandboxes, and implement AI-driven candidate evaluation.
 
 ---
 
@@ -72,7 +70,7 @@ The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-cho
 | Metric                           | Target (MVP)                                  | Measurement Method                                                                      |
 | -------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
 | **Test Completion Rate**         | > 85%                                         | Ratio of started tests to completed reports (tracked via session status)                |
-| **Average Test Duration**        | 8–10 minutes                                  | Timestamp tracking from session start to completion (8 questions)                       |
+| **Average Test Duration**        | Observe by selected length; no promised duration | Timestamp tracking from session start to completion, grouped by selected-ID snapshot length |
 | **User Assessment Satisfaction** | > 4.2 / 5.0                                   | Post-assessment 1-question survey: "How helpful was this assessment?"                   |
 | **Skill Gap Precision**          | > 80% agreement                               | Candidate follow-up survey: "Did the identified skill gaps match your self-assessment?" |
 | **Question Bank Utilization**    | > 70% of active questions used within 30 days | Track question selection frequency to ensure question diversity                         |
@@ -85,11 +83,23 @@ The initial **MVP (Phase 1)** delivers a deterministic, lightweight multiple-cho
 
 - **Framework Selection:** Candidate chooses target framework. **MVP supports React only**; **Vue** and **Angular** are shown as "coming soon" and enabled in a later phase.
 - **Target Level Selection:** Candidate selects self-assessed experience tier: **Junior**, **Mid**, or **Senior**.
-- **Session Initialization:** System creates a unique assessment session ID and initializes state tracking.
+- **Length Selection:** Candidate chooses **Quick (8 questions, default)**, **Standard (16)**, or **Deep (32)**. All three are free; these are assessment lengths, not pricing tiers. Show question counts, not time estimates or promises of statistical confidence or score comparability.
+- **Input Contract:** `questionCount` accepts only the exact numeric allowlist **8, 16, 32**. Missing input defaults to **8**; unsupported values are rejected, including numeric strings, `null`, booleans, and fractional values (no coercion or rounding).
+- **Session Initialization:** System creates a unique assessment session ID and initializes state tracking. XState configuration includes framework, level, and `questionCount`; configuration is immutable once started and preserved through retries. The stored selected-question ID snapshot is authoritative for session length (§5.2).
 
 ### 4.2 Stratified Random Sampling Engine
 
-Rather than pulling purely random questions, the engine selects 8 questions from the backlog balanced across the **4 Competency Pillars**:
+Rather than pulling purely random questions, the engine selects the requested count from the active backlog, filtered by framework and target level, balanced across the **4 Competency Pillars**:
+
+| Length | Total questions | Core + advanced pairs per pillar | Questions per pillar | Total weight per pillar |
+| --- | --- | --- | --- | --- |
+| Quick (default) | 8 | 1 | 2 | 3 |
+| Standard | 16 | 2 | 4 | 6 |
+| Deep | 32 | 4 | 8 | 12 |
+
+Each pair contains one core question (weight **1**) and one advanced question (weight **2**). Sample without replacement within each pillar's exact weight classes; other weights cannot substitute. If any active pillar pool lacks the required core or advanced count, fail closed with `insufficient_questions`. Never substitute classes, repeat questions, or silently shorten a session.
+
+**Quick (8-question) example:** the diagram below shows two questions per pillar; Standard and Deep scale every pillar equally as above.
 
 ```
                               ┌────────────────────────────────────────┐
@@ -115,7 +125,7 @@ Rather than pulling purely random questions, the engine selects 8 questions from
 
 - **Multi-Choice Question Display:** Renders markdown code blocks (`JetBrains Mono`), question prompt, and 4 radio options (A, B, C, D).
 - **Bi-Directional Support:** Native LTR/RTL layout support using logical CSS properties (`ms-*`, `ps-*`).
-- **Progress & Timer:** Real-time progress bar indicating question count (N / Total) and time elapsed per question.
+- **Progress & Timer:** Real-time progress bar indicating question count (N / Total, where Total is the selected-question snapshot length) and time elapsed per question. Elapsed timing is not an estimated completion time.
 
 ### 4.4 Rule-Based Scoring Engine & Report Generator
 
@@ -125,7 +135,7 @@ Scoring runs **server-side** (the answer key is never shipped to the client). Ea
 Category Score (%) = ( Σ(Correct Answers × Difficulty Weight) / Σ(Total Questions × Difficulty Weight) ) × 100
 ```
 
-**Score granularity (decision #3):** each pillar draws one _core_ question (weight 1.0) and one _advanced_ question (weight 2.0), so a pillar resolves to **0 / 33 / 67 / 100** instead of the coarse 0 / 50 / 100 of two equal questions. This gives the "Developing" band a real value (67 = advanced correct, core wrong maps to 67; core correct, advanced wrong maps to 33). Sampling enforces this weight spread while randomizing within each weight tier (see `apps/web/src/domain/sampling.ts`).
+**Score granularity (decision #3):** the weighted formula and proficiency thresholds are unchanged. Each pillar draws **1 / 2 / 4** _core_ + _advanced_ pairs for Quick / Standard / Deep respectively (weights **1 / 2**). Quick pillar scores resolve to **0 / 33.33 / 66.67 / 100** (rounded to two decimals): advanced-only correct is Developing; core-only correct is a Skill Gap. Standard and Deep have finer resolution, in steps of **100/6** and **100/12** percentage points respectively. Each pillar has equal total weight within a session, so all four contribute equally to the weighted overall percentage at every length. Finer resolution is not a claim of statistical confidence or comparability across lengths, levels, or sampled sets. Sampling enforces the exact weight classes (see §4.2; `apps/web/src/domain/sampling.ts`).
 
 #### Proficiency Tiering:
 
@@ -159,6 +169,8 @@ Categories scoring below 50% are flagged with specific remediation paths:
 ### 5.2 Core Data Schema
 
 PostgreSQL DDL below reflects the implemented Drizzle schema (`apps/web/src/db/schema.ts`). Notable decisions: options are stored as a JSON array (not `option_a..d`), per-pillar results are **normalized** into `session_category_scores` (decision #4), each question carries a `source` for content provenance/licensing (§10.1), and no raw device fingerprint is stored (only a hashed `client_id` for rate limiting and the behavioral `focus_loss_count`).
+
+Selectable lengths require **no DB schema migration** and **no additional stored count or pricing fields**. Persist the ordered selected-question IDs once at creation; the length of `selected_question_ids` is authoritative for totals, progress, and completion. Existing 8-ID sessions remain Quick sessions; later defaults or client configuration must not reinterpret the snapshot.
 
 ```sql
 -- 1. Skill Categories (competency pillars as data; extensible)
@@ -198,7 +210,7 @@ CREATE TABLE test_sessions (
     framework framework NOT NULL,
     target_level difficulty NOT NULL,
     status session_status NOT NULL DEFAULT 'in_progress', -- in_progress, completed, abandoned
-    selected_question_ids JSONB NOT NULL,        -- 8 chosen ids, in order
+    selected_question_ids JSONB NOT NULL,        -- ordered snapshot of 8/16/32 ids; authoritative length
     focus_loss_count INT NOT NULL DEFAULT 0,     -- behavioral anti-cheat signal
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
@@ -260,18 +272,19 @@ CREATE TABLE session_surveys (
 
 ### 6.1 Epic: Candidate Assessment Flow
 
-**US-1: Framework and Level Selection**
+**US-1: Framework, Level, and Length Selection**
 
 - **As a** candidate
-- **I want to** select my target framework and experience level
-- **So that** I receive appropriately challenging questions
+- **I want to** select my target framework, experience level, and assessment length
+- **So that** I receive appropriately challenging questions in my chosen set size
 
 **Acceptance Criteria:**
 
 - Display framework selection (React only for MVP)
 - Display experience level options (Junior, Mid, Senior)
-- Selection persists throughout the session
-- Show estimated test duration (8-10 minutes)
+- Display free Quick (8, default), Standard (16), and Deep (32) length options
+- XState configuration includes the selected count, is immutable once started, and survives retries
+- Show question counts without time estimates or statistical confidence/comparability claims
 
 **US-2: Question Presentation**
 
@@ -285,7 +298,7 @@ CREATE TABLE session_surveys (
 - Show 4 labeled options (A, B, C, D)
 - Render markdown code blocks in JetBrains Mono font
 - Support RTL/LTR layouts with logical CSS properties
-- Show progress indicator (2/8 questions)
+- Show progress indicator using the selected-question snapshot length (e.g. 2/8 for Quick, 2/16 for Standard, 2/32 for Deep)
 - Display elapsed time per question
 
 **US-3: Answer Submission**
@@ -329,9 +342,10 @@ CREATE TABLE session_surveys (
 
 - Generate unique session token
 - Initialize empty answer state
-- Select 8 questions using stratified sampling (2 per pillar)
-- Store session in database with timestamp
-- Return session ID to client
+- Accept only numeric `questionCount` values 8, 16, or 32; default missing input to 8 and reject unsupported values
+- Select exactly the requested count using stratified sampling (§4.2)
+- Store session with timestamp and ordered selected-ID snapshot; derive length from that snapshot, not a separate count field
+- Return session ID and all client-safe questions up front; keep the answer key server-side
 
 **US-6: Stratified Question Selection**
 
@@ -341,28 +355,32 @@ CREATE TABLE session_surveys (
 
 **Acceptance Criteria:**
 
-- Filter questions by framework and target level
-- Select exactly 2 questions per competency pillar
-- Randomize selection within pillar constraints
-- Ensure no duplicate questions in single session
-- Handle insufficient questions gracefully
+- Filter active questions by framework and target level
+- Select exactly 1, 2, or 4 core (weight 1) + advanced (weight 2) pairs per pillar for 8, 16, or 32 questions respectively
+- Randomize without replacement within each pillar's exact weight classes
+- Ensure no duplicate questions in a single session
+- Fail closed with `insufficient_questions` if any active pillar/weight-class pool is short; no substitutes, repeats, or silent shortening
 
 ---
 
 ## 7. API Specifications
 
-### 7.1 REST API Endpoints
+### 7.1 Session API operations
+
+The MVP exposes TanStack Start server functions in `server/assessmentFns.ts`, not hand-written REST routes. The `/api/...` headings below describe logical operations. The creation example shows the actual camelCase server-function payload; later examples remain conceptual operation/report sketches.
 
 #### POST /api/sessions
 
-Initialize a new assessment session.
+Initialize a new assessment session. Optional `questionCount` is an exact numeric allowlist: **8, 16, 32**. Omission defaults to **8** for existing callers; every unsupported value is rejected as invalid input (no numeric-string coercion, rounding, or fallback).
 
-**Request Body:**
+**Request Body (Quick example):**
 
 ```json
 {
   "framework": "react",
-  "target_level": "mid"
+  "targetLevel": "mid",
+  "questionCount": 8,
+  "rawClientId": "anonymous-browser-id"
 }
 ```
 
@@ -370,24 +388,23 @@ Initialize a new assessment session.
 
 ````json
 {
-  "session_id": "uuid",
-  "session_token": "random_token",
+  "sessionId": "uuid",
+  "sessionToken": "random_token",
   "questions": [
     {
       "id": "q_123",
-      "category": "reactivity",
-      "title": "Understanding useEffect Dependencies",
+      "skillCategory": "reactivity",
+      "title": "State updates",
       "prompt": "What happens when...",
-      "code_block": "```javascript\nuseEffect(() => {...}, [dep])\n```",
+      "codeBlock": null,
       "options": ["A", "B", "C", "D"]
     }
   ],
-  "total_questions": 8,
-  "estimated_duration_minutes": 10
+  "totalQuestions": 8
 }
 ````
 
-> All 8 questions are returned up front (decision #5) as **client-safe projections**: no `correct_answer` and no `explanation` — the answer key stays server-side until `/complete`. The `session_token` is the caller's handle for `/answers`, `/complete`, and data-deletion requests.
+> Quick example above, with `questions` abbreviated to one item. All selected questions (8, 16, or 32) are returned up front (decision #5) as **client-safe projections** (`PublicQuestion` via `toPublicQuestion`): no `correctAnswer` or `explanation`. The answer key stays server-side; correctness and explanations are returned only in the completed report. `totalQuestions` is the selected-ID snapshot length, not a separately stored count. No duration estimate is returned. The browser sends `rawClientId` for anonymous rate limiting; only its hash is stored. The caller retains `sessionId` and `sessionToken` for subsequent operations.
 
 #### POST /api/sessions/:id/answers
 
@@ -418,7 +435,7 @@ persists the answer and reports whether the session is now complete
 
 #### POST /api/sessions/:id/complete
 
-Finalize the assessment and generate results.
+Finalize the assessment and generate results only after every question in the stored selected-ID snapshot has been answered. The snapshot length, not a fixed default or later client-supplied count, governs completion.
 
 **Response:**
 
@@ -430,8 +447,8 @@ Finalize the assessment and generate results.
   "proficiency_level": "developing",
   "category_scores": {
     "reactivity": 100,
-    "lifecycle": 67,
-    "performance": 33,
+    "lifecycle": 66.67,
+    "performance": 33.33,
     "async": 100
   },
   "skill_gaps": ["performance"],
@@ -448,7 +465,7 @@ Finalize the assessment and generate results.
 }
 ```
 
-> Note: With one core (weight 1.0) and one advanced (weight 2.0) question per pillar, each `category_scores` value resolves to 0 / 33 / 67 / 100 (decision #3). `performance: 33` (core correct, advanced wrong) falls below the 50% threshold and is flagged as a skill gap; `lifecycle: 67` sits in the Developing band. `total_score` is the weighted overall percentage: correct weight 9.0 of 12.0 total weight = 75. `max_score` is fixed at 100. `skill_gaps` lists only categories below 50%. Full per-pillar rows are persisted in `session_category_scores`.
+> Quick (8-question) example: with one core (weight 1) and one advanced (weight 2) question per pillar, each `category_scores` value resolves to 0 / 33.33 / 66.67 / 100 (shown rounded to two decimals; decision #3). `performance: 33.33` (core correct, advanced wrong) falls below 50% and is flagged as a skill gap; `lifecycle: 66.67` sits in the Developing band. `total_score` uses the unchanged weighted formula: correct weight 9 of 12 total weight = 75, with equal pillar contributions. Standard and Deep use two and four pairs per pillar for finer resolution (§4.4). `max_score` is fixed at 100. `skill_gaps` lists only categories below 50%. Full per-pillar rows are persisted in `session_category_scores`.
 
 #### POST /api/sessions/:id/survey
 
@@ -456,7 +473,7 @@ Record the post-assessment satisfaction rating (§3 KPI). Accepts `{ session_tok
 
 ### 7.2 Error Handling Strategy
 
-- **400 Bad Request**: Invalid input data, malformed JSON
+- **400 Bad Request**: Invalid input data (including unsupported `questionCount`), malformed JSON
 - **404 Not Found**: Session or question not found
 - **409 Conflict**: Duplicate answer submission for same question
 - **429 Too Many Requests**: Rate limiting (max 5 sessions per hour per IP)
@@ -585,7 +602,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 
 **Pricing Model:**
 
-- **Free tier (MVP):** Anonymous assessments with full skill-radar reports and remediation suggestions.
+- **Free tier (MVP):** Anonymous Quick (8, default), Standard (16), and Deep (32) assessments, all with full skill-radar reports and remediation suggestions. Selectable lengths add no pricing or payment requirement.
 - Additional paid tiers (e.g., unlimited assessments, team dashboards, API access) will be introduced once Phase 2+ features land. Tier definitions are intentionally deferred until that scope is implemented.
 
 ---
@@ -596,7 +613,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 | ------------------------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Question Bank Leakage / Cheating** | High   | Medium     | Use randomized sampling across per-bucket pools (min ~12 per level × pillar); hashed `client_id` rate limiting (not IP, avoids shared-NAT lockout); focus-loss detection and per-question timing analysis. |
 | **Subjective Question Quality**      | Medium | Medium     | Validate explanations against official framework documentation (React.dev); implement statistical analysis of pass rates; expert review panel for technical accuracy.                                      |
-| **Low Engagement on Long Tests**     | Medium | Low        | Limit MVP test sessions to 8 high-signal questions (<10 minutes); provide engaging results visualization; offer practice mode for low-stakes exploration.                                                  |
+| **Low Engagement on Long Tests**     | Medium | Low        | Default to Quick (8 questions); let candidates opt into Standard (16) or Deep (32), with clear counts and no promised duration; provide constructive results visualization.                                                  |
 | **Technical Debt from MVP Scope**    | High   | Medium     | Design architecture with clear upgrade paths; document technical decisions; plan for framework expansion from initial React-only approach.                                                                 |
 | **Insufficient Question Diversity**  | Medium | High       | Implement aggressive initial content creation (150+ questions); establish contributor model; A/B test question effectiveness continuously.                                                                 |
 | **Performance Degradation at Scale** | Medium | Low        | Design database with proper indexing; implement caching for static question content; monitor API response times; plan database scaling strategy.                                                           |
@@ -605,27 +622,38 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 
 ## 12. Architectural Decisions (Resolved)
 
-The items below were open in v1.1.0 and are now decided and implemented in `apps/web` (domain, DB schema, server services, and the XState machine).
+The original decisions below were open in v1.1.0 and implemented for the Quick baseline in `apps/web` (domain, DB schema, server services, and the XState machine). The v1.8.0 selectable-length extensions are approved requirements, not an implementation or validation claim (§13).
 
 1. **Database engine — RESOLVED: PostgreSQL everywhere.** SQLite is dropped entirely; local, CI, and prod all run PostgreSQL via Drizzle ORM + Drizzle Kit migrations (`apps/web/src/db/schema.ts`, `drizzle.config.ts`).
 2. **Deployment topology — RESOLVED: single full-stack app.** The UI and `/api/*` server functions ship together as one TanStack Start deployment (see §8.1). No separately hosted API.
-3. **Score granularity — RESOLVED: weighted core/advanced pairs.** Each pillar draws one core (1.0) and one advanced (2.0) question, giving 0/33/67/100 resolution. Implemented in `domain/constants.ts`, `domain/sampling.ts`, and `domain/scoring.ts` (see §4.4).
+3. **Score granularity — RESOLVED: weighted core/advanced pairs.** Each pillar draws 1/2/4 pairs for Quick/Standard/Deep, with exact core (1) and advanced (2) weights. Quick resolves to 0/33.33/66.67/100; longer lengths give finer resolution with unchanged scoring and equal pillar contributions (see §4.2–4.4; `domain/constants.ts`, `domain/sampling.ts`, `domain/scoring.ts`).
 4. **Results storage — RESOLVED: normalized.** Per-pillar scores live in `session_category_scores` (one row per pillar per session); no hardcoded pillar columns (see §5.2). Generalizes to future frameworks/pillars.
-5. **Question delivery — RESOLVED: all up front.** `POST /api/sessions` returns all 8 client-safe questions; `POST /api/sessions/:id/answers` only persists and returns `{ success, session_complete }`. `next_question` removed (see §7.1).
+5. **Question delivery — RESOLVED: all up front.** `POST /api/sessions` returns all selected client-safe questions (8/16/32), while the answer key stays server-side; `POST /api/sessions/:id/answers` only persists and returns `{ success, session_complete }`. `next_question` removed (see §7.1).
 
 **Related considerations — addressed:**
 
 - **Level context:** `session_results.target_level` is stored so a tier is read relative to the tested level. Cross-level normalization for recruiter comparison is deferred to the recruiter-facing phase.
 - **Rate limiting:** now keyed on a hashed anonymous `client_id` cookie (not IP), avoiding shared-NAT lockouts (`MAX_SESSIONS_PER_HOUR`, `db/queries.ts`).
 - **Privacy:** raw device fingerprint (`browser_info`) removed; only the behavioral `focus_loss_count` and a non-reversible `client_id` hash are stored. Right-to-erasure is `deleteSessionByToken()` (cascades to answers/results).
-- **Pool sizing:** content target set to a minimum per (level × pillar) bucket — see §10.1. Sampling fails closed with an `insufficient_questions` error when a balanced set can't be built. A pillar-tagged **144-question** React bank ships in `db/seedData.ts` (six core + six advanced per bucket), with per-row `source` provenance for licensing (see §10.1 "Content sourcing & licensing") and a guard test (`db/__tests__/seedData.test.ts`) enforcing the per-bucket minimum depth.
+- **Pool sizing:** content target set to a minimum per (level × pillar) bucket — see §10.1. Sampling must fail closed with an `insufficient_questions` error when the active pool cannot supply the requested 1/2/4 core+advanced pairs per pillar; substitutes, repeats, and silent shortening are forbidden. A pillar-tagged **144-question** React bank ships in `db/seedData.ts` (six core + six advanced per bucket), with per-row `source` provenance for licensing (see §10.1 "Content sourcing & licensing") and a guard test (`db/__tests__/seedData.test.ts`) enforcing the per-bucket minimum depth.
 - **Abandonment:** `markAbandonedSessions()` transitions idle `in_progress` sessions (default 30 min) so the completion-rate KPI is measurable; runs as a scheduled job (see §8.1).
 
 ---
 
 ## 13. Implementation Plan (MVP)
 
-The domain core, server API (server functions), candidate UI, and report are built and typecheck/build clean (`apps/web/src/{domain,db,server,machines,components,routes}`). Phases 1–3 are largely delivered; the remaining work (integration tests against a live DB, erasure fn, content growth) is called out per phase below. Each phase is independently shippable and testable.
+The domain core, server API (server functions), candidate UI, and report are built and typecheck/build clean (`apps/web/src/{domain,db,server,machines,components,routes}`). Phases 1–3 are largely delivered; the remaining work (integration tests against a live DB, erasure fn, content growth) is called out per phase below. Each phase is independently shippable and testable. These delivery/validation statements describe the existing baseline, not the v1.8.0 extension below.
+
+### Selectable lengths — implemented extension
+
+- [x] Carry exact numeric `questionCount` (8/16/32; missing → 8) from intake through immutable XState configuration and creation, preserving it through retries and return to setup.
+- [x] Enforce strict active-pool weight-class sampling (§4.2); derive session length and completion from the existing ordered selected-ID snapshot, with no schema migration or extra stored count/pricing.
+- [x] Update intake/progress/report copy for the three free lengths; retain all-public-questions-up-front delivery and server-only answer keys, with no time or statistical confidence/comparability promises.
+- [x] Validate all lengths, omitted and invalid inputs, exact class quotas, uniqueness, active-pool shortfalls (no fallback), unchanged weighted scoring/equal pillar contributions, snapshot-based completion, client-safe delivery, and configuration/retry preservation.
+
+**Verification (2026-09-24):** 217 tests passed with an isolated temporary PostgreSQL 18 database, including all nine length/level combinations. Production build and repo-wide lint passed. Browser smoke tests completed Quick, Standard, and Deep against the seeded 144-question bank; checked keyboard selection, mobile light/LTR and dark/RTL layouts, final-question completion, report counts, and configuration preservation. No answer-key/seed markers were found in the built public JavaScript. Typecheck remains blocked by three unrelated errors in the existing shared `chart.tsx` edits (lines 154/158); this extension does not change that file.
+
+**Repeatable DB tests:** set `TEST_DATABASE_URL` to a dedicated PostgreSQL test database and run `pnpm --filter web test`. Integration tests create/drop only their own unique schemas using temporary copies of the real migrations. Without this explicit variable they skip; configured connection failures fail the run. To enable longer assessments in an existing deployment, apply the existing migrations and run `pnpm --filter web db:seed` against that environment if the bank is not already current. No new migration is needed for lengths.
 
 ### Phase 0 — Foundations (complete)
 
@@ -658,7 +686,7 @@ Build the screens, driven by `@xstate/react` `useMachine`. **Complete.**
 - [x] Question runner: prompt + `font-mono` code block, radio options, progress `N/Total` bar, per-question timer, `SELECT_OPTION`/`SUBMIT_ANSWER`; `FOCUS_LOSS` wired to `visibilitychange` in the orchestrator.
 - [x] Loading/error states from `creatingSession`/`*Failed` with `RETRY`/`RESTART` (`AssessmentFlow.tsx`).
 - [x] Repeated copy centralized in `components/assessment/copy.ts` (mirrors the server `MESSAGES` seam); RTL-safe logical classes; native radios in `fieldset/legend` for a11y.
-- **Exit criteria (pending live-DB run):** a candidate can complete an 8-question React assessment from intake to submission; flow builds and typechecks clean.
+- **Exit criteria (pending live-DB run and selectable-length extension):** a candidate can complete Quick (8), Standard (16), and Deep (32) React assessments from intake to submission; verify flow build and typecheck.
 
 ### Phase 3 — Report & skill radar
 
@@ -679,6 +707,6 @@ Make it production-credible.
 
 ### Cross-cutting: testing
 
-- **Unit (implemented):** scoring (each 0/33/67/100 path), sampling (weight-class pairing incl. unbalanced pools + seeded determinism + shortfall), proficiency boundaries, and PRNG determinism — `node:test`, run with `pnpm test`.
+- **Unit (implemented Quick baseline):** scoring (each 0/33/67/100 path, shown as whole percentages), sampling (weight-class pairing incl. unbalanced pools + seeded determinism + shortfall), proficiency boundaries, and PRNG determinism — `node:test`, run with `pnpm test`. Selectable-length coverage is listed in the extension checklist above.
 - **Integration:** service functions against an ephemeral Postgres (create/submit/complete, 409, 429, insufficient questions, completion guard).
 - **Machine:** XState model-based tests for the flow transitions and retry paths.

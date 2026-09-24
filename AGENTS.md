@@ -7,8 +7,9 @@ for product intent (and the numbered decisions in §12); read
 ## What this is
 
 DevGrade is an **anonymous, adaptive front-end skill-assessment platform** (React
-MVP). A candidate answers a stratified, weighted **8-question** multiple-choice
-set and gets a **rule-based** skill report across four competency pillars. No
+MVP). At intake, a candidate chooses a free, stratified, weighted multiple-choice
+set: **Quick (8, default), Standard (16), or Deep (32)**, then gets a **rule-based**
+skill report across four competency pillars (length rules: `prd.md` §4.1–4.4). No
 accounts, no PII. Vue/Angular are modeled in the enums but gated off
 (`MVP_FRAMEWORKS`) until later.
 
