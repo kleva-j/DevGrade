@@ -1,17 +1,40 @@
-import type { AssessmentConfiguration, AssessmentResult } from "@/domain/types";
-import type { ReportView, LegacySummaryView } from "@/domain/sessionContracts";
+import type { AssessmentConfiguration, AnswerInput } from "@/domain/types";
+import type {
+  AcceptedAnswerResult,
+  CreatedSession,
+  DeleteSessionInput,
+  DeleteSessionResult,
+  SessionCredential,
+  SessionDiscoveryResult,
+  SessionView,
+  ReportView,
+  LegacySummaryView,
+} from "@/domain/sessionContracts";
 import type { AssessmentEnvelope, AssessmentFailure } from "@/server/errors";
-import type { AssessmentServices } from "./assessmentMachine";
 
-import { SESSION_VIEW } from "@/domain/constants";
-import { ERROR_CODE } from "@/server/errors";
-import { MESSAGES } from "@/server/messages";
-
-interface CreateSessionRequest {
-  data: AssessmentConfiguration & { rawClientId: string };
+export interface AssessmentApi {
+  createSession: (
+    configuration: AssessmentConfiguration,
+    knownCredentials: SessionCredential[],
+  ) => Promise<CreatedSession>;
+  discoverSessions: (
+    credentials: SessionCredential[],
+  ) => Promise<SessionDiscoveryResult>;
+  getSession: (credential: SessionCredential) => Promise<SessionView>;
+  resumeSession: (credential: SessionCredential) => Promise<SessionView>;
+  deleteSession: (input: DeleteSessionInput) => Promise<DeleteSessionResult>;
+  submitAnswer: (
+    input: SessionCredential & { answer: AnswerInput },
+  ) => Promise<AcceptedAnswerResult>;
+  completeSession: (
+    credential: SessionCredential,
+  ) => Promise<ReportView | LegacySummaryView>;
+  submitSurvey: (
+    input: SessionCredential & { rating: number },
+  ) => Promise<{ success: true }>;
 }
 
-/** Preserve typed codes/payloads without parsing messages or importing server runtime. */
+/** Preserve typed codes/payloads. Never parse messages or serialize raw errors. */
 export class AssessmentClientError extends Error {
   constructor(readonly failure: AssessmentFailure) {
     super(failure.message);
@@ -21,48 +44,70 @@ export class AssessmentClientError extends Error {
     return this.failure.code;
   }
 }
-
 export function unwrapAssessmentEnvelope<T>(result: AssessmentEnvelope<T>): T {
   if (!result.ok) throw new AssessmentClientError(result.error);
   return result.data;
 }
 
-/** Temporary bridge for the baseline machine, which cannot render saved views yet. */
-export function unwrapCompletionEnvelope(
-  result: AssessmentEnvelope<ReportView | LegacySummaryView>,
-): AssessmentResult {
-  const view = unwrapAssessmentEnvelope(result);
-  if (view.kind === SESSION_VIEW.REPORT) return view.reportSnapshot.result;
-  throw new AssessmentClientError({
-    code: ERROR_CODE.LEGACY_SUMMARY_AVAILABLE,
-    message: MESSAGES.legacySummaryAvailable,
-  });
+type Endpoint<TInput, TOutput> = (request: {
+  data: TInput;
+}) => Promise<AssessmentEnvelope<TOutput>>;
+export interface AssessmentEndpoints {
+  createSession: Endpoint<
+    AssessmentConfiguration & {
+      rawClientId: string;
+      knownCredentials: SessionCredential[];
+    },
+    CreatedSession
+  >;
+  discoverSessions: Endpoint<
+    { credentials: SessionCredential[] },
+    SessionDiscoveryResult
+  >;
+  getSession: Endpoint<SessionCredential, SessionView>;
+  resumeSession: Endpoint<SessionCredential, SessionView>;
+  deleteSession: Endpoint<DeleteSessionInput, DeleteSessionResult>;
+  submitAnswer: Endpoint<SessionCredential & AnswerInput, AcceptedAnswerResult>;
+  completeSession: Endpoint<SessionCredential, ReportView | LegacySummaryView>;
+  submitSurvey: Endpoint<
+    SessionCredential & { rating: number },
+    { success: true }
+  >;
 }
 
-/** Keep the wire translation testable without loading the server runtime. */
-export function createSessionAdapter(
-  createSession: (
-    request: CreateSessionRequest,
-  ) => Promise<
-    AssessmentEnvelope<Awaited<ReturnType<AssessmentServices["createSession"]>>>
-  >,
+/** Testable transport translation, with no TanStack/server runtime imports. */
+export function createAssessmentApi(
+  endpoints: AssessmentEndpoints,
   getRawClientId: () => string,
-): AssessmentServices["createSession"] {
-  return async ({ framework, targetLevel, questionCount }) => {
-    const res = unwrapAssessmentEnvelope(
-      await createSession({
-        data: {
-          framework,
-          targetLevel,
-          questionCount,
-          rawClientId: getRawClientId(),
-        },
-      }),
-    );
-    return {
-      sessionId: res.sessionId,
-      sessionToken: res.sessionToken,
-      questions: res.questions,
-    };
+): AssessmentApi {
+  return {
+    createSession: async (configuration, knownCredentials) =>
+      unwrapAssessmentEnvelope(
+        await endpoints.createSession({
+          data: {
+            ...configuration,
+            rawClientId: getRawClientId(),
+            knownCredentials,
+          },
+        }),
+      ),
+    discoverSessions: async (credentials) =>
+      unwrapAssessmentEnvelope(
+        await endpoints.discoverSessions({ data: { credentials } }),
+      ),
+    getSession: async (data) =>
+      unwrapAssessmentEnvelope(await endpoints.getSession({ data })),
+    resumeSession: async (data) =>
+      unwrapAssessmentEnvelope(await endpoints.resumeSession({ data })),
+    deleteSession: async (data) =>
+      unwrapAssessmentEnvelope(await endpoints.deleteSession({ data })),
+    submitAnswer: async ({ answer, ...credential }) =>
+      unwrapAssessmentEnvelope(
+        await endpoints.submitAnswer({ data: { ...credential, ...answer } }),
+      ),
+    completeSession: async (data) =>
+      unwrapAssessmentEnvelope(await endpoints.completeSession({ data })),
+    submitSurvey: async (data) =>
+      unwrapAssessmentEnvelope(await endpoints.submitSurvey({ data })),
   };
 }

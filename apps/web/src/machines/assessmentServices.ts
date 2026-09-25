@@ -1,65 +1,45 @@
-import type { AssessmentServices } from "@/machines/assessmentMachine";
-
-import {
-  unwrapAssessmentEnvelope,
-  unwrapCompletionEnvelope,
-  createSessionAdapter,
-} from "./createSessionAdapter";
-
+import { createAssessmentApi } from "./createSessionAdapter";
+import { createSessionRecovery } from "./sessionRecovery";
+import { createSessionLock, createSessionStorage } from "./sessionStorage";
 import {
   completeSessionFn,
   createSessionFn,
+  deleteSessionFn,
+  discoverSessionsFn,
+  getSessionFn,
+  resumeSessionFn,
   submitAnswerFn,
   submitSurveyFn,
 } from "@/server/assessmentFns";
 
-/** localStorage key holding the anonymous, per-browser client id. */
 const CLIENT_ID_KEY = "devgrade.clientId";
 
-/**
- * Return a stable random client id for this browser, minting one on first use.
- * It is sent to `createSession` and hashed server-side for rate limiting — it is
- * not PII and is deliberately generated client-side to avoid server cookie state.
- */
-export function getRawClientId(): string {
-  if (typeof localStorage === "undefined") return crypto.randomUUID();
-  let id = localStorage.getItem(CLIENT_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(CLIENT_ID_KEY, id);
+/** Construct per mounted flow, never a credential-bearing SSR singleton. */
+export function createBrowserRecovery() {
+  let clientId: string | undefined;
+  function getRawClientId() {
+    if (!clientId) {
+      const saved = window.localStorage.getItem(CLIENT_ID_KEY);
+      clientId = saved || crypto.randomUUID();
+      window.localStorage.setItem(CLIENT_ID_KEY, clientId);
+    }
+    return clientId;
   }
-  return id;
-}
-
-/**
- * Concrete `AssessmentServices` the machine consumes in the app. Each method is
- * a thin translation between the machine's argument shape and the server fns.
- */
-export const assessmentServices: AssessmentServices = {
-  createSession: createSessionAdapter(createSessionFn, getRawClientId),
-
-  async submitAnswer({ sessionId, sessionToken, answer }) {
-    const res = await submitAnswerFn({
-      data: {
-        sessionId,
-        sessionToken,
-        questionId: answer.questionId,
-        selectedAnswer: answer.selectedAnswer,
-        timeSpentSeconds: answer.timeSpentSeconds,
+  return createSessionRecovery(
+    createAssessmentApi(
+      {
+        createSession: createSessionFn,
+        discoverSessions: discoverSessionsFn,
+        getSession: getSessionFn,
+        resumeSession: resumeSessionFn,
+        deleteSession: deleteSessionFn,
+        submitAnswer: submitAnswerFn,
+        completeSession: completeSessionFn,
+        submitSurvey: submitSurveyFn,
       },
-    });
-    return { sessionComplete: unwrapAssessmentEnvelope(res).sessionComplete };
-  },
-
-  async completeSession({ sessionId, sessionToken }) {
-    return unwrapCompletionEnvelope(
-      await completeSessionFn({ data: { sessionId, sessionToken } }),
-    );
-  },
-
-  async submitSurvey({ sessionId, sessionToken, rating }) {
-    return unwrapAssessmentEnvelope(
-      await submitSurveyFn({ data: { sessionId, sessionToken, rating } }),
-    );
-  },
-};
+      getRawClientId,
+    ),
+    createSessionStorage(),
+    createSessionLock(),
+  );
+}

@@ -1,377 +1,613 @@
 import { assign, fromPromise, setup } from "xstate";
+import type { DoneActorEvent } from "xstate";
 
+import type { AnswerInput, AssessmentConfiguration } from "@/domain/types";
 import type {
-  AssessmentConfiguration,
-  AssessmentResult,
-  PublicQuestion,
-  AnswerInput,
-} from "@/domain/types";
+  AssessmentView,
+  DeleteSessionInput,
+  SessionMetadata,
+  SessionView,
+} from "@/domain/sessionContracts";
+import type { ErrorCode } from "@/server/errors";
+import type { DiscoveryCheck, SessionRecovery } from "./sessionRecovery";
+import type { StorageIssue } from "./sessionStorage";
 
-/**
- * Client-facing service contract the machine drives. In the app these are thin
- * wrappers over the TanStack Start server functions (which call
- * `createAssessmentService`); in tests they can be plain stubs. Keeping them in
- * `input` makes the machine decoupled and fully unit-testable.
- */
-export interface AssessmentServices {
-  createSession: (configuration: AssessmentConfiguration) => Promise<{
-    sessionId: string;
-    sessionToken: string;
-    questions: PublicQuestion[];
-  }>;
-  submitAnswer: (args: {
-    sessionId: string;
-    sessionToken: string;
-    answer: AnswerInput;
-  }) => Promise<{ sessionComplete: boolean }>;
-  completeSession: (args: {
-    sessionId: string;
-    sessionToken: string;
-  }) => Promise<AssessmentResult>;
-  submitSurvey: (args: {
-    sessionId: string;
-    sessionToken: string;
-    rating: number;
-  }) => Promise<{ success: true }>;
-}
+import {
+  DELETE_EXPECTATION,
+  DELETE_OUTCOME,
+  SESSION_STATUS,
+  SESSION_VIEW,
+  SURVEY_RATING_MAX,
+  SURVEY_RATING_MIN,
+} from "@/domain/constants";
+import { ERROR_CODE } from "@/server/errors";
+import { AssessmentClientError } from "./createSessionAdapter";
+import { isUnavailableError, needsReconciliation } from "./sessionRecovery";
 
 export interface AssessmentContext {
-  services: AssessmentServices;
-  configuration: AssessmentConfiguration | null;
+  recovery: SessionRecovery;
+  now: () => number;
+  requestedConfiguration: AssessmentConfiguration | null;
+  history: SessionMetadata[];
+  storageIssue: StorageIssue | null;
   sessionId: string | null;
-  sessionToken: string | null;
-  questions: PublicQuestion[];
-  answers: Record<string, AnswerInput>;
-  currentIndex: number;
+  view: SessionView | null;
   selectedOption: number | null;
-  /** Epoch ms when the current question was first shown (for time tracking). */
   questionStartedAt: number;
-  focusLossCount: number;
-  /** The answer currently being persisted (kept for the submit actor + retry). */
+  timerPausedAt: number | null;
   pendingAnswer: AnswerInput | null;
-  result: AssessmentResult | null;
-  /** Candidate's post-assessment satisfaction rating (§3 KPI), once submitted. */
-  surveyRating: number | null;
-  surveyError: string | null;
-  error: string | null;
+  focusLossCount: number;
+  expectedDeleteState: DeleteSessionInput["expectedState"];
+  /** Only deletion from the creation gate may continue the original Start. */
+  afterDelete: AssessmentConfiguration | null;
+  error: ErrorCode | "request_failed" | null;
+  notice: "changed_state" | null;
+  pendingRating: number | null;
 }
-
+export interface AssessmentInput {
+  recovery: SessionRecovery;
+  now?: () => number;
+}
 export type AssessmentEvent =
+  | { type: "BOOTSTRAP" }
   | { type: "CONFIGURE"; configuration: AssessmentConfiguration }
   | { type: "START" }
+  | { type: "REFRESH" }
+  | { type: "OPEN"; sessionId: string }
+  | { type: "RESUME"; sessionId: string }
+  | {
+      type: "DELETE";
+      sessionId: string;
+      expectedState: DeleteSessionInput["expectedState"];
+    }
+  | { type: "CONFIRM_DELETE" }
+  | { type: "CANCEL" }
   | { type: "SELECT_OPTION"; option: number }
   | { type: "SUBMIT_ANSWER" }
   | { type: "FOCUS_LOSS" }
+  | { type: "OFFLINE" }
+  | { type: "FOCUS_RETURN" }
   | { type: "RETRY" }
-  | { type: "SUBMIT_SURVEY"; rating: number }
-  | { type: "RESTART" };
+  | { type: "HISTORY" }
+  | { type: "SUBMIT_SURVEY"; rating: number };
 
-export interface AssessmentInput {
-  services: AssessmentServices;
+export function boundedDuration(startedAt: number, now: number) {
+  const seconds = Math.round((now - startedAt) / 1000);
+  return Number.isFinite(seconds) ? Math.min(3600, Math.max(0, seconds)) : 0;
+}
+/** Accepted IDs, never answeredCount or a local index increment, define order. */
+export function firstUnanswered(view: AssessmentView) {
+  const accepted = new Set(
+    view.acceptedAnswers.map((answer) => answer.questionId),
+  );
+  return view.questions.find((question) => !accepted.has(question.id)) ?? null;
+}
+function assessment(context: AssessmentContext) {
+  return context.view?.kind === SESSION_VIEW.ASSESSMENT ? context.view : null;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong.";
-}
+const receiveView = {
+  type: "applyView",
+  params: ({ event }: { event: DoneActorEvent<SessionView> }) => event.output,
+} as const;
+const receiveCheck = {
+  type: "applyCheck",
+  params: ({ event }: { event: DoneActorEvent<DiscoveryCheck> }) =>
+    event.output,
+} as const;
 
-export const assessmentMachine = setup({
+const machineSetup = setup({
   types: {
     context: {} as AssessmentContext,
     events: {} as AssessmentEvent,
     input: {} as AssessmentInput,
   },
   actors: {
-    createSession: fromPromise(
-      async ({
+    check: fromPromise(
+      ({
         input,
+        signal,
       }: {
-        input: {
-          services: AssessmentServices;
-          configuration: AssessmentConfiguration;
-        };
-      }) => input.services.createSession(input.configuration),
+        input: Pick<AssessmentContext, "recovery" | "requestedConfiguration">;
+        signal: AbortSignal;
+      }) => input.recovery.check(input.requestedConfiguration, signal),
     ),
-    submitAnswer: fromPromise(
-      async ({
-        input,
-      }: {
-        input: {
-          services: AssessmentServices;
-          sessionId: string;
-          sessionToken: string;
-          answer: AnswerInput;
-        };
-      }) =>
-        input.services.submitAnswer({
-          sessionId: input.sessionId,
-          sessionToken: input.sessionToken,
-          answer: input.answer,
-        }),
+    get: fromPromise(({ input }: { input: AssessmentContext }) =>
+      input.recovery.get(input.sessionId!),
     ),
-    completeSession: fromPromise(
-      async ({
-        input,
-      }: {
-        input: {
-          services: AssessmentServices;
-          sessionId: string;
-          sessionToken: string;
-        };
-      }) =>
-        input.services.completeSession({
-          sessionId: input.sessionId,
-          sessionToken: input.sessionToken,
-        }),
+    resume: fromPromise(({ input }: { input: AssessmentContext }) =>
+      input.recovery.resume(input.sessionId!),
     ),
-    submitSurvey: fromPromise(
-      async ({
-        input,
-      }: {
-        input: {
-          services: AssessmentServices;
-          sessionId: string;
-          sessionToken: string;
-          rating: number;
-        };
-      }) =>
-        input.services.submitSurvey({
-          sessionId: input.sessionId,
-          sessionToken: input.sessionToken,
-          rating: input.rating,
-        }),
+    answer: fromPromise(({ input }: { input: AssessmentContext }) =>
+      input.recovery.answer(input.sessionId!, input.pendingAnswer!),
+    ),
+    complete: fromPromise(({ input }: { input: AssessmentContext }) =>
+      input.recovery.complete(input.sessionId!),
+    ),
+    delete: fromPromise(({ input }: { input: AssessmentContext }) =>
+      input.recovery.delete(input.sessionId!, input.expectedDeleteState),
+    ),
+    survey: fromPromise(({ input }: { input: AssessmentContext }) =>
+      input.recovery.survey(input.sessionId!, input.pendingRating!),
     ),
   },
   guards: {
-    isConfigured: ({ context }) => context.configuration !== null,
-    hasSelection: ({ context }) => context.selectedOption !== null,
-    isLastQuestion: ({ context }) =>
-      context.currentIndex >= context.questions.length - 1,
+    unavailable: ({ event }) =>
+      "error" in event && isUnavailableError(event.error),
+    reconcile: ({ event }) =>
+      "error" in event && needsReconciliation(event.error),
   },
   actions: {
-    commitPendingAnswer: assign({
-      answers: ({ context }) => {
-        if (!context.pendingAnswer) return context.answers;
-        return {
-          ...context.answers,
-          [context.pendingAnswer.questionId]: context.pendingAnswer,
-        };
-      },
-      pendingAnswer: null,
+    setError: assign({
+      error: ({ event }) =>
+        "error" in event && event.error instanceof AssessmentClientError
+          ? event.error.code
+          : "request_failed",
     }),
-    resetSession: assign({
+
+    goHome: assign({
+      view: null,
       sessionId: null,
-      sessionToken: null,
-      questions: [],
-      answers: {},
-      currentIndex: 0,
+      afterDelete: null,
       selectedOption: null,
-      questionStartedAt: 0,
       pendingAnswer: null,
-      result: null,
-      surveyRating: null,
-      surveyError: null,
       error: null,
-      focusLossCount: 0,
+      notice: null,
+    }),
+    open: assign({
+      sessionId: ({ event }) =>
+        event.type === "OPEN" || event.type === "RESUME"
+          ? event.sessionId
+          : null,
+    }),
+    requestDelete: assign(
+      ({ event }, afterDelete: AssessmentConfiguration | null) =>
+        event.type === "DELETE"
+          ? {
+              sessionId: event.sessionId,
+              expectedDeleteState: event.expectedState,
+              afterDelete,
+              error: null,
+              notice: null,
+            }
+          : {},
+    ),
+    applyCheck: assign((_, check: DiscoveryCheck) => ({
+      history: check.history,
+      storageIssue: check.storageIssue,
+    })),
+    applyView: assign(({ context }, view: SessionView) => {
+      const previous = assessment(context);
+      const sameQuestion =
+        previous &&
+        view.kind === SESSION_VIEW.ASSESSMENT &&
+        firstUnanswered(previous)?.id === firstUnanswered(view)?.id;
+      return {
+        view,
+        sessionId: view.sessionId,
+        pendingAnswer: null,
+        error: null,
+        selectedOption: sameQuestion ? context.selectedOption : null,
+        questionStartedAt: sameQuestion
+          ? context.questionStartedAt
+          : context.now(),
+        timerPausedAt: sameQuestion ? context.timerPausedAt : null,
+        storageIssue: context.recovery.warning,
+        afterDelete: null,
+      };
+    }),
+    pauseTimer: assign({
+      timerPausedAt: ({ context }) => context.timerPausedAt ?? context.now(),
     }),
   },
-}).createMachine({
+});
+
+const unavailable = {
+  guard: "unavailable",
+  target: "#assessment.unavailable",
+} as const;
+const reconcileView = {
+  guard: "reconcile",
+  target: "#assessment.viewing.restoring",
+} as const;
+// Both read paths retain their parent state's viewing/attempting permission.
+const reading = machineSetup.createStateConfig({
+  invoke: {
+    src: "get",
+    input: ({ context }) => context,
+    onDone: { target: "ready", actions: receiveView },
+    onError: [unavailable, { target: "readFailed", actions: "setError" }],
+  },
+});
+// Discovery never creates; only the separate creating state supplies configuration.
+const checking = machineSetup.createStateConfig({
+  entry: assign({ error: null }),
+  invoke: {
+    src: "check",
+    input: ({ context }) => ({
+      recovery: context.recovery,
+      requestedConfiguration: null,
+    }),
+    onDone: { target: "ready", actions: receiveCheck },
+    onError: { target: "checkFailed", actions: "setError" },
+  },
+});
+
+export const assessmentMachine = machineSetup.createMachine({
   id: "assessment",
   context: ({ input }) => ({
-    services: input.services,
-    configuration: null,
+    recovery: input.recovery,
+    now: input.now ?? Date.now,
+    requestedConfiguration: null,
+    history: [],
+    storageIssue: null,
     sessionId: null,
-    sessionToken: null,
-    questions: [],
-    answers: {},
-    currentIndex: 0,
+    view: null,
     selectedOption: null,
     questionStartedAt: 0,
-    focusLossCount: 0,
+    timerPausedAt: null,
     pendingAnswer: null,
-    result: null,
-    surveyRating: null,
-    surveyError: null,
+    focusLossCount: 0,
+    expectedDeleteState: DELETE_EXPECTATION.UNFINISHED,
+    afterDelete: null,
     error: null,
+    notice: null,
+    pendingRating: null,
   }),
-  initial: "configuring",
+  initial: "bootstrap",
+  on: {
+    HISTORY: { target: ".history", actions: "goHome" },
+    CANCEL: { target: ".history.ready", actions: "goHome" },
+    OPEN: { target: ".viewing.restoring", actions: ["goHome", "open"] },
+    RESUME: { target: ".attempting.resuming", actions: ["goHome", "open"] },
+    DELETE: {
+      target: ".confirmDelete",
+      actions: { type: "requestDelete", params: null },
+    },
+  },
   states: {
-    configuring: {
-      on: {
-        CONFIGURE: {
-          actions: assign({
-            configuration: ({ event }) => ({ ...event.configuration }),
-          }),
-        },
-        START: { target: "creatingSession", guard: "isConfigured" },
-      },
-    },
-
-    creatingSession: {
-      invoke: {
-        src: "createSession",
-        input: ({ context }) => ({
-          services: context.services,
-          configuration: context.configuration!,
-        }),
-        onDone: {
-          target: "answering",
-          actions: assign({
-            sessionId: ({ event }) => event.output.sessionId,
-            sessionToken: ({ event }) => event.output.sessionToken,
-            questions: ({ event }) => event.output.questions,
-            currentIndex: 0,
-            answers: {},
-            error: null,
-          }),
-        },
-        onError: {
-          target: "setupFailed",
-          actions: assign({ error: ({ event }) => errorMessage(event.error) }),
-        },
-      },
-    },
-
-    answering: {
-      // Reset the per-question selection + timer whenever a question is shown.
-      entry: assign({
-        selectedOption: null,
-        questionStartedAt: () => Date.now(),
-      }),
-      on: {
-        SELECT_OPTION: {
-          actions: assign({ selectedOption: ({ event }) => event.option }),
-        },
-        FOCUS_LOSS: {
-          actions: assign({
-            focusLossCount: ({ context }) => context.focusLossCount + 1,
-          }),
-        },
-        SUBMIT_ANSWER: {
-          target: "submittingAnswer",
-          guard: "hasSelection",
-          actions: assign({
-            pendingAnswer: ({ context }) => ({
-              questionId: context.questions[context.currentIndex]!.id,
-              selectedAnswer: context.selectedOption!,
-              timeSpentSeconds: Math.max(
-                0,
-                Math.round((Date.now() - context.questionStartedAt) / 1000),
-              ),
-            }),
-          }),
-        },
-      },
-    },
-
-    submittingAnswer: {
-      invoke: {
-        src: "submitAnswer",
-        input: ({ context }) => ({
-          services: context.services,
-          sessionId: context.sessionId!,
-          sessionToken: context.sessionToken!,
-          answer: context.pendingAnswer!,
-        }),
-        onDone: [
-          {
-            // Record the answer, then move on or finish.
-            target: "completing",
-            guard: "isLastQuestion",
-            actions: "commitPendingAnswer",
-          },
-          {
-            target: "answering",
-            actions: [
-              "commitPendingAnswer",
-              assign({
-                currentIndex: ({ context }) => context.currentIndex + 1,
+    bootstrap: { on: { BOOTSTRAP: "history" } },
+    history: {
+      initial: "checking",
+      states: {
+        checking,
+        checkFailed: { on: { RETRY: "checking" } },
+        ready: {
+          on: {
+            CONFIGURE: {
+              actions: assign({
+                requestedConfiguration: ({ event }) => ({
+                  ...event.configuration,
+                }),
               }),
+            },
+            START: {
+              guard: ({ context }) => context.requestedConfiguration !== null,
+              target: "#assessment.creation",
+            },
+            REFRESH: "checking",
+          },
+        },
+      },
+    },
+    creation: {
+      initial: "creating",
+      on: {
+        DELETE: {
+          target: "confirmDelete",
+          actions: {
+            type: "requestDelete",
+            params: ({ context }) => context.requestedConfiguration,
+          },
+        },
+      },
+      states: {
+        creating: {
+          entry: assign({ error: null, notice: null }),
+          invoke: {
+            src: "check",
+            input: ({ context }) => ({
+              recovery: context.recovery,
+              requestedConfiguration: context.requestedConfiguration,
+            }),
+            onDone: [
+              {
+                guard: ({ event }) => event.output.created !== null,
+                target: "#assessment.attempting.ready",
+                actions: [
+                  receiveCheck,
+                  {
+                    type: "applyView",
+                    params: ({ event }) => event.output.created!,
+                  },
+                ],
+              },
+              {
+                target: "ready",
+                actions: receiveCheck,
+              },
+            ],
+            onError: {
+              target: "createFailed",
+              actions: "setError",
+            },
+          },
+        },
+        createFailed: { on: { RETRY: "creating" } },
+        checking,
+        checkFailed: { on: { RETRY: "checking" } },
+        ready: { on: { REFRESH: "checking", START: "creating" } },
+      },
+    },
+    // Opening/refreshing history never grants permission to answer or first-complete.
+    viewing: {
+      initial: "ready",
+      states: {
+        restoring: reading,
+        readFailed: { on: { RETRY: "restoring" } },
+        ready: {
+          always: {
+            guard: ({ context }) =>
+              context.view?.kind === SESSION_VIEW.REPORT ||
+              context.view?.kind === SESSION_VIEW.LEGACY_SUMMARY,
+            target: "#assessment.completed",
+          },
+          on: { REFRESH: "restoring" },
+        },
+      },
+    },
+    attempting: {
+      initial: "resuming",
+      on: {
+        OFFLINE: { actions: "pauseTimer" },
+        FOCUS_LOSS: {
+          actions: [
+            "pauseTimer",
+            assign({
+              focusLossCount: ({ context }) => context.focusLossCount + 1,
+            }),
+          ],
+        },
+        FOCUS_RETURN: {
+          actions: assign({
+            questionStartedAt: ({ context }) =>
+              context.timerPausedAt === null
+                ? context.questionStartedAt
+                : context.questionStartedAt +
+                  Math.max(0, context.now() - context.timerPausedAt),
+            timerPausedAt: null,
+          }),
+        },
+      },
+      states: {
+        resuming: {
+          invoke: {
+            src: "resume",
+            input: ({ context }) => context,
+            onDone: {
+              target: "ready",
+              actions: receiveView,
+            },
+            onError: [
+              unavailable,
+              reconcileView,
+              {
+                target: "resumeFailed",
+                actions: "setError",
+              },
             ],
           },
-        ],
-        onError: {
-          target: "answerFailed",
-          actions: assign({ error: ({ event }) => errorMessage(event.error) }),
         },
+        resumeFailed: { on: { RETRY: "resuming" } },
+        ready: {
+          always: [
+            {
+              guard: ({ context }) => !assessment(context),
+              target: "#assessment.viewing.ready",
+            },
+            {
+              guard: ({ context }) =>
+                firstUnanswered(assessment(context)!) === null,
+              target: "completing",
+            },
+            { target: "answering" },
+          ],
+        },
+        answering: {
+          on: {
+            SELECT_OPTION: {
+              guard: ({ context, event }) =>
+                Number.isInteger(event.option) &&
+                event.option >= 0 &&
+                event.option <
+                  (firstUnanswered(assessment(context)!)?.options.length ?? 0),
+              actions: assign({ selectedOption: ({ event }) => event.option }),
+            },
+            SUBMIT_ANSWER: {
+              guard: ({ context }) => context.selectedOption !== null,
+              target: "submittingAnswer",
+              actions: assign({
+                pendingAnswer: ({ context }) => ({
+                  questionId: firstUnanswered(assessment(context)!)!.id,
+                  selectedAnswer: context.selectedOption!,
+                  timeSpentSeconds: boundedDuration(
+                    context.questionStartedAt,
+                    context.timerPausedAt ?? context.now(),
+                  ),
+                }),
+              }),
+            },
+            REFRESH: "reconciling",
+          },
+        },
+        submittingAnswer: {
+          invoke: {
+            src: "answer",
+            input: ({ context }) => context,
+            onDone: {
+              target: "ready",
+              actions: {
+                type: "applyView",
+                params: ({ context, event }) => ({
+                  ...assessment(context)!,
+                  acceptedAnswers: event.output.acceptedAnswers,
+                  answeredCount: event.output.answeredCount,
+                  totalQuestions: event.output.totalQuestions,
+                  nextQuestionId: event.output.nextQuestionId,
+                }),
+              },
+            },
+            onError: [
+              unavailable,
+              {
+                guard: ({ event }) =>
+                  event.error instanceof AssessmentClientError &&
+                  event.error.code === ERROR_CODE.CONFLICT,
+                target: "reconciling",
+              },
+              reconcileView,
+              {
+                target: "answerFailed",
+                actions: "setError",
+              },
+            ],
+          },
+        },
+        // Replay exactly the pending answer, including its original duration.
+        answerFailed: { on: { RETRY: "submittingAnswer" } },
+        reconciling: reading,
+        readFailed: { on: { RETRY: "reconciling" } },
+        completing: {
+          invoke: {
+            src: "complete",
+            input: ({ context }) => context,
+            onDone: {
+              target: "#assessment.completed",
+              actions: receiveView,
+            },
+            onError: [
+              unavailable,
+              reconcileView,
+              {
+                target: "completeFailed",
+                actions: "setError",
+              },
+            ],
+          },
+        },
+        // A lost completion may already have awarded a report; read before retrying.
+        completeFailed: { on: { RETRY: "reconciling" } },
       },
     },
-
-    // Transient retry states keep the user's selection so they can resubmit.
-    answerFailed: {
-      on: {
-        RETRY: { target: "submittingAnswer" },
-      },
+    unavailable: {
+      entry: assign(({ context }) => ({
+        view: null,
+        pendingAnswer: null,
+        selectedOption: null,
+        afterDelete: null,
+        history: context.history.filter(
+          (entry) => entry.sessionId !== context.sessionId,
+        ),
+      })),
     },
-
-    completing: {
+    confirmDelete: { on: { CONFIRM_DELETE: "deleting" } },
+    deleting: {
       invoke: {
-        src: "completeSession",
-        input: ({ context }) => ({
-          services: context.services,
-          sessionId: context.sessionId!,
-          sessionToken: context.sessionToken!,
-        }),
-        onDone: {
-          target: "completed",
+        src: "delete",
+        input: ({ context }) => context,
+        onDone: [
+          {
+            guard: ({ event }) =>
+              event.output.kind === DELETE_OUTCOME.CHANGED_STATE,
+            target: "viewing.restoring",
+            actions: assign({ afterDelete: null, notice: "changed_state" }),
+          },
+          { target: "deleted" },
+        ],
+        onError: [
+          {
+            guard: "unavailable",
+            target: "deleted",
+          },
+          {
+            target: "deleteFailed",
+            actions: "setError",
+          },
+        ],
+      },
+    },
+    deleted: {
+      entry: assign(({ context }) => ({
+        view: null,
+        history: context.history.filter(
+          (entry) => entry.sessionId !== context.sessionId,
+        ),
+      })),
+      always: [
+        {
+          guard: ({ context }) => context.afterDelete !== null,
+          target: "creation",
           actions: assign({
-            result: ({ event }) => event.output,
-            error: null,
+            requestedConfiguration: ({ context }) => context.afterDelete,
+            afterDelete: null,
           }),
         },
-        onError: {
-          target: "completeFailed",
-          actions: assign({ error: ({ event }) => errorMessage(event.error) }),
-        },
-      },
+        { target: "history", actions: "goHome" },
+      ],
     },
-
-    completeFailed: {
-      on: { RETRY: { target: "completing" } },
-    },
-
-    setupFailed: {
-      on: {
-        RETRY: { target: "creatingSession" },
-        RESTART: { target: "configuring", actions: "resetSession" },
-      },
-    },
-
+    deleteFailed: { on: { RETRY: "deleting" } },
     completed: {
       initial: "surveyPrompt",
-      on: { RESTART: { target: "configuring", actions: "resetSession" } },
+      on: { REFRESH: "viewing.restoring" },
       states: {
         surveyPrompt: {
           on: {
             SUBMIT_SURVEY: {
+              guard: ({ event }) =>
+                Number.isInteger(event.rating) &&
+                event.rating >= SURVEY_RATING_MIN &&
+                event.rating <= SURVEY_RATING_MAX,
               target: "submittingSurvey",
               actions: assign({
-                surveyRating: ({ event }) => event.rating,
-                surveyError: null,
+                pendingRating: ({ event }) => event.rating,
+                error: null,
               }),
             },
           },
         },
         submittingSurvey: {
           invoke: {
-            src: "submitSurvey",
-            input: ({ context }) => ({
-              services: context.services,
-              sessionId: context.sessionId!,
-              sessionToken: context.sessionToken!,
-              rating: context.surveyRating!,
-            }),
-            onDone: { target: "surveyThanks" },
-            onError: {
+            src: "survey",
+            input: ({ context }) => context,
+            onDone: {
               target: "surveyPrompt",
-              actions: assign({
-                surveyError: ({ event }) => errorMessage(event.error),
-              }),
+              actions: assign(({ context }) => ({
+                view:
+                  context.view && "surveyRating" in context.view
+                    ? { ...context.view, surveyRating: context.pendingRating }
+                    : context.view,
+                error: null,
+              })),
             },
+            onError: [
+              unavailable,
+              reconcileView,
+              {
+                target: "surveyPrompt",
+                actions: "setError",
+              },
+            ],
           },
         },
-        // Deliberately not `type: "final"` — that would emit a parent done event.
-        surveyThanks: {},
       },
     },
   },
 });
+
+export function deletionExpectation(
+  metadata: Pick<SessionMetadata, "effectiveStatus">,
+) {
+  return metadata.effectiveStatus === SESSION_STATUS.COMPLETED
+    ? DELETE_EXPECTATION.COMPLETED
+    : DELETE_EXPECTATION.UNFINISHED;
+}
