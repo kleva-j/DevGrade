@@ -148,11 +148,20 @@ export const WEIGHT_ADVANCED = 2.0;
 export const MIN_CORE_PER_BUCKET = 6;
 export const MIN_ADVANCED_PER_BUCKET = 6;
 
-/** Proficiency tier thresholds, in percent. Level-relative (see report context). */
-export const PROFICIENCY_THRESHOLDS = {
+/** Pinned v1 rules; future scoring versions must not change these inputs. */
+export const SCORING_V1_SKILL_CATEGORIES = [
+  SKILL_CATEGORY.REACTIVITY,
+  SKILL_CATEGORY.LIFECYCLE,
+  SKILL_CATEGORY.PERFORMANCE,
+  SKILL_CATEGORY.ASYNC,
+] as const;
+export const SCORING_V1_PROFICIENCY_THRESHOLDS = {
   [PROFICIENCY.PROFICIENT]: 80,
   [PROFICIENCY.DEVELOPING]: 50,
 } as const;
+
+/** Current level-relative thresholds; existing consumers keep this name. */
+export const PROFICIENCY_THRESHOLDS = SCORING_V1_PROFICIENCY_THRESHOLDS;
 
 /** Anti-abuse limit, keyed on the anonymous client id (not IP; avoids NAT issues). */
 export const MAX_SESSIONS_PER_HOUR = 5;
@@ -160,8 +169,23 @@ export const MAX_SESSIONS_PER_HOUR = 5;
 /** Trailing window (minutes) over which `MAX_SESSIONS_PER_HOUR` is counted. */
 export const RATE_LIMIT_WINDOW_MINUTES = 60;
 
-/** In-progress sessions idle longer than this are swept to `abandoned`. */
+/** Unfinished sessions are effectively abandoned at or beyond this idle age. */
 export const ABANDON_AFTER_MINUTES = 30;
+
+/** Fixed elapsed-time deadlines from creation; activity never extends them. */
+export const SESSION_RESUME_WINDOW_HOURS = 24;
+/** Access cutoff and cleanup eligibility, not a physical-erasure guarantee. */
+export const SESSION_RETENTION_DAYS = 7;
+
+export const QUESTION_SNAPSHOT_VERSION = 1;
+export const REPORT_SNAPSHOT_VERSION = 1;
+export const SCORING_VERSION = { V1: "weighted-v1" } as const;
+
+export const SNAPSHOT_ERROR_CODE = {
+  INVALID_QUESTIONS: "invalid_question_snapshot",
+  INVALID_REPORT: "invalid_report_snapshot",
+  INVALID_ANSWERS: "invalid_snapshot_answers",
+} as const;
 
 /**
  * Post-assessment satisfaction survey (§3 "User Assessment Satisfaction" KPI).

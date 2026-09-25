@@ -124,6 +124,20 @@ async function assertCreatedSession(
     new Set(publicIds),
   );
   const byId = new Map(selectedRows.map((row) => [row.id, row]));
+  assert.ok(stored.questionSnapshot);
+  assert.equal(stored.questionSnapshot.version, 1);
+  assert.deepEqual(
+    stored.questionSnapshot.questions.map((question) => question.id),
+    publicIds,
+  );
+  for (const question of stored.questionSnapshot.questions) {
+    const row = byId.get(question.id);
+    assert.ok(row);
+    assert.equal(question.correctAnswer, row.correctAnswer);
+    assert.equal(question.explanation, row.explanation);
+    assert.equal(question.difficultyWeight, row.difficultyWeight);
+    assert.equal(question.source, row.source);
+  }
 
   assert.deepEqual(Object.keys(created).sort(), [
     "questions",
@@ -341,8 +355,8 @@ async function answerAndComplete(
   ]);
   assert.equal(result.questionResults.length, questionCount);
   assert.deepEqual(
-    new Set(result.questionResults.map((question) => question.questionId)),
-    new Set(stored.selectedQuestionIds),
+    result.questionResults.map((question) => question.questionId),
+    stored.selectedQuestionIds,
   );
   for (const questionResult of result.questionResults) {
     const row = byId.get(questionResult.questionId);
@@ -369,6 +383,20 @@ async function answerAndComplete(
   assert.equal(persistedResults.length, 1);
   const [persistedResult] = persistedResults;
   assert.ok(persistedResult);
+  assert.ok(persistedResult.reportSnapshot);
+  assert.ok(stored.questionSnapshot);
+  assert.deepEqual(persistedResult.reportSnapshot.result, result);
+  assert.deepEqual(persistedResult.reportSnapshot.questions, created.questions);
+  assert.deepEqual(
+    persistedResult.reportSnapshot.pillars,
+    stored.questionSnapshot.pillars,
+  );
+  assert.equal(
+    persistedResult.reportSnapshot.completedAt,
+    completed.completedAt.toISOString(),
+  );
+  assert.deepEqual(persistedResult.createdAt, completed.completedAt);
+  assert.deepEqual(completed.lastActivityAt, completed.completedAt);
   assert.equal(persistedResult.totalScore, 50);
   assert.equal(persistedResult.maxScore, 100);
   assert.equal(persistedResult.targetLevel, targetLevel);

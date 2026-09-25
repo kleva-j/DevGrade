@@ -15,6 +15,13 @@
       "when": 1789579257780,
       "tag": "0001_zippy_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790349994916,
+      "tag": "0002_dazzling_may_parker",
+      "breakpoints": true
     }
   ]
 }

@@ -1,12 +1,12 @@
 # Product Requirements Document (PRD): DevGrade
 
-**Document Version:** 1.8.0
+**Document Version:** 1.9.0
 
 **Status:** Approved for MVP Development
 
 **Target Release:** Q4 2026
 
-**Last Updated:** 2026-09-24
+**Last Updated:** 2026-09-25
 
 **Change Log:**
 
@@ -154,6 +154,16 @@ Categories scoring below 50% are flagged with specific remediation paths:
 
 ---
 
+### 4.5 Session lifecycle
+
+Approved policy: inactivity after **30 minutes** marks an unfinished attempt effectively abandoned, but it remains resumable until **24 hours from creation**. New answers and first completion stop at that deadline. Normal session/report access and surveys stop **seven days from creation**; activity never extends either deadline.
+
+Before starting another assessment, authenticate every known same-browser saved credential. An unfinished attempt younger than 24 hours requires **Resume** or confirmed server-side **Delete**; cancel or a discovery error never permits creation. Completed and attempt-expired sessions do not block. Legacy unfinished sessions without trustworthy saved content are delete-only while unexpired. This is not global account/device ownership enforcement.
+
+Daily cleanup at `0 3 * * *` UTC deletes all-status sessions aged **seven days or older**, including their dependent records. Physical deletion is asynchronous (normally approximately 7–8 days, possibly longer after failures/backlog); seven days is an access cutoff and cleanup-eligibility threshold, not a physical-erasure guarantee. Backup/WAL/replica retention is separate.
+
+Delivery is tracked in §13 and [the lifecycle plan](docs/session-lifecycle-plan.md). Do not infer a production deployment from source implementation.
+
 ## 5. Technical Architecture & Data Schema
 
 ### 5.1 Tech Stack
@@ -211,13 +221,15 @@ CREATE TABLE test_sessions (
     target_level difficulty NOT NULL,
     status session_status NOT NULL DEFAULT 'in_progress', -- in_progress, completed, abandoned
     selected_question_ids JSONB NOT NULL,        -- ordered snapshot of 8/16/32 ids; authoritative length
+    question_snapshot JSONB,                    -- private versioned content; required by new writers
     focus_loss_count INT NOT NULL DEFAULT 0,     -- behavioral anti-cheat signal
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
     last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- drives 'abandoned' sweep
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_sessions_status ON test_sessions(status);
+CREATE INDEX idx_sessions_created_id ON test_sessions(created_at, id);
+CREATE INDEX idx_sessions_status_activity_id ON test_sessions(status, last_activity_at, id);
 CREATE INDEX idx_sessions_client_recent ON test_sessions(client_id, created_at);
 
 -- 4. Session Answers (one row per answered question; correctness computed server-side)
@@ -241,6 +253,7 @@ CREATE TABLE session_results (
     total_score REAL NOT NULL,                   -- weighted overall %, 0..100
     max_score INT NOT NULL DEFAULT 100,
     proficiency_level proficiency NOT NULL,      -- proficient, developing, skill_gap
+    report_snapshot JSONB,                      -- safe versioned award, public questions, saved pillar metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -574,7 +587,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 **Data Privacy:**
 
 - GDPR-compliant data handling for EU users
-- Clear data retention policy (90 days for anonymous sessions)
+- Seven-day normal-access limit; daily cleanup of sessions aged seven days or older (§4.5). No exact physical-erasure guarantee.
 - Optional data deletion request handling
 - Cookie consent mechanism for analytics
 
@@ -643,6 +656,15 @@ The original decisions below were open in v1.1.0 and implemented for the Quick b
 ## 13. Implementation Plan (MVP)
 
 The domain core, server API (server functions), candidate UI, and report are built and typecheck/build clean (`apps/web/src/{domain,db,server,machines,components,routes}`). Phases 1–3 are largely delivered; the remaining work (integration tests against a live DB, erasure fn, content growth) is called out per phase below. Each phase is independently shippable and testable. These delivery/validation statements describe the existing baseline, not the v1.8.0 extension below.
+
+### Session lifecycle — staged delivery
+
+1. **Policy and durable content:** implemented on the first PR layer. Pure deadline policy; private question and safe report snapshots; pinned v1 scoring; generated nullable snapshot/index migration. New grading uses saved inputs; legacy content is never fabricated. Endpoint expiry enforcement is the next layer.
+2. **Server lifecycle and creation gate:** pending.
+3. **Browser recovery and Resume/Delete UX:** pending.
+4. **Daily cleanup and rollout:** pending; production activation requires migration, scheduler/secret setup, and deployment verification.
+
+Stage 1 validation: **256 tests passed, none skipped**, against disposable PostgreSQL 18 using real migrations; package lint/build passed. Typecheck has only the existing three unrelated chart errors. Apply migration `0002` before deploying new writers. Draft PR layers are dependency-ordered and must not be deployed out of order.
 
 ### Selectable lengths — implemented extension
 
