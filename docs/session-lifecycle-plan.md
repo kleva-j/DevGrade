@@ -1,6 +1,6 @@
 # Session lifecycle completion plan
 
-**Status — 2026-09-25:** Stages **1–2 implemented**; current layer `session-lifecycle/server`. Stage 3 browser recovery and Stage 4 maintenance/rollout are **not implemented**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This status does not claim merge, deployment, production migration, or cleanup activation.
+**Status — 2026-09-25:** Stages **1–3 delivered in source**; current layer `session-lifecycle/recovery`. Stage 3 browser recovery has reported independent validation; Stage 4 maintenance/rollout remains **pending**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. Source delivery is not a claim of merge, production deployment/migration, or cleanup activation.
 
 **Baseline:** free Quick 8 / Standard 16 / Deep 32 assessments, PostgreSQL, TanStack Start/Nitro, and XState. Product scope, scoring, and visual design remain unchanged. See [current behavior](sessions-and-evaluation.md) and the [PRD](../prd.md).
 
@@ -8,16 +8,16 @@
 
 > **30 minutes: effectively inactive. 24 hours from original creation: unfinished attempt expires. Seven days from original creation: normal access ends and cleanup eligibility starts. Daily deletion is planned, not active.**
 
-| Concern                  | Policy and current status                                                                                                                                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Inactivity               | Implemented: unfinished sessions are effectively `abandoned` at `now >= lastActivityAt + 30 minutes`; reads do not materialize the status. Inactivity does not end an otherwise eligible attempt.                                       |
-| Attempt lifetime         | Implemented: `attemptExpiresAt = createdAt + 24 hours`. No unfinished resume, new answer, answer retry, or first completion at/after the deadline. Leaving a tab open cannot bypass it.                                                 |
-| Normal access            | Implemented: `accessExpiresAt = createdAt + 7 × 24 hours` for every status. Reads/completion retries/surveys stop at this boundary, even if data remains stored.                                                                        |
-| Saved reports            | Implemented server retrieval: an already-awarded report remains readable until seven days from **session creation**, not completion. Browser saved-report recovery is pending.                                                          |
-| Starting another attempt | Implemented server gate: every supplied authenticated unfinished attempt younger than 24 hours blocks insertion. Stage 3 must collect all known browser credentials and offer Resume or confirmed Delete, never “Start another anyway.” |
-| Explicit deletion        | Implemented: authenticated parent-locked cascading deletion with `expectedState: "unfinished"                                                                                                                                           | "completed"`. Changed state returns a non-destructive outcome. Confirmation UI is pending. |
-| Daily cleanup            | Stage 4: `0 3 * * *` UTC; bounded all-status deletion where `createdAt <= DB time − 7 days`, independent of browser traffic. No active scheduled cleanup or replacement inactivity worker exists yet.                                   |
-| Ownership/discovery      | Implemented per supplied ID/token pair, not by anonymous client-ID hash. No account/device-wide ownership or global single-attempt guarantee.                                                                                           |
+| Concern                  | Policy and current status                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inactivity               | Implemented: unfinished sessions are effectively `abandoned` at `now >= lastActivityAt + 30 minutes`; reads do not materialize the status. Inactivity does not end an otherwise eligible attempt.                                                     |
+| Attempt lifetime         | Implemented: `attemptExpiresAt = createdAt + 24 hours`. No unfinished resume, new answer, answer retry, or first completion at/after the deadline. Leaving a tab open cannot bypass it.                                                               |
+| Normal access            | Implemented: `accessExpiresAt = createdAt + 7 × 24 hours` for every status. Reads/completion retries/surveys stop at this boundary, even if data remains stored.                                                                                      |
+| Saved reports            | Server retrieval and browser history/recovery are implemented. An already-awarded report remains readable until seven days from **session creation**, not completion. Saved report metadata and separate survey state are restored.                   |
+| Starting another attempt | Browser scans/discovers all known handles before creation; server rechecks every supplied credential. An unexpired unfinished blocker requires Resume or confirmed Delete; cancel/failure/storage errors cannot bypass it.                            |
+| Explicit deletion        | Implemented confirmation UI and authenticated parent-locked cascades, with `expectedState` of `unfinished` or `completed`. Changed state preserves the row/handle and opens its current view, rather than silently deleting a newly completed report. |
+| Daily cleanup            | Stage 4 pending: `0 3 * * *` UTC; bounded all-status deletion where `createdAt <= DB time − 7 days`, independent of browser traffic. No active scheduled cleanup or replacement inactivity worker exists yet.                                         |
+| Ownership/discovery      | Supplied ID/token credentials, coordinated across same-browser tabs with Web Locks where supported, not anonymous client-ID ownership. No global single-attempt guarantee.                                                                            |
 
 All boundaries use elapsed UTC durations and authoritative server time. Neither deadline changes with activity, resume, completion, survey, migration, or report views. `SESSION_RETENTION_DAYS = 7` is an access/eligibility policy, not a guaranteed maximum physical retention period.
 
@@ -75,7 +75,7 @@ Creation, eligible explicit resume, newly accepted answers, and first completion
 
 Completed views take precedence over attempt expiry; unfinished attempt expiry precedes legacy content. Non-null invalid snapshots fail with `snapshot_unavailable`. `resumeSession` updates activity only for an eligible unfinished attempt; all other retained cases return their view without writes. Read/resume never auto-completes an all-answered attempt.
 
-Deletion compares the caller's confirmed expected state with current state under the lock. A match returns `deleted` after cascading parent deletion. A mismatch returns `changed_state` plus `currentState`, preserving a report that completed after an unfinished confirmation. This server contract exists; user confirmation and changed-state UI are Stage 3. Deletion is allowed after access expiry, but always requires valid credentials. A now-missing row after a lost response returns generic `not_found`, not a fabricated successful deletion.
+Deletion compares the caller's confirmed expected state with current state under the lock. A match returns `deleted` after cascading parent deletion. A mismatch returns `changed_state` plus `currentState`, preserving a report that completed after an unfinished confirmation. Stage 3 now supplies inline confirmation and changed-state reconciliation; Cancel/Escape cancels the new-session request as well as deletion. Deletion is allowed after access expiry, but always requires valid credentials. A now-missing row after a lost response returns generic `not_found`, not a fabricated successful deletion.
 
 ### Bounded known-credential gate
 
@@ -83,33 +83,41 @@ Discovery accepts `credentials`; creation accepts optional `knownCredentials`. E
 
 Discovery returns `available` metadata or generic `unavailable` for missing/wrong-token/access-expired credentials. Creation rejects with `existing_attempt` if any supplied authenticated unfinished session is below 24 hours, irrespective of requested settings or snapshot restorability. Completed and attempt-expired sessions do not block.
 
-This cannot discover omitted or lost credentials. There is no list-by-client-ID or global single-attempt guarantee, and the existing browser currently supplies no saved list. Best-effort creation rate limiting (five per hashed client ID per trailing hour) also remains separate from ownership and does not serialize simultaneous new creations by client ID. Lost creation-response recovery/request-key idempotency is deferred.
+This cannot discover omitted or lost credentials. There is no list-by-client-ID or global single-attempt guarantee. Stage 3 now supplies the full checked stored/in-memory credential list under browser coordination, and rejects blocked/full/corrupt storage rather than treating it as an empty list. Best-effort creation rate limiting (five per hashed client ID per trailing hour) remains separate from ownership and does not serialize new creations server-wide by client ID. Lost creation-response recovery/request-key idempotency is deferred.
 
-## 4. Stage 3 — browser recovery and Resume/Delete UX (not implemented)
+## 4. Stage 3 — browser recovery and Resume/Delete UX (source delivered)
 
-Current browser changes are **compatibility-only**: unwrap typed envelopes into the old machine service interface. XState still advances locally and renders the in-memory result/questions. The adapter does not pass through lifecycle deadlines or authoritative answer progress. Only the anonymous client ID is stored; no session credential storage, recovery/history, Web Locks, or deletion UI exists.
+Implemented on `session-lifecycle/recovery` in `machines/{sessionStorage,sessionRecovery,assessmentMachine,assessmentServices,createSessionAdapter}.ts` and the assessment UI. The browser is no longer compatibility-only: it discovers history, requires Resume/Delete for known blockers, restores original configuration/progress and saved reports/surveys, and reconciles server state. This is source delivery with reported independent validation (§7), **not production deployment**.
 
-### Required creation/recovery flow
+### Delivered creation/recovery flow
 
-1. Read all known per-session credentials, not only an active pointer or those matching the requested configuration. Resolve all blocker metadata before permitting creation; respect the 1,000-entry server bound without dropping unchecked handles.
-2. If an authenticated unfinished attempt younger than 24 hours exists, show its original configuration, progress, and deadline. Offer **Resume** or **Delete**; cancel/dismiss cancels creation. An unrestorable legacy blocker gets a delete-only explanation.
-3. Explicit Resume calls `resumeSession` and uses the server view/first unanswered ID. All-answered unfinished state invokes idempotent completion only within the attempt window. Read/bootstrap alone must not refresh activity.
-4. Delete requires confirmation and sends the expected state. On `changed_state`, preserve the handle and reconcile/show the report rather than automatically retrying destructive deletion under a different expectation.
-5. Remove only a confirmed deleted/unavailable handle; recheck the remaining list before creating with the requested configuration. A discovery/deletion network error preserves handles and offers Retry/Cancel, never bypass.
-6. Reconcile typed expiry/conflict/completion outcomes and server progress in open tabs. A blocker completing/expiring while a prompt is open changes the gate after a fresh check; no forced deletion of an expired attempt.
+1. Bootstrap scans all prefixed storage keys plus in-memory handles and discovers metadata, without creating or automatically resuming. The 1,000-handle bound fails closed; missing/duplicate discovery entries never authorize creation.
+2. Start scans/discovers the full list under a lock, independent of the requested framework/level/length. A server-confirmed unfinished attempt younger than 24 hours requires **Resume** or **Delete**; a legacy unrestorable blocker gets a delete-only explanation. Canceling the gate or confirmation cancels creation.
+3. Resume loads the **original server configuration** and first unanswered selected ID from accepted-answer membership, not the settings for a new attempt. Opening/reading is distinct from Resume. All-answered unfinished attempts need explicit Resume/active flow before completion; at/after 24 hours the expired view prevents late completion.
+4. Inline Delete confirmation focuses Cancel initially and supports Escape. It sends the expected state; `changed_state` preserves the handle, cancels automatic creation, and reads the new state/report. It never silently reconfirms a different destructive expectation.
+5. Confirmed deletion/unavailability clears only that matching handle; then the gate rescans before creating with the requested configuration. Discovery/deletion failures retain handles and offer Retry/Cancel; there is no Forget or Start-another-anyway bypass.
+6. After answer acknowledgements and typed conflict/completed/attempt-expired/legacy outcomes, the machine rereads `getSession` and reconciles authoritative accepted IDs. Completion success/retry also reads the saved award instead of rendering the transient completion result. Fresh open/resume clears unsubmitted choices; same-question background reconciliation preserves selection/timing, while in-process answer retries retain their exact pending payload.
 
-Where supported, use a **Web Lock** around final storage rescan, server check/create, and credential persistence. Release it while awaiting user decisions; reacquire and rediscover afterward. Coordinate gate-related storage mutations with the same lock. Missing support, another profile, omitted credentials, storage failure, and a lost creation response remain documented limits, not global ownership enforcement.
+The **`devgrade.session-lifecycle` Web Lock** covers scan/discovery/preflight/create/persist and related handle updates/deletion where `navigator.locks` is available. A per-instance queue also serializes local operations. No human decision holds the lock; subsequent creation reacquires and rescans. Without Web Locks, only local serialization is guaranteed. Another profile, cleared/omitted credentials, and a lost creation response remain limits, not global ownership enforcement.
 
-### Storage, state, and design constraints
+### Exact storage and failure semantics
 
-- Add an injectable, versioned saved-session storage adapter with independent per-ID handles: ID/token, both deadlines, minimal display hints. Preserve report handles when starting another attempt.
-- Do not persist private grading data, questions/reports as authority, or serialized XState snapshots. Handle SSR and blocked/full/corrupt storage. If storage fails after creation, continue in memory with a recovery warning, not automatic duplicate creation.
-- Same-origin scripts/shared browser profiles can read localStorage tokens; document this trade-off. No token-bearing links, logs, analytics, or public routes.
-- Do not discard completed handles at the 24-hour attempt cutoff. Server-confirmed terminal unavailability clears only the affected handle; transient failures preserve it. Backend deletion cannot remotely erase unopened browser storage or copies of a viewed report.
-- Add bootstrap/restoration, checking, Resume/Delete choice, deletion, unavailable, and retry states. Fresh restoration clears unsubmitted choices; in-process retries retain pending requests. Consume typed failures without parsing messages or endless expiry retries.
-- Restore reports from saved public questions/pillar metadata and survey state, not current metadata. Show distinct “Resume until” and “Report available until” deadlines; no physical-erasure promise.
-- Reset unanswered-question timing on resume, exclude offline time, and keep captured duration within the existing 0–3600 bound. Timing does not affect grading. Baseline overlong-duration retries are not fixed in Stage 2.
-- Reuse existing shadcn components, semantic tokens, keyboard behavior, light/dark/RTL rules, and the `/` flow. No product/design expansion, accounts, or pricing changes.
+- `sessionStorage.ts` stores JSON **`version: 1`** under **`devgrade.session.<sessionId>`** (prefix `devgrade.session.`). Fields are ID/token, optional ISO `attemptExpiresAt` / `accessExpiresAt`, and optional `hint: { framework, targetLevel, questionCount }`. Normal writes use server deadlines/configuration; hints never authorize access. There is no active pointer.
+- Explicit projection excludes questions, answers, private grading data, reports, and serialized actors. Storage is injectable/SSR-safe; the recovery instance is per mounted flow. Same-origin scripts and shared-profile users can read tokens; no token-bearing links or account/cross-device recovery are introduced.
+- Invalid key/credential pairs, damaged versions/hints, and credential conflicts flag corruption. A valid credential in a damaged handle is retained for discovery, not discarded to hide a blocker. Missing/inaccessible disk state does not erase credentials already held in memory.
+- **Before creation:** blocked/unavailable, full, corrupt, or over-limit storage fails closed. A separate random `devgrade.storage-probe.<uuid>` key tests and verifies a 1,024-character write/removal without overwriting handles. Discovery/preflight failure cannot create a new row.
+- **After successful creation:** if handle persistence fails, keep the credential in memory, warn about recovery, and continue by reading that same session. Retrying the read never repeats creation. Refresh/close may lose that unsaved credential. A lost creation response before credentials arrive remains deferred, distinct from post-create storage failure.
+- Normal history keeps completed handles across new attempts and beyond the 24-hour cutoff. Server-confirmed `not_found`, `access_expired`, or discovery `unavailable` clears the matching handle; removal failure warns, while transient server/network failures preserve handles. At ≥7 days, normal access is denied and handles are removed after confirmation, but the DB row remains until explicit deletion or Stage 4 cleanup.
+
+### Delivered history, reports, and timing
+
+History is server-metadata-driven, normally newest-created first, with original configuration/count, progress, status, and separate “Resume until” / “Report available until” deadlines. Saved report rendering uses snapshot questions, pillar labels/descriptions/radar metadata, and awarded results; legacy rows display only persisted summaries. Survey rating is restored separately, including the thank-you/saved-rating display. The API permits upserts; the current thanks UI does not offer a change-rating control.
+
+Visibility/online/storage events, manual refresh, and advisory deadline wakeups reconcile eligible screens; the gate refreshes on a bounded interval. The server remains the authority, not local deadlines. Automatic reads never grant Resume permission or refresh server activity. Browser cleanup cannot remotely erase unopened storage or copies of viewed reports.
+
+Display and submission use the same rounded, finite **0–3600-second** bound. Resume/new-question entry resets the timer; offline time between visits is not reconstructed. Hidden-tab and observed offline intervals pause timing; return excludes the paused duration. Same-question reconciliation preserves the timer, and retries reuse the accepted/pending duration rather than add network waiting. Timing/focus loss do not affect grading or extend server deadlines.
+
+The `/` flow reuses existing components/tokens and keyboard/light/dark/RTL design conventions. No product scope, account, or pricing change is implied.
 
 ## 5. Stage 4 — daily maintenance and rollout (not implemented)
 
@@ -154,16 +162,23 @@ Live-row `DELETE` is not immediate media erasure of MVCC tuples, WAL/PITR, repli
 
 ## 7. Verification and remaining exit criteria
 
-**Stage 2, reported by the primary agent on 2026-09-25:** **282 passing tests, 0 skipped**, against isolated PostgreSQL 18 with real migrations. Independent scoped connections assert backend PIDs and observable lock barriers. Package lint/build pass; typecheck has only **three existing unrelated shared `chart.tsx` errors**. This is not a new validation run by the documentation task, nor evidence that root `pnpm build` succeeded.
+**Stage 3 independent validation, reported by the primary agent on 2026-09-25:** **339 tests passed, 0 skipped**, using disposable **PostgreSQL 18.1**, real migrations, and the **144-question seed**. Independent scoped connections/backend lock barriers remain covered. Direct web/UI lint passed; web build passed **per the implementation agent**. Typecheck remains at **three pre-existing unrelated shared `chart.tsx` errors**.
 
-Implemented coverage includes exact temporal boundaries, strict credentials/safe envelopes, snapshot fidelity, all lengths, legacy variants, out-of-order authoritative progress, same/different-option replays, once-only completion, expected-state deletion/cascades, the complete bounded credential gate, parent-locked races, fresh time after lock waits, and coherent read snapshots during cascade deletion. The fixture is no longer limited to concurrency on one backend. Maintenance/browser tests below remain exit criteria, not claimed coverage.
+The root `pnpm lint` / version launcher failed on automatic switching to project-pinned **10.33.4** because of signature verification. Reported validation used pinned **pnpm 10.20** and direct checks instead; do not claim root lint/build success. These results were supplied by the primary/validation agents, not rerun by this documentation task, and do not establish production deployment.
 
-### Stage 3 exit criteria
+Implemented automated coverage includes exact temporal boundaries, strict credentials/safe envelopes, snapshot fidelity, all lengths, legacy views, accepted-ID progression, replay/reconciliation, once-only completion, expected-state deletion/cascades, bounded credential discovery/gating, storage failures, timer bounds, and parent-locked independent-backend races/coherent reads. Maintenance tests below remain pending exit criteria.
 
-- Refresh/reopen for 8/16/32 questions, first unanswered restoration, all-answered first-completion cutoff, saved report/survey recovery before seven days.
-- Multiple/mismatched-configuration blockers; complete bounded discovery; cancel/failure/forget cannot bypass a found blocker. Completed/expired attempts do not block.
-- Confirmation and changed-state handling, response loss, transient handle preservation, terminal per-handle cleanup, blocked/full/corrupt storage, two-tab coordination and unsupported Web Lock behavior.
-- Typed conflict/expiry reconciliation and timer bounds; keyboard/mobile/light/dark/RTL checks using the existing design.
+### Stage 3 browser verification — completed in the isolated environment
+
+**Headed Chrome 153: five scenarios and 55 named checks**, per the independent validation agent:
+
+- Quick/Standard/Deep **8/16/32** completed with reload, saved-report, and survey recovery.
+- Resume/Delete gate, cancel behavior, and server cascades verified. Two tabs in the **same browser context**, coordinated by Web Locks, produced **only one new row**; this is not a no-Web-Locks or global uniqueness claim.
+- Expired all-answered unfinished attempts could not complete late. At **age ≥7 days**, report access was denied and matching handles removed while DB rows remained, consistent with Stage 4 still pending.
+- **197 no-store responses** observed; **187 pre-completion responses** had no answer-key markers. Counts apply to exercised responses, not every possible execution.
+- Keyboard Delete confirmation and **320px mobile, dark, RTL** checks had no horizontal overflow; no console errors or HTTP 5xx were observed.
+
+These checks establish the reported Stage 3 test scope, not exhaustive browser coverage or production/maintenance readiness.
 
 ### Stage 4 exit criteria
 
@@ -182,7 +197,7 @@ node --import tsx --test "src/**/*.test.ts"
 
 This uses `node:test` and avoids the `tsx` CLI IPC startup in restricted environments. The fixture uses unique data/migration schemas and temporary real-migration copies, cleans up its own resources, and never falls back to `DATABASE_URL`. Missing `TEST_DATABASE_URL` skips DB suites; a configured failure fails.
 
-Normal root commands remain `pnpm --filter web test`, `pnpm --filter web typecheck`, `pnpm lint`, and **package build** `pnpm --filter web build`. If the pnpm shim is unavailable, use pinned `pnpm@10.33.4`, e.g. `npm exec --yes --package=pnpm@10.33.4 -- pnpm --filter web build` (network may be needed when uncached). Or use installed lockfile-resolved tools from `apps/web`:
+Configured root entry points remain `pnpm --filter web test`, `pnpm --filter web typecheck`, `pnpm lint`, and package build `pnpm --filter web build`; they are **not a list of successful Stage 3 launcher runs**. The project still declares `pnpm@10.33.4`, whose automatic switch/signature verification failed for root lint/version checks. The reported fallback used pinned **pnpm 10.20** and direct checks, not a successful retry of 10.33.4. Bypass that launcher without changing project configuration/dependencies by invoking installed lockfile-resolved tools from `apps/web`:
 
 ```sh
 node node_modules/typescript/bin/tsc --noEmit
@@ -194,7 +209,7 @@ Also run the installed ESLint command from `packages/ui` for its lint coverage. 
 
 ## 8. Explicitly deferred and references
 
-Deferred: accounts/email recovery, cross-device synchronization/shareable reports, strict global unfinished-attempt ownership, lost-creation-response recovery, heartbeats/real-time presence, new telemetry dashboards, billing, and a general content revision system. **Not deferred:** completing Stage 3 recovery/Resume/Delete UX and Stage 4 daily cleanup with failure recovery.
+Deferred: accounts/email recovery, cross-device synchronization/shareable reports, strict global unfinished-attempt ownership, lost-creation-response recovery, heartbeats/real-time presence, new telemetry dashboards, billing, and a general content revision system. **Delivered in source:** Stage 3 recovery/Resume/Delete UX. **Required and still pending:** Stage 4 daily cleanup with failure recovery and authorized rollout.
 
 Provider references (reviewed for the original plan on 2026-09-25; recheck the actual deployment plan/root before rollout):
 

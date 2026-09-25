@@ -1,10 +1,10 @@
-import type { AssessmentResult, PublicQuestion } from "@/domain/types";
+import type { ReportSnapshot } from "@/domain/sessionSnapshots";
 import type { ProficiencyLevel } from "@/domain/constants";
 
 import { Separator } from "@workspace/ui/components/separator";
 import { Progress } from "@workspace/ui/components/progress";
 import { WarningCircleIcon } from "@phosphor-icons/react";
-import { SKILL_CATEGORY_META } from "@/domain/constants";
+
 import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
@@ -29,8 +29,7 @@ import { SatisfactionSurvey } from "./SatisfactionSurvey";
 import { SkillRadar } from "./SkillRadar";
 
 export interface ReportProps {
-  result: AssessmentResult;
-  questionsById: Map<string, PublicQuestion>;
+  snapshot: ReportSnapshot;
   survey: SatisfactionSurveyProps;
   onRestart: () => void;
 }
@@ -44,12 +43,14 @@ function TierBadge({ proficiency }: TierBadgeProps) {
   return <Badge className={tier.badgeClassName}>{tier.label}</Badge>;
 }
 
-export function Report({
-  result,
-  questionsById,
-  survey,
-  onRestart,
-}: ReportProps) {
+export function Report({ snapshot, survey, onRestart }: ReportProps) {
+  const { result, questions, pillars } = snapshot;
+  const questionsById = new Map(
+    questions.map((question) => [question.id, question]),
+  );
+  const pillarsById = new Map(
+    pillars.map((pillar) => [pillar.skillCategory, pillar]),
+  );
   return (
     <section className="w-full max-w-2xl">
       <header className="text-center">
@@ -76,7 +77,7 @@ export function Report({
             <TierBadge proficiency={result.proficiencyLevel} />
           </div>
           <div className="flex justify-center">
-            <SkillRadar scores={result.categoryScores} />
+            <SkillRadar scores={result.categoryScores} pillars={pillars} />
           </div>
         </CardContent>
       </Card>
@@ -94,7 +95,7 @@ export function Report({
               <li key={c.skillCategory}>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium">
-                    {SKILL_CATEGORY_META[c.skillCategory].displayName}
+                    {pillarsById.get(c.skillCategory)?.displayName}
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="text-muted-foreground tabular-nums">
@@ -131,11 +132,9 @@ export function Report({
               {result.skillGaps.map((gap) => (
                 <Alert key={gap} variant="destructive">
                   <WarningCircleIcon />
-                  <AlertTitle>
-                    {SKILL_CATEGORY_META[gap].displayName}
-                  </AlertTitle>
+                  <AlertTitle>{pillarsById.get(gap)?.displayName}</AlertTitle>
                   <AlertDescription>
-                    {SKILL_CATEGORY_META[gap].description}
+                    {pillarsById.get(gap)?.description}
                   </AlertDescription>
                 </Alert>
               ))}
@@ -169,6 +168,25 @@ export function Report({
                       {q.isCorrect ? UI.report.correct : UI.report.incorrect}
                     </Badge>
                   </div>
+                  {question ? (
+                    <div className="mt-3 flex flex-col gap-3 text-sm">
+                      <p>{question.prompt}</p>
+                      {question.codeBlock ? (
+                        <pre
+                          tabIndex={0}
+                          aria-label={UI.report.codeLabel}
+                          className="overflow-x-auto rounded-lg bg-muted p-4 font-mono text-sm"
+                        >
+                          {question.codeBlock}
+                        </pre>
+                      ) : null}
+                      <ol className="list-inside list-[upper-alpha] text-muted-foreground">
+                        {question.options.map((option, index) => (
+                          <li key={index}>{option}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
                   <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
                     {q.explanation}
                   </p>
@@ -183,7 +201,7 @@ export function Report({
 
       <div className="mt-8 flex justify-center">
         <Button size="lg" variant="outline" onClick={onRestart}>
-          {UI.report.restart}
+          {UI.recovery.history}
         </Button>
       </div>
     </section>

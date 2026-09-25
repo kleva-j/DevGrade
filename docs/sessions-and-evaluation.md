@@ -1,25 +1,25 @@
 # Assessment sessions and evaluation
 
-**Implementation reference — 2026-09-25, lifecycle Stages 1–2 implemented on `session-lifecycle/server`.**
+**Implementation reference — 2026-09-25, lifecycle Stages 1–3 delivered in source; current layer `session-lifecycle/recovery`.**
 
-[PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This document describes current source, not a deployment. Stage 3 browser recovery and Stage 4 maintenance are **not implemented**. See the [delivery plan](session-lifecycle-plan.md) and [PRD](../prd.md).
+[PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This document describes current source and reported validation, **not production deployment**. Browser recovery is implemented; Stage 4 maintenance/rollout remains **pending**, with no active scheduled cleanup. See the [delivery plan](session-lifecycle-plan.md) and [PRD](../prd.md).
 
 ## 1. Current behavior at a glance
 
 - Anonymous, React-only assessments; free **Quick (8, default), Standard (16), Deep (32)**. The full stratified set is selected at creation, not adapted after each answer.
-- PostgreSQL stores the session, immutable question/report snapshots, accepted answers, normalized scores, and optional survey. XState still holds the browser assessment only in memory.
+- PostgreSQL stores the session, immutable question/report snapshots, accepted answers, normalized scores, and optional survey. The browser persists minimal credential handles, not questions/reports or XState snapshots; server reads restore the in-memory view.
 - The server enforces **24-hour attempts**, **seven-day normal access**, and **30-minute effective inactivity**. Both deadlines use the session's original `createdAt`, never completion or latest activity.
 - Authenticated discovery, reads, resume, expected-state deletion, and retry-safe answer/completion operations exist as typed, non-cacheable POST server functions.
-- The browser has only a compatibility adapter for the new envelopes. It does **not** save session credentials, discover previous attempts, restore progress/reports, or present Resume/Delete controls.
+- The browser discovers saved sessions, offers Resume/Delete before new creation, restores original configuration/progress and immutable reports/surveys, and reconciles typed lifecycle outcomes. Same-browser Web Lock coordination is implemented where supported.
 - No scheduled cleanup, maintenance endpoint, or inactivity sweep is active in this implementation. Access expiry does not itself delete a row.
 
 ## 2. Credentials, validation, and the wire boundary
 
-| Identifier     | Creation/storage                                                                                                 | Authority                                                                               |
-| -------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `rawClientId`  | Browser UUID in `localStorage` at `devgrade.clientId`; only its SHA-256 hash is stored as `client_id`            | Anonymous creation-rate grouping only; never ownership, listing, or deletion permission |
-| `sessionId`    | PostgreSQL UUID; held in XState                                                                                  | Identifies one session                                                                  |
-| `sessionToken` | Server-generated 32 random bytes, encoded as 64 hex characters; stored verbatim in PostgreSQL and held in XState | Secret used **with the session ID** to authenticate access                              |
+| Identifier     | Creation/storage                                                                                                                                      | Authority                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `rawClientId`  | Browser UUID in `localStorage` at `devgrade.clientId`; only its SHA-256 hash is stored as `client_id`                                                 | Anonymous creation-rate grouping only; never ownership, listing, or deletion permission      |
+| `sessionId`    | PostgreSQL UUID; saved in a per-ID browser handle and referenced by the machine                                                                       | Identifies one session                                                                       |
+| `sessionToken` | Server-generated 32 random bytes encoded as 64 hex characters; stored verbatim in PostgreSQL, the browser handle, and the recovery layer's memory map | Secret used **with the session ID** to authenticate access; UI/machine callers pass only IDs |
 
 Credentials are validated before DB work: a canonical 36-character UUID spelling (normalized to lowercase) and exactly 64 hexadecimal token characters. Tokens are compared exactly, not case-normalized. Answer inputs require a nonempty question ID of at most 50 characters, a nonnegative integer option index within the saved question's options, and integer time **0–3600 seconds**. `rawClientId` is a string of length 1–1024; surveys accept integer ratings **1–5**. Invalid inputs return safe `bad_request` failures without serializing Zod issues or submitted secrets.
 
@@ -34,7 +34,7 @@ All eight functions in `server/assessmentFns.ts` use POST and `Cache-Control: no
 // existing_attempt also includes error.blockers: SessionMetadata[]
 ```
 
-These are TanStack Start server functions, **not** literal `/api/sessions` REST routes. `AssessmentError.status` and `toErrorResponse` provide logical HTTP mappings; the active adapter does not turn those mappings into HTTP status responses. Consumers must inspect `ok` and the typed error code, not parse messages. The current browser adapter unwraps failures into `AssessmentClientError`, preserving their code/payload, but has no lifecycle-specific recovery states yet.
+These are TanStack Start server functions, **not** literal `/api/sessions` REST routes. `AssessmentError.status` and `toErrorResponse` provide logical HTTP mappings; the active adapter does not turn those mappings into HTTP status responses. Consumers must inspect `ok` and the typed error code, not parse messages. The browser adapter unwraps failures into `AssessmentClientError`, preserving their code/payload. The recovery layer and XState machine handle typed conflicts, expiry, completed/legacy states, and unavailability without parsing message strings.
 
 ## 3. Lifetimes, activity, and deletion eligibility
 
@@ -63,7 +63,7 @@ Both `knownCredentials` and discovery's `credentials` have a maximum of **1,000 
 - `available` with session ID, creation time, original configuration/count, both deadlines, effective status, answered/total counts, `blocksCreation`, and `canResume`;
 - `unavailable` with only the supplied session ID for missing rows, token mismatches, or access-expired rows. These cases are intentionally indistinguishable.
 
-This is **known-credential gating, not global ownership or one-attempt-per-person enforcement**. There is no list-by-client-ID capability. Omitted credentials, cleared/blocked storage, another browser, and a lost creation response limit discovery. The baseline browser currently supplies no known-session list. The Stage 3 Resume/Delete gate and same-browser coordination are still pending.
+This is **known-credential gating, not global ownership or one-attempt-per-person enforcement**. There is no list-by-client-ID capability. The browser now supplies its complete checked list, combining stored and in-memory handles, under the `devgrade.session-lifecycle` Web Lock where supported. Blocked/full/corrupt storage fails closed for new creation, rather than silently omitting known sessions. Cleared storage, another profile, omitted credentials, unsupported cross-tab locking, and a lost creation response remain limits (§8).
 
 After the gate, creation hashes `rawClientId` and counts all-status sessions in the trailing **60 minutes**, rejecting when there are already **5 or more**. This remains best-effort rate limiting: there is no per-client identity lock, and simultaneous creations can exceed the nominal cap. Changing the client ID also changes its grouping.
 
@@ -143,13 +143,13 @@ Success returns `{ success: true, sessionComplete, acceptedAnswer, answeredCount
 
 First completion requires the accepted-ID set to match the selected set exactly, not merely the same count. Under the parent lock it computes the saved award, writes normalized results/pillar rows/report JSON, and marks the session completed atomically. Missing/extra/invalid accepted answers fail; no automatic partial report is generated.
 
-Repeated completion returns the already saved `reportSnapshot.result` without rescoring or touching activity. This also works after 24 hours if the report was committed earlier and normal access remains open. A legacy completed session instead returns `legacy_summary_available`, directing the caller to `getSession`; it is not rescored. The Stage 2 completion success payload remains the compatibility `AssessmentResult`, not the full `ReportView`.
+Repeated completion returns the already saved `reportSnapshot.result` without rescoring or touching activity. This also works after 24 hours if the report was committed earlier and normal access remains open. A legacy completed session instead returns `legacy_summary_available`, directing the caller to `getSession`; it is not rescored. The completion success payload remains `AssessmentResult`, not the full `ReportView`. The Stage 3 machine does not render that transient result: it rereads `getSession` and renders the saved award and separate survey state.
 
 `submitSurvey` requires authenticated completed state and normal access. It upserts an integer 1–5 rating, leaving the award and session activity unchanged.
 
 ### Expected-state deletion
 
-`deleteSession({ sessionId, sessionToken, expectedState })` accepts `expectedState: "unfinished" | "completed"`. This represents the state the caller confirmed; the confirmation UI is Stage 3 work. Under the parent lock it compares that expectation with current completed/unfinished state:
+`deleteSession({ sessionId, sessionToken, expectedState })` accepts `expectedState: "unfinished" | "completed"`. This represents the state the caller confirmed in the implemented inline Delete confirmation screen (Cancel receives initial focus; Escape cancels). Under the parent lock it compares that expectation with current completed/unfinished state:
 
 - match → delete the parent and return `{ kind: "deleted" }`;
 - mismatch → return `{ kind: "changed_state", currentState }` without deleting anything.
@@ -167,21 +167,55 @@ Cascades remove answers, results, pillar scores, surveys, and both snapshot fiel
 - `getSession` and discovery use short, **read-only `REPEATABLE READ`** transactions for coherent multi-query snapshots. They do not lock for update or write activity/status. A read authorized on its snapshot cannot be recalled by a later deletion.
 - Mutation results are acknowledged only after commit. Parent serialization plus unique constraints prevents duplicate answer/report writes; there is no catch-and-continue query in an aborted uniqueness transaction.
 
-The former unlocked submit/completion races are fixed. This does not claim global creation uniqueness, creation-request idempotency, browser reconciliation, or concurrency with an implemented cleanup worker; maintenance is still pending.
+The former unlocked submit/completion races are fixed, and Stage 3 adds browser reconciliation and Web Lock coordination. This still does not claim global creation uniqueness, creation-request idempotency, or concurrency with an implemented cleanup worker; maintenance remains pending.
 
-## 8. Browser baseline and remaining work
+## 8. Browser recovery, storage, and timing
 
-The existing XState flow remains configure → create → answer/submit → complete → report/survey, with retry states. Only `devgrade.clientId` persists. Session credentials, questions, current position, pending answers, and the report are in memory. A hard refresh/remount returns to intake; saved answers remain in PostgreSQL but the UI does not retrieve them. No saved-session adapter, Web Lock coordination, report history, resume/deletion UI, or lifecycle-specific expiry screen is implemented.
+### Exact saved-handle format
 
-The compatibility adapter unwraps the typed envelopes, projects creation back to ID/token/questions, and forwards only `sessionComplete` from answer success to the old machine. It does not yet consume deadlines, `acceptedAnswer`, or `nextQuestionId`. The machine still advances its local index; Stage 3 must reconcile authoritative progress for restoration/conflicts/multiple tabs and render saved report/pillar metadata.
+`machines/sessionStorage.ts` uses localStorage keys **`devgrade.session.<sessionId>`** (`SESSION_STORAGE_PREFIX = "devgrade.session."`) and JSON **`version: 1`** (`SESSION_STORAGE_VERSION = 1`). Each handle contains `sessionId`, `sessionToken`, optional ISO `attemptExpiresAt` / `accessExpiresAt`, and optional `hint: { framework, targetLevel, questionCount }`. Normal writes save the server deadlines/configuration; optional hints are never authority. There is no active-session pointer. The unrelated `devgrade.clientId` remains rate-limit metadata only.
 
-Answer retries keep their original pending payload; completion retries now receive the saved result. Lost creation responses before receiving credentials remain unrecoverable and can create another row on retry; request-key idempotency is deferred. Existing client-ID storage-access exceptions are not specially handled.
+Only those fields are projected into storage: no questions, accepted answers, private grading data, report content, or serialized actor state. Storage is injectable and browser globals are accessed only when operations run; each mounted flow owns its own recovery instance, not a credential-bearing SSR singleton. Tokens are readable by same-origin scripts and users of that browser profile; no token-bearing links or account/cross-device recovery are provided.
 
-Timing remains baseline: the display counter and captured `Date.now()` elapsed duration are separate; hidden-tab time before submission is included, retry waiting afterward is not. The machine does not cap durations at 3600, so an overlong pending duration is rejected again on retry. Focus loss is counted in memory on hidden `visibilitychange` while answering; it is not sent to the service or used in grading. Stage 3 needs resume-timer reset/bounds, storage-failure handling, and typed recovery; Stage 4 needs bounded maintenance and authorized rollout, without changing product/design scope.
+A scan snapshots all prefixed keys, validates UUID/token and key-to-ID agreement, and merges valid handles into a per-flow memory map. Damaged hints/versions retain a recoverable credential but flag corruption; malformed records are not silently erased to enable creation. Missing or inaccessible disk state never drops a credential already known in memory, and a same-ID/different-token collision is corruption. More than 1,000 known handles blocks discovery/creation rather than truncating them.
+
+### Fail-closed creation and same-browser coordination
+
+Bootstrap discovers all known handles and shows server-derived history; it does not create or auto-resume. On Start, the recovery layer runs the entire scan → discovery → blocker check → storage preflight → server create → credential save sequence under **`devgrade.session-lifecycle`**. A per-instance queue serializes operations; `navigator.locks.request` adds cross-tab coordination where supported. Without Web Locks, only that local queue is guaranteed, not cross-tab or global uniqueness. Human choices never hold the lock; every later creation attempt reacquires it and rescans. Handle refresh/removal and confirmed deletion also use this coordination.
+
+Discovery must return exactly one entry for every checked credential; omitted/duplicate entries fail closed. Blocked/unavailable, full, or corrupt storage, credential-limit errors, and incomplete/failed discovery prevent creation. The write preflight uses a separate random `devgrade.storage-probe.<uuid>` key, verifies a 1,024-character write, and removes the probe without overwriting a handle. It is a preflight, not a guarantee that a later write will succeed.
+
+If **creation succeeds but saving its handle fails**, the credentials are retained in memory, the UI warns about recovery, and the machine continues by reading the newly created session. Retrying that read never creates a replacement. Refreshing/closing after a failed handle write can lose recovery access; a creation response lost **before credentials arrive** remains a separate deferred idempotency gap.
+
+A found unfinished blocker offers **Resume** or confirmed server-side **Delete**, with original configuration/progress/deadlines. Canceling either the gate or confirmation cancels creation. Delete removes the handle only after confirmed deletion/unavailability, then rechecks all remaining sessions before continuing the original new-session request. A `changed_state` result preserves the handle, cancels automatic creation, and reads the current report/state; it never retries deletion with a changed expectation automatically. Transient failures retain handles. There is no “Forget” or “Start another anyway” bypass for a found blocker.
+
+### Restoration, history, and report rendering
+
+History is metadata-first and normally newest-created first. It shows the server's original framework/level/count, progress, status, and separate “Resume until” / “Report available until” deadlines. Completed-report handles survive starting another attempt. Opening an unfinished session performs a read and shows a ready/expired/legacy screen; **explicit Resume** is needed to reactivate it. Resume uses its **original configuration**, not the settings selected for a new assessment. All-answered unfinished sessions require explicit Resume/active flow before first completion, and the server still rejects it at or after 24 hours.
+
+After answer acknowledgement or a reconcilable conflict/completed/attempt-expired/legacy outcome, the machine rereads `getSession`. It selects the first unanswered question by the authoritative accepted-ID set, never a local `index + 1` or answer count. `nextQuestionId` remains part of the server contract; the machine derives the same position from the refreshed ordered questions/accepted answers. All question content is still returned up front; reconciliation rereads a full safe view, not a next-question-content endpoint. Fresh open/resume clears unsubmitted choices; same-question background reconciliation preserves selection/timing. Transient answer retries retain the exact pending payload/duration; completion retry first reads state to recover a lost committed result or discover expiry.
+
+Completed views render **`reportSnapshot`**: saved public question presentation, pillar labels/descriptions and radar metadata, and the awarded result, not current bank metadata or the transient completion payload. Legacy views render only their persisted summary. Survey state is loaded separately; an existing rating restores the thank-you/saved-rating display instead of a new prompt. The server still supports rating upserts, but this UI does not expose a change-rating control after thanks.
+
+Storage events, visible/online return, manual refresh, and advisory deadline wakeups recheck server state in eligible screens; the gate also refreshes on a bounded interval. Browser clocks never authorize access or deletion. Server-confirmed `not_found` / `access_expired` or discovery `unavailable` removes only the matching handle (with a warning if local removal fails); transient failures preserve it. At seven days the view is denied and handles are cleared after server confirmation, **while the database row remains until explicit deletion or future Stage 4 cleanup**. This does not remotely erase unopened browser storage or copies of viewed reports.
+
+### Client timing
+
+Both the display and submitted duration use `boundedDuration`: rounded integer seconds clamped to **0–3600**, with non-finite values becoming zero. Explicit resume/new-question entry resets the timer; saved/offline time between visits is not reconstructed. Hidden-tab and observed offline intervals pause timing, and return shifts the start timestamp to exclude the paused duration. Retries reuse the originally captured duration, not later network waiting. Same-question reconciliation does not reset elapsed time. Focus loss remains an in-memory signal, not a persisted grading input. These timing changes do not extend server deadlines or affect scores.
+
+Stage 3 source is delivered; Stage 4 still needs bounded maintenance and authorized rollout, without product/design expansion.
 
 ## 9. Verification and source map
 
-**Primary-agent verification reported for Stage 2 (2026-09-25): 282 tests passed, 0 skipped**, against isolated PostgreSQL 18 with real migrations and independent-backend lock barriers. Package lint/build passed; typecheck has only **three pre-existing shared `chart.tsx` errors**. This records the primary agent's run, not a rerun by this documentation task, a successful root `pnpm build`, or a deployed migration/job.
+**Stage 3 independent validation reported by the primary agent (2026-09-25):**
+
+- **339 tests passed, 0 skipped**, using disposable **PostgreSQL 18.1**, real migrations, and the **144-question seed**. Existing independent-backend/lock-barrier coverage remains part of the suite.
+- **Headed Chrome 153: five scenarios, 55 named checks.** Quick/Standard/Deep (8/16/32) completion, reload and saved-report/survey recovery; Resume/Delete gate, cancel, and DB cascades; two tabs in the same browser context using Web Locks produced **only one new session row**.
+- Expired all-answered unfinished attempts could not complete late. At **age ≥7 days**, report access was denied and browser handles removed, while the DB row remained (no maintenance worker).
+- **197 no-store responses** observed; **187 pre-completion responses** checked without answer-key markers. These counts describe the exercised responses, not every possible execution.
+- Keyboard Delete confirmation and **320px mobile, dark, RTL** checked with no horizontal overflow; no console errors or HTTP 5xx observed.
+
+Direct web/UI lint passed; web build passed **per the implementation agent**. Typecheck still reports only **three pre-existing shared `chart.tsx` errors**. The root `pnpm lint` / version launcher failed while switching to project-pinned **10.33.4** because of signature verification; pinned **pnpm 10.20** and direct checks were used instead. No successful root lint/build wrapper run is claimed. These are reported agent results, not tests/build/browser runs repeated by this documentation task or evidence of production deployment.
 
 Tests use `node:test` via `tsx`, not Jest/Vitest. With a dedicated `TEST_DATABASE_URL` exported and a compatible Node runtime, run from `apps/web`:
 
@@ -191,7 +225,7 @@ node --import tsx --test "src/**/*.test.ts"
 
 The normal root entry point is `pnpm --filter web test` (the package script uses `tsx --test`). Direct `node --import tsx` avoids the `tsx` CLI's IPC startup when that is restricted by a sandbox. The fixture creates unique data/migration schemas using temporary copies of real migrations and drops only its own resources. Without `TEST_DATABASE_URL`, PostgreSQL tests skip; configured failures fail. It never falls back to `DATABASE_URL` or loads the app's `.env`. Independent clients assert their schema/backend PID and use observable `pg_blocking_pids` barriers, not sleeps or `Promise.all` over a single connection.
 
-Normal root validation entry points are:
+The configured root entry points are listed below for reference, **not as successful Stage 3 launcher runs**:
 
 ```sh
 pnpm --filter web typecheck
@@ -199,7 +233,7 @@ pnpm lint
 pnpm --filter web build
 ```
 
-If the pnpm shim is unavailable, use the pinned package manager, e.g. `npm exec --yes --package=pnpm@10.33.4 -- pnpm --filter web typecheck` (and the corresponding lint/build command); this may require network access if not cached. Alternatively use the **installed lockfile-resolved tools**, without upgrading dependencies, from `apps/web`:
+The declared package manager remains `pnpm@10.33.4`; its automatic version-switch/signature failure is a tooling blocker, not a lint result. The reported fallback used pinned **pnpm 10.20** with direct checks, not a successful retry of the 10.33.4 launcher. To bypass that launcher without changing project configuration or dependencies, invoke the **installed lockfile-resolved tools** from `apps/web`:
 
 ```sh
 node node_modules/typescript/bin/tsc --noEmit
@@ -209,15 +243,16 @@ node node_modules/vite/bin/vite.js build
 
 For package-level lint coverage, also run `node node_modules/eslint/bin/eslint.js` from `packages/ui`. These package-tool fallbacks do not validate the root Turbo wrapper. Keep typecheck's existing chart failures separate from test/lint/build results; do not describe the complete validation set as green.
 
-| Concern                                                                | Source                                                                                                        |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Pure policy, safe contracts, snapshot formats, scoring                 | `apps/web/src/domain/{sessionLifecycle,sessionContracts,sessionSnapshots,scoring}.ts` and `domain/__tests__/` |
-| Schema and DB time                                                     | `apps/web/src/db/{schema,queries}.ts`; migration `0002_dazzling_may_parker.sql`                               |
-| Authentication, parent locks, coherent reads/views                     | `apps/web/src/server/sessionAccess.ts`                                                                        |
-| Operations, validation, wire errors                                    | `apps/web/src/server/{assessmentService,assessmentValidation,assessmentHandlers,assessmentFns,errors}.ts`     |
-| Boundaries, batching, retries, deletion/creation races, coherent reads | `apps/web/src/server/{sessionLifecycle.postgres,sessionContracts,assessmentValidation}.test.ts`               |
-| Snapshot fidelity and all-length behavior                              | `apps/web/src/server/{assessmentSnapshots.postgres,assessmentService.postgres}.test.ts`                       |
-| Isolated real-DB concurrency fixture                                   | `apps/web/src/server/__tests__/postgresFixture.ts`                                                            |
-| Baseline browser/compatibility behavior                                | `apps/web/src/machines/{assessmentMachine,assessmentServices,createSessionAdapter}.ts` and tests              |
+| Concern                                                                 | Source                                                                                                                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure policy, safe contracts, snapshot formats, scoring                  | `apps/web/src/domain/{sessionLifecycle,sessionContracts,sessionSnapshots,scoring}.ts` and `domain/__tests__/`                                                        |
+| Schema and DB time                                                      | `apps/web/src/db/{schema,queries}.ts`; migration `0002_dazzling_may_parker.sql`                                                                                      |
+| Authentication, parent locks, coherent reads/views                      | `apps/web/src/server/sessionAccess.ts`                                                                                                                               |
+| Operations, validation, wire errors                                     | `apps/web/src/server/{assessmentService,assessmentValidation,assessmentHandlers,assessmentFns,errors}.ts`                                                            |
+| Boundaries, batching, retries, deletion/creation races, coherent reads  | `apps/web/src/server/{sessionLifecycle.postgres,sessionContracts,assessmentValidation}.test.ts`                                                                      |
+| Snapshot fidelity and all-length behavior                               | `apps/web/src/server/{assessmentSnapshots.postgres,assessmentService.postgres}.test.ts`                                                                              |
+| Isolated real-DB concurrency fixture                                    | `apps/web/src/server/__tests__/postgresFixture.ts`                                                                                                                   |
+| Browser credentials, coordination, discovery and recovery               | `apps/web/src/machines/{sessionStorage,sessionRecovery,assessmentMachine,assessmentServices,createSessionAdapter}.ts` and tests                                      |
+| Recovery/history, confirmation, saved reports/surveys and bounded timer | `apps/web/src/components/assessment/{AssessmentFlow,SessionHistory,DeleteConfirmation,Report,LegacySummary,SatisfactionSurvey,QuestionRunner}.tsx`; `report.test.ts` |
 
-Browser-recovery and maintenance release gates are still outstanding in the [plan](session-lifecycle-plan.md). Backend verification does not establish those capabilities or production scheduler/backup readiness.
+Stage 3 source delivery and its reported browser verification are complete. The remaining maintenance/rollout gates are in the [plan](session-lifecycle-plan.md); none of this establishes production migration, scheduler activation, or backup/restore readiness.
