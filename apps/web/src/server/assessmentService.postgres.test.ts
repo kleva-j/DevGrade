@@ -140,6 +140,8 @@ async function assertCreatedSession(
   }
 
   assert.deepEqual(Object.keys(created).sort(), [
+    "accessExpiresAt",
+    "attemptExpiresAt",
     "questions",
     "sessionId",
     "sessionToken",
@@ -288,6 +290,14 @@ async function answerAndComplete(
     assert.deepEqual(response, {
       success: true,
       sessionComplete: index === questionCount - 1,
+      acceptedAnswer: {
+        questionId,
+        selectedAnswer,
+        timeSpentSeconds: index + 1,
+      },
+      answeredCount: index + 1,
+      totalQuestions: questionCount,
+      nextQuestionId: stored.selectedQuestionIds[index + 1] ?? null,
     });
   }
 
