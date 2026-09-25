@@ -159,6 +159,17 @@ test(
       assert.deepEqual(accepted, {
         success: true,
         sessionComplete: index === snapshot.questions.length - 1,
+        acceptedAnswer: {
+          questionId: question.id,
+          selectedAnswer: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+          timeSpentSeconds: index + 1,
+        },
+        answeredCount: index + 1,
+        totalQuestions: snapshot.questions.length,
+        nextQuestionId:
+          index === snapshot.questions.length - 1
+            ? null
+            : snapshot.questions[0]!.id,
       });
       assert.doesNotMatch(
         JSON.stringify(accepted),
@@ -273,8 +284,8 @@ test(
   async (t) => {
     const { db, service, created, session } = await setup(t);
     assert.ok(session.questionSnapshot);
-    const createdAt = new Date("2026-01-01T00:00:00Z");
-    const lastActivityAt = new Date("2026-01-01T00:10:00Z");
+    const createdAt = new Date(Date.now() - 60 * 60_000);
+    const lastActivityAt = new Date(createdAt.getTime() + 10 * 60_000);
     await db
       .update(testSessions)
       .set({ createdAt, lastActivityAt, questionSnapshot: null })
@@ -288,13 +299,13 @@ test(
     await assert.rejects(
       service.submitAnswer(created.sessionId, {
         ...input,
-        sessionToken: "wrong-token",
+        sessionToken: "f".repeat(64),
       }),
       expectError(ERROR_CODE.NOT_FOUND),
     );
     await assert.rejects(
       service.submitAnswer(created.sessionId, input),
-      expectError(ERROR_CODE.CONFLICT),
+      expectError(ERROR_CODE.LEGACY_UNRESTORABLE),
     );
     assert.deepEqual(await db.select().from(sessionAnswers), []);
 
@@ -334,13 +345,21 @@ test(
         .where(eq(testSessions.id, created.sessionId));
       await assert.rejects(
         service.submitAnswer(created.sessionId, input),
-        expectError(ERROR_CODE.CONFLICT),
+        expectError(
+          value === null
+            ? ERROR_CODE.LEGACY_UNRESTORABLE
+            : ERROR_CODE.SNAPSHOT_UNAVAILABLE,
+        ),
       );
       await assert.rejects(
         service.completeSession(created.sessionId, {
           sessionToken: created.sessionToken,
         }),
-        expectError(ERROR_CODE.CONFLICT),
+        expectError(
+          value === null
+            ? ERROR_CODE.LEGACY_UNRESTORABLE
+            : ERROR_CODE.SNAPSHOT_UNAVAILABLE,
+        ),
       );
       const [after] = await db
         .select()

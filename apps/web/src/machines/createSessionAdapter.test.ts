@@ -10,7 +10,12 @@ import {
   SKILL_CATEGORY,
 } from "@/domain/constants";
 
-import { createSessionAdapter } from "./createSessionAdapter";
+import {
+  AssessmentClientError,
+  createSessionAdapter,
+  unwrapAssessmentEnvelope,
+} from "./createSessionAdapter";
+import { ERROR_CODE } from "@/server/errors";
 
 describe("createSessionAdapter", () => {
   for (const questionCount of ASSESSMENT_LENGTHS) {
@@ -40,7 +45,7 @@ describe("createSessionAdapter", () => {
       const getRawClientId = t.mock.fn(() => "anonymous-client");
       const createSession = createSessionAdapter(async (request) => {
         requests.push(request);
-        return response;
+        return { ok: true, data: response };
       }, getRawClientId);
 
       assert.equal(getRawClientId.mock.callCount(), 0);
@@ -53,6 +58,40 @@ describe("createSessionAdapter", () => {
       assert.equal(result.questions, questions);
     });
   }
+
+  test("typed server failures retain their codes without parsing messages", async () => {
+    const failure = {
+      code: ERROR_CODE.EXISTING_ATTEMPT,
+      message: "Resume or delete first",
+      blockers: [],
+    };
+    const createSession = createSessionAdapter(
+      async () => ({ ok: false, error: failure }),
+      () => "anonymous-client",
+    );
+    await assert.rejects(
+      createSession({
+        framework: FRAMEWORK.REACT,
+        targetLevel: DIFFICULTY.MID,
+        questionCount: ASSESSMENT_LENGTHS[0],
+      }),
+      (error) => {
+        assert.ok(error instanceof AssessmentClientError);
+        assert.equal(error.code, ERROR_CODE.EXISTING_ATTEMPT);
+        assert.equal(error.failure, failure);
+        return true;
+      },
+    );
+    assert.throws(
+      () =>
+        unwrapAssessmentEnvelope({
+          ok: false,
+          error: { code: ERROR_CODE.ACCESS_EXPIRED, message: "Expired" },
+        }),
+      AssessmentClientError,
+    );
+    assert.equal(unwrapAssessmentEnvelope({ ok: true, data: 42 }), 42);
+  });
 
   test("propagates creation failures so the machine can retry", async () => {
     const failure = new Error("Creation failed");

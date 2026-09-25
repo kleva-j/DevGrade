@@ -1,386 +1,204 @@
 # Session lifecycle completion plan
 
-**Status:** daily-cleanup policy approved for the plan; implementation not started. Resume within 24 hours, report access for up to seven days, then deletion by the next successful daily cleanup run.
-**Revised:** 2026-09-25.
-**Baseline:** free Quick 8 / Standard 16 / Deep 32 assessments, PostgreSQL, TanStack Start/Nitro, and XState. See [current behavior](sessions-and-evaluation.md) and the [PRD](../prd.md).
+**Status — 2026-09-25:** Stages **1–2 implemented**; current layer `session-lifecycle/server`. Stage 3 browser recovery and Stage 4 maintenance/rollout are **not implemented**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This status does not claim merge, deployment, production migration, or cleanup activation.
 
-## 1. Revised requirements
+**Baseline:** free Quick 8 / Standard 16 / Deep 32 assessments, PostgreSQL, TanStack Start/Nitro, and XState. Product scope, scoring, and visual design remain unchanged. See [current behavior](sessions-and-evaluation.md) and the [PRD](../prd.md).
 
-This revision supersedes the earlier 90-day proposal, weekly cleanup, and strict seven-day physical-retention maximum. The user approved the simpler policy: a fixed seven-day access cutoff and deletion-eligibility threshold, followed by daily cleanup. This is not an exact seven-day physical-erasure guarantee.
+## 1. Approved policy and implementation boundary
 
-> **30 minutes: inactive. 24 hours from creation: unfinished attempt expires. Seven days from creation: access ends and the session becomes eligible for deletion. Daily cleanup removes eligible records.**
+> **30 minutes: effectively inactive. 24 hours from original creation: unfinished attempt expires. Seven days from original creation: normal access ends and cleanup eligibility starts. Daily deletion is planned, not active.**
 
-| Concern | Revised decision |
-| --- | --- |
-| Abandonment | At 30 minutes without qualifying server activity, an unfinished attempt is effectively `abandoned`. It is inactive, not deleted; it remains resumable only within the 24-hour attempt window. |
-| Resume window | `attemptExpiresAt = createdAt + 24 hours`. Reject resume at or after the deadline. Activity never resets this deadline. |
-| Active attempts | Recommended consistent enforcement: also reject **new answers and first completion** at/after the 24-hour deadline. Leaving a tab open must not bypass the attempt lifetime. |
-| Access and deletion eligibility | `accessExpiresAt = createdAt + 7 × 24 hours`, for every status. At this point normal reads/writes are denied and the record becomes eligible for daily deletion. No extension on activity, completion, survey, or report views. |
-| Saved reports | Reports completed within the attempt window are available for **up to seven days from creation**, never seven days from completion. Use `accessExpiresAt` for the displayed report deadline; no automatic early purge is planned. Explicit candidate deletion can remove a report sooner. |
-| Starting a new attempt | When a stored, authenticated unfinished attempt younger than 24 hours is found, inform the candidate and require **Resume** or **Delete**. Canceling the prompt cancels creation; there is no “Start another anyway” bypass. |
-| Delete | Explicitly confirmed, authenticated **server-side cascading deletion**. Merely forgetting the browser bookmark does not satisfy this choice. |
-| Daily cleanup | Daily at 03:00 UTC, `0 3 * * *`: delete sessions of every status with `createdAt <= now − 7 days`, cascading to their answers, results, snapshots, and surveys. Run independently of browser traffic. |
-| Ownership/discovery | Discover attempts using credentials stored in the same browser and validate them on the server. The anonymous rate-limit ID is not permission to retrieve or delete another session. |
+| Concern                  | Policy and current status                                                                                                                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Inactivity               | Implemented: unfinished sessions are effectively `abandoned` at `now >= lastActivityAt + 30 minutes`; reads do not materialize the status. Inactivity does not end an otherwise eligible attempt.                                       |
+| Attempt lifetime         | Implemented: `attemptExpiresAt = createdAt + 24 hours`. No unfinished resume, new answer, answer retry, or first completion at/after the deadline. Leaving a tab open cannot bypass it.                                                 |
+| Normal access            | Implemented: `accessExpiresAt = createdAt + 7 × 24 hours` for every status. Reads/completion retries/surveys stop at this boundary, even if data remains stored.                                                                        |
+| Saved reports            | Implemented server retrieval: an already-awarded report remains readable until seven days from **session creation**, not completion. Browser saved-report recovery is pending.                                                          |
+| Starting another attempt | Implemented server gate: every supplied authenticated unfinished attempt younger than 24 hours blocks insertion. Stage 3 must collect all known browser credentials and offer Resume or confirmed Delete, never “Start another anyway.” |
+| Explicit deletion        | Implemented: authenticated parent-locked cascading deletion with `expectedState: "unfinished"                                                                                                                                           | "completed"`. Changed state returns a non-destructive outcome. Confirmation UI is pending. |
+| Daily cleanup            | Stage 4: `0 3 * * *` UTC; bounded all-status deletion where `createdAt <= DB time − 7 days`, independent of browser traffic. No active scheduled cleanup or replacement inactivity worker exists yet.                                   |
+| Ownership/discovery      | Implemented per supplied ID/token pair, not by anonymous client-ID hash. No account/device-wide ownership or global single-attempt guarantee.                                                                                           |
 
-**Precise boundaries:** “within 24 hours” means `now < attemptExpiresAt`; exactly 24 hours is expired. At `now >= accessExpiresAt`, refuse ordinary access and include the record in cleanup eligibility. Use elapsed UTC durations and server time, not calendar days or client clocks.
+All boundaries use elapsed UTC durations and authoritative server time. Neither deadline changes with activity, resume, completion, survey, migration, or report views. `SESSION_RETENTION_DAYS = 7` is an access/eligibility policy, not a guaranteed maximum physical retention period.
 
-### What happens over time
+### Allowed operations by age/state
 
-| Age/state | Allowed behavior |
-| --- | --- |
-| Unfinished, younger than 24 hours | Resume, submit new answers, complete, or delete. If found during creation, show the Resume/Delete gate. |
-| Unfinished, 24 hours to less than seven days | No resume, new answers, or first completion. Show minimal expired-attempt metadata and allow deletion; it does not block a new assessment. No partial score is automatically awarded. |
-| Completed before 24 hours, younger than seven days | Read the saved report, submit/update its survey, or delete. It does not block a new assessment. |
-| Any status, seven days or older | Refuse normal access. Delete during the daily cleanup; authenticated erasure may remove it sooner if still present. |
+- **Unfinished, below 24 hours:** resume/answer/complete only with valid saved content; explicit delete is allowed. Effective abandonment still blocks new creation. Null-snapshot legacy attempts are delete-only while unexpired.
+- **Unfinished, 24 hours to below seven days:** metadata and delete only; no resume payload, late first completion, or automatic partial award. Does not block creation.
+- **Completed, below seven days:** saved report (or persisted legacy summary), survey, completion retry of an existing full award, or delete. Does not block creation.
+- **Any status, at/after seven days:** normal access denied; discovery returns generic `unavailable`. Authenticated expected-state erasure remains possible while the row exists. Physical cleanup awaits Stage 4.
 
-A completion retry after 24 hours may return a report **already committed before the cutoff**. That is retrieval, not late first completion or rescoring. Neither deadline slides forward.
+`resumeSession` returns the appropriate completed/expired/legacy view without activity changes when resumption is unavailable; it does not revive the attempt. An all-answered unfinished session still must complete before 24 hours. Returning an existing award afterward is retrieval, not late scoring.
 
-## 2. Approved access and daily-deletion policy
+## 2. Stage 1 — policy and durable content (implemented)
 
-> Assessments can be resumed within 24 hours of creation. Saved reports are accessible for up to seven days. Session records aged seven days or older are deleted by the next daily cleanup run.
+- Pure `domain/sessionLifecycle.ts` derives deadlines, effective status, operation eligibility, and creation blocking from saved timestamps/state and supplied time.
+- `domain/sessionContracts.ts` defines credential, progress, metadata, discovery, view, deletion, and envelope contracts without importing the server runtime.
+- Migration `apps/web/drizzle/0002_dazzling_may_parker.sql` adds nullable versioned JSONB snapshots and `(created_at, id)` / `(status, last_activity_at, id)` indexes; the client/time index remains.
+- New sessions save ordered private question content, keys, explanations, weights, provenance, and pillar metadata. New grading uses this snapshot, not live bank rows.
+- First completion writes normalized overall/pillar scores and an immutable safe report from one pinned-v1 calculation. Reports include public question presentation in selected order, saved pillar metadata, and format/scoring/completion identifiers; no token or private key field.
+- Snapshot validation fails closed on unsupported/malformed content and exact selected-ID/configuration mismatches. Null legacy snapshots are not backfilled from today's question bank. Surveys stay separate from the award.
 
-This explicitly replaces the strict seven-day physical-retention maximum. Access ends at seven days even if the scheduled deletion has not happened yet. No early-purge safety margin, additional high-frequency scheduler, or weekly reconciliation job is needed.
+Keep selected IDs authoritative for membership/order/count; no duplicate count/deadline columns, current-question index, or new `expired` DB status is needed. Preserve referenced bank/category identities and retire content rather than deleting it. No general question-versioning subsystem is required.
 
-### Expected deletion timing
+## 3. Stage 2 — server lifecycle and creation gate (implemented)
 
-A session created Monday at 10:00 becomes eligible the following Monday at 10:00. With a daily 03:00 UTC job, it is normally deleted on Tuesday at 03:00—seven days and 17 hours after creation.
+### Authentication and safe transport
 
-Normal record age at deletion is approximately **7–8 days**. Vercel Hobby's hour-level scheduling precision can add variation: under healthy operation and no backlog, the gap between eligibility and invocation can approach 25 hours. Missed delivery, failed jobs, locked rows, and batch limits can delay deletion further. These are not promises of a strict maximum or an extra access window.
+All existing-session operations require a canonical 36-character UUID (normalized lowercase) plus an exact 64-hex-character token. Validate before DB work; authenticate before disclosing expiry/content. Unknown IDs and wrong tokens remain `not_found`. `rawClientId` is bounded rate-limit metadata only, not retrieval/deletion authority. Token-only helpers have been removed.
 
-Every run queries all eligible records, not only those that became eligible since a previous run. Repeated invocations are safe. Log failures and capped runs, and provide an authorized rerun/catch-up procedure so a missed or incomplete run can be retried without waiting for a new daily schedule. The scheduler's own retry limitations are covered in §8.
+All eight TanStack Start server functions are POST with `Cache-Control: no-store`. Validation runs inside the safe handler boundary; failures do not leak Zod issues, credentials, SQL, or raw exceptions. Responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`, with `blockers` on `existing_attempt`. These differ from the PRD's logical HTTP status mappings; there is no second REST API or automatic status-code conversion in the active adapter.
 
-### Data scope and backups
+### Transactions and retries
 
-Deleting a session cascades to its answers, overall/pillar results, surveys, and private/public snapshots. Eligibility for all these child records is anchored to the **parent's original creation time**, not their own insertion time. Question-bank content is not removed.
+- Answer/resume/complete/survey/delete lock the authenticated parent before any child access, then obtain fresh `clock_timestamp()` time and apply operation policy. Status/children are committed before success is returned.
+- Creation authenticates/locks supplied known parents in deterministic ID order across all batches before child progress reads. It rechecks blockers under lock, not from a prior discovery response.
+- `getSession` and discovery run in short **read-only `REPEATABLE READ`** transactions. They return coherent multi-query snapshots without touching activity. An already-authorized read cannot be recalled after later deletion.
+- Same-option answer replay returns the original accepted answer/duration, without timing/status/activity writes; a different option conflicts. Eligibility checks precede replay, so retries cannot bypass attempt/access expiry or completed state.
+- Answer responses now return `acceptedAnswer`, `answeredCount`, `totalQuestions`, `nextQuestionId`, and `sessionComplete`. First unanswered ID is derived by selected-ID membership, never answer count as an index. Questions still arrive up front.
+- First completion requires the exact selected accepted-ID set and writes the award once. Repeated completion returns the saved result without rescoring or activity writes. A legacy completed session returns `legacy_summary_available` instead of inventing a report.
+- Unique constraints remain backstops, not a catch-and-continue strategy inside an aborted transaction. The former unlocked answer/completion races are fixed.
 
-A PostgreSQL `DELETE` removes live rows; it is not an immediate physical-media erasure guarantee for MVCC tuples, WAL/PITR data, replicas, or backups. Document provider-managed backup/replica retention separately, do not log payloads or credentials, and enforce expiry/purge expired records before reopening a restored database. Do not advertise that this daily job erases all backup copies at seven days.
+Creation, eligible explicit resume, newly accepted answers, and first completion refresh activity. Read/discovery, duplicate acknowledgements, completion retries, surveys, and invalid requests do not. Daily maintenance must use the same parent-first discipline when implemented.
 
-The remaining deployment checks are ordinary scheduler registration, protected access, database capacity, backlog handling, and backup-policy documentation. No separate exact-deadline deletion infrastructure is required by this revision. This document approves a plan, not implementation, deployment changes, or destructive activation.
+### Views and deletion
 
-## 3. Foundations to preserve
+`getSession` has five `kind` variants:
 
-Keep existing tables, the three database statuses, weighted scoring, all length presets, server functions, and the XState-driven flow. No accounts, billing tiers, Redis, queue, or general question-versioning subsystem is needed for the agreed parts.
+| Kind                  | Contract                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assessment`          | Original configuration/effective status/deadlines, safe questions, accepted selections/durations without correctness, authoritative progress |
+| `attempt_expired`     | Minimal unfinished metadata/deadlines; no questions, resume, or partial award                                                                |
+| `report`              | Full immutable saved report, both deadlines, separate survey rating                                                                          |
+| `legacy_summary`      | Persisted aggregates/pillar scores and completion time, deadlines/survey rating, no historical question review                               |
+| `legacy_unrestorable` | Unfinished null-snapshot metadata; delete-only blocker below 24 hours                                                                        |
 
-| Current implementation | Required change |
-| --- | --- |
-| `markAbandonedSessions` is an unbounded helper without a repository scheduler. | Bounded sweeping, request-derived idle state, and reactivation only within 24 hours. |
-| Token checks have no age restriction. | Operation-specific attempt and retention checks. |
-| Only the anonymous client ID survives browser refresh. | Minimal credential bookmarks and server-authoritative restoration/discovery. |
-| Creation does not consider an earlier unfinished attempt. | Pre-creation discovery, Resume/Delete UX, and a final server recheck of supplied known credentials. |
-| Selected IDs point to mutable question rows. | Private immutable question content at creation. |
-| Aggregate results persist, but report text is rebuilt from live content. | Immutable report snapshot and authenticated retrieval. |
-| Answer/completion retries can fail after a persisted operation loses its response. | Idempotent acknowledgements/completion and server reconciliation. |
-| Token-based erasure exists only as a DB helper. | Expose an authenticated deletion operation for the requested flow. |
+Completed views take precedence over attempt expiry; unfinished attempt expiry precedes legacy content. Non-null invalid snapshots fail with `snapshot_unavailable`. `resumeSession` updates activity only for an eligible unfinished attempt; all other retained cases return their view without writes. Read/resume never auto-completes an all-answered attempt.
 
-Sources: [DB helpers](../apps/web/src/db/queries.ts), [schema](../apps/web/src/db/schema.ts), [assessment service](../apps/web/src/server/assessmentService.ts), [machine](../apps/web/src/machines/assessmentMachine.ts), [report UI](../apps/web/src/components/assessment/Report.tsx).
+Deletion compares the caller's confirmed expected state with current state under the lock. A match returns `deleted` after cascading parent deletion. A mismatch returns `changed_state` plus `currentState`, preserving a report that completed after an unfinished confirmation. This server contract exists; user confirmation and changed-state UI are Stage 3. Deletion is allowed after access expiry, but always requires valid credentials. A now-missing row after a lost response returns generic `not_found`, not a fabricated successful deletion.
 
-## 4. Central policy and durable data
+### Bounded known-credential gate
 
-### 4.1 Two deadlines, not one ambiguous expiry
+Discovery accepts `credentials`; creation accepts optional `knownCredentials`. Each list is validated in full with a maximum of **1,000**, never silently truncated. Authenticated parent lookups and answer-ID metadata queries are batched in **100s**. No per-handle full-answer/content fetch is needed for discovery.
 
-In `domain/constants.ts`, define `SESSION_RESUME_WINDOW_HOURS = 24` and `SESSION_RETENTION_DAYS = 7`, alongside `ABANDON_AFTER_MINUTES = 30`. Here `SESSION_RETENTION_DAYS` sets the normal-access cutoff and cleanup-eligibility age, not a guaranteed physical storage maximum. Centralize repeated status, error, storage, and UI strings; keep batch/time budgets in validated maintenance configuration.
+Discovery returns `available` metadata or generic `unavailable` for missing/wrong-token/access-expired credentials. Creation rejects with `existing_attempt` if any supplied authenticated unfinished session is below 24 hours, irrespective of requested settings or snapshot restorability. Completed and attempt-expired sessions do not block.
 
-Add a pure `domain/sessionLifecycle.ts` module taking session timestamps/state and a supplied time. It derives:
+This cannot discover omitted or lost credentials. There is no list-by-client-ID or global single-attempt guarantee, and the existing browser currently supplies no saved list. Best-effort creation rate limiting (five per hashed client ID per trailing hour) also remains separate from ownership and does not serialize simultaneous new creations by client ID. Lost creation-response recovery/request-key idempotency is deferred.
 
-- `attemptExpiresAt = createdAt + 24 hours` and `accessExpiresAt = createdAt + 7 days`; the latter also determines cleanup eligibility.
-- Effective inactive state for unfinished attempts after 30 minutes.
-- Whether resume, new answer, first completion, report read, survey, or deletion is allowed.
-- Whether the session blocks creation: unfinished and strictly younger than 24 hours. An inactive/abandoned session still blocks while it is inside this window.
+## 4. Stage 3 — browser recovery and Resume/Delete UX (not implemented)
 
-No new stored count, current-question index, or `expired` DB status is needed. Derive the two policy deadlines instead of adding duplicate expiry columns. Return `attemptExpiresAt` and `accessExpiresAt` explicitly; neither is a promised physical-deletion timestamp. Future policy changes must define their effect on existing records deliberately.
+Current browser changes are **compatibility-only**: unwrap typed envelopes into the old machine service interface. XState still advances locally and renders the in-memory result/questions. The adapter does not pass through lifecycle deadlines or authoritative answer progress. Only the anonymous client ID is stored; no session credential storage, recovery/history, Web Locks, or deletion UI exists.
 
-Creation, explicit resume, newly accepted answers, and successful first completion refresh activity. Reads, automatic page restoration, invalid requests, duplicate acknowledgements, and report/survey reads do not. **Activity never extends either deadline.** No heartbeat is required.
+### Required creation/recovery flow
 
-Use fresh PostgreSQL time after obtaining mutation locks; transaction-start `now()` can be stale after waiting. The current sweep's strict `<` comparison changes to inclusive `<=` intentionally. Boundary tests must cover it.
+1. Read all known per-session credentials, not only an active pointer or those matching the requested configuration. Resolve all blocker metadata before permitting creation; respect the 1,000-entry server bound without dropping unchecked handles.
+2. If an authenticated unfinished attempt younger than 24 hours exists, show its original configuration, progress, and deadline. Offer **Resume** or **Delete**; cancel/dismiss cancels creation. An unrestorable legacy blocker gets a delete-only explanation.
+3. Explicit Resume calls `resumeSession` and uses the server view/first unanswered ID. All-answered unfinished state invokes idempotent completion only within the attempt window. Read/bootstrap alone must not refresh activity.
+4. Delete requires confirmation and sends the expected state. On `changed_state`, preserve the handle and reconcile/show the report rather than automatically retrying destructive deletion under a different expectation.
+5. Remove only a confirmed deleted/unavailable handle; recheck the remaining list before creating with the requested configuration. A discovery/deletion network error preserves handles and offers Retry/Cancel, never bypass.
+6. Reconcile typed expiry/conflict/completion outcomes and server progress in open tabs. A blocker completing/expiring while a prompt is open changes the gate after a fresh check; no forced deletion of an expired attempt.
 
-### 4.2 Immutable question and report snapshots
+Where supported, use a **Web Lock** around final storage rescan, server check/create, and credential persistence. Release it while awaiting user decisions; reacquire and rediscover afterward. Coordinate gate-related storage mutations with the same lock. Missing support, another profile, omitted credentials, storage failure, and a lost creation response remain documented limits, not global ownership enforcement.
 
-Add nullable, versioned JSONB fields using generated/reviewed Drizzle migrations:
+### Storage, state, and design constraints
 
-| Proposed field | Purpose |
-| --- | --- |
-| `test_sessions.questionSnapshot` | Ordered selected questions, public presentation, private answer keys, weights, explanations, provenance, and assessment-relevant pillar metadata. Capture from the same objects used for creation. **Never serialize the private snapshot to the browser.** |
-| `session_results.reportSnapshot` | Safe, self-contained awarded report: result, public question presentation in selected order, saved pillar labels/guidance, completion timestamp, and format/scoring identifiers. No token or private answer-key field. |
+- Add an injectable, versioned saved-session storage adapter with independent per-ID handles: ID/token, both deadlines, minimal display hints. Preserve report handles when starting another attempt.
+- Do not persist private grading data, questions/reports as authority, or serialized XState snapshots. Handle SSR and blocked/full/corrupt storage. If storage fails after creation, continue in memory with a recovery warning, not automatic duplicate creation.
+- Same-origin scripts/shared browser profiles can read localStorage tokens; document this trade-off. No token-bearing links, logs, analytics, or public routes.
+- Do not discard completed handles at the 24-hour attempt cutoff. Server-confirmed terminal unavailability clears only the affected handle; transient failures preserve it. Backend deletion cannot remotely erase unopened browser storage or copies of a viewed report.
+- Add bootstrap/restoration, checking, Resume/Delete choice, deletion, unavailable, and retry states. Fresh restoration clears unsubmitted choices; in-process retries retain pending requests. Consume typed failures without parsing messages or endless expiry retries.
+- Restore reports from saved public questions/pillar metadata and survey state, not current metadata. Show distinct “Resume until” and “Report available until” deadlines; no physical-erasure promise.
+- Reset unanswered-question timing on resume, exclude offline time, and keep captured duration within the existing 0–3600 bound. Timing does not affect grading. Baseline overlong-duration retries are not fixed in Stage 2.
+- Reuse existing shadcn components, semantic tokens, keyboard behavior, light/dark/RTL rules, and the `/` flow. No product/design expansion, accounts, or pricing changes.
 
-The first protects the 24-hour unfinished assessment; the second preserves its report during the seven-day window. At 8–32 questions per session, this is simpler than introducing question revisions.
+## 5. Stage 4 — daily maintenance and rollout (not implemented)
 
-- Snapshot IDs must match `selectedQuestionIds` exactly; selected IDs remain authoritative for membership, order, and total.
-- New attempts use saved grading inputs for both answer checks and completion. Bank edits/reseeding cannot change them.
-- Write normalized result columns, pillar rows, and report JSON from one computed result in one transaction.
-- Retrieval never rescores. Render saved assessment findings and pillar metadata, not current bank metadata. Generic UI styling/copy may evolve.
-- Keep mutable survey state separate. Validate snapshot format versions; keep v1 scoring behavior for any unfinished v1 attempt if rules change later.
-- Preserve question/category identities required by existing foreign keys; retire bank content instead of deleting referenced rows.
+### Bounded maintenance operation
 
-### 4.3 Indexes
+Add one `runSessionMaintenance(db, options)` operation with server-controlled policy:
 
-Add `(created_at, id)` for retention and `(status, last_activity_at, id)` for idle sweeping; review whether the latter replaces the current status-only index. Retain the client/time rate-limit index. Existing child indexes support cascades—do not duplicate them.
+1. Capture DB-time cutoffs for the invocation; do not accept arbitrary client retention durations.
+2. Delete all-status sessions with `createdAt <= now − 7 × 24 hours`, oldest first. Explicit authenticated candidate erasure is separate and can remove younger sessions.
+3. Materialize idle retained `in_progress` rows as `abandoned` at `lastActivityAt <= now − 30 minutes`; never extend the attempt deadline.
+4. Return scalar counts, duration, cap/failure signals, and best-effort oldest-eligible/cleanup-lag metadata, without session IDs, tokens, or content.
 
-## 5. Service contracts, deletion, and concurrency
+Use short per-batch transactions, ordered candidate CTEs, `LIMIT`, and parent `FOR UPDATE SKIP LOCKED`; mutate those locked rows while retaining eligibility predicates. Initial tunables: 200 sessions per batch, at most five batches per operation, and a wall-clock budget below the deployment limit with statement/lock timeouts. Measure against arrivals and initial backlog. Commit batches independently, prioritize deletion, and reserve time for inactivity work.
 
-Extend the existing `createAssessmentService(db)` and TanStack Start server functions, not a second assessment REST API.
+Overlapping/repeated runs must be safe without a distributed mutex. Skipped locked rows remain for later runs; a short/zero batch does not prove no backlog. Committed batches stay deleted on later failure; an interrupted batch rolls back. Log capped/failed runs and support authorized catch-up. Cascades cover answers, normalized results/pillar scores, surveys, and snapshots, not question-bank content.
 
-### 5.1 Authentication and operation checks
+### Protected entry point and schedule
 
-- Require valid session ID/token credentials for discovery details, resume, report reads, and deletion. Validate their shapes before DB access.
-- `rawClientId` stays rate-limit metadata. Do not retrieve, list, or delete sessions merely because their client-ID hash matches.
-- Authenticate before returning expiry details; wrong token and unknown ID remain indistinguishable.
-- Before `accessExpiresAt`, branch by completed state: completed attempts support report access; unfinished attempts require age below 24 hours for resume/new answers/first completion.
-- At/after `accessExpiresAt`, refuse normal access even while a row waits for daily cleanup. Explicit authenticated deletion can still remove that row. Apply fresh-time checks after lock acquisition so waiting requests do not bypass the access cutoff.
-- Return safe typed result/error envelopes through server-function adapters, including an actionable existing-attempt outcome. Do not parse message strings in XState or expose DB errors.
-- Use `Cache-Control: no-store`; no credentials in URLs, shared caches, logs, or analytics.
+Proposed modules: `server/sessionMaintenance.ts`, `/api/internal/session-maintenance` route and handler tests, deployment-root `vercel.json`, and a maintenance runbook. Verify deployment root before choosing configuration paths; let routing generate normally.
 
-### 5.2 Transaction discipline
+- Authenticate `Authorization: Bearer <CRON_SECRET>` before DB access; missing/wrong secret fails closed with safe comparison.
+- Vercel invokes GET. Set `Cache-Control: no-store`; no redirect or secret in the URL. Await bounded work, sanitize errors, and do not detach work after response.
+- Configure one daily **`0 3 * * *` UTC** job. Hobby permits daily frequency with hour-level precision; verify actual registration/invocation rather than promising exact 03:00 execution.
+- Other hosts need a real external scheduler. An endpoint alone is not scheduling; no browser trigger, application interval, or per-session timer substitutes for it.
+- Vercel delivery is best-effort, may duplicate, and does not automatically retry failed cron invocations. Supply an authorized manual rerun/catch-up procedure; every invocation queries all remaining eligible rows.
 
-Answer, resume, completion, survey, and deletion transactions lock the authenticated parent row first (`FOR UPDATE`), then check fresh time and lifecycle rules, then read/write children and status, then commit before acknowledging success.
+### Retention and rollout guarantees
 
-Cleanup locks the same parent rows before mutation. Operations touching multiple known parents acquire locks in deterministic ID order. Use proper Drizzle transaction-aware helper types, not casts to the root `Db`.
+Seven days is a normal-access cutoff and cleanup threshold, not exact physical erasure. Once scheduled, a session created Monday at 10:00 becomes eligible the following Monday at 10:00 and would normally be deleted Tuesday at 03:00. Healthy deletion is approximately age 7–8 days; hour-level scheduling precision, failed/missed runs, locks, or batch caps can delay it further without extending access.
 
-Use a short read-only `REPEATABLE READ` transaction for multi-query session/report views. Default `READ COMMITTED` alone does not give one coherent snapshot. An already-running read cannot be recalled after a later deletion; document request-time authorization semantics rather than promising that.
+Review initial eligible counts/cascade scope before destructive activation; verify capacity, last-success/failure/cap logging, reruns, and partial-failure recovery. Request-time inactivity already works; materialized status will still not be real-time presence.
 
-### 5.3 Restoration and report retrieval
+Live-row `DELETE` is not immediate media erasure of MVCC tuples, WAL/PITR, replicas, or backups. Document provider retention separately and enforce expiry/purge expired rows before reopening a restored database. No backup-erasure guarantee at seven days, early-purge margin, separate high-frequency scheduler, or weekly reconciliation is required.
 
-`getSession(credential)` returns one of:
+## 6. Migration and dependency order
 
-| Result | Data |
-| --- | --- |
-| `assessment` | Saved configuration, effective status, both deadlines, safe ordered questions, accepted selections/durations without correctness, first unanswered ID or `null`. Available only within the attempt window. |
-| `attempt_expired` | Minimal authenticated metadata/deadlines and delete/start-new options. No resume payload or automatically generated partial report. |
-| `report` | Saved full report, `accessExpiresAt`, and survey rating. |
-| `legacy_summary` | Persisted aggregate/pillar scores and deadlines, clearly without historical question review. |
-| `legacy_unrestorable` | Unfinished legacy metadata indicating resume is unavailable. If younger than 24 hours, it still requires deletion before another known attempt is created. |
+1. Apply the generated nullable snapshot/index migration `0002` before new writers. Stage 1 durable formats precede Stage 2 enforcement, which precedes Stage 3 consumers and Stage 4 maintenance.
+2. Drain old writers before enforcing new snapshot invariants. All caller paths must reach current service checks; migration never grants a fresh 24-hour or seven-day window.
+3. Keep legacy original `createdAt`. Unfinished null-snapshot rows are unrestorable; completed null-report rows expose only persisted summaries until normal access expires. Never invent historical content or rescore legacy results.
+4. Existing browsers that never saved credentials cannot be retroactively recovered by the client-ID hash. Stage 3 persistence is prospective; no ownership backfill.
+5. Production migration, scheduler/secret configuration, and destructive cleanup require authorized rollout and environment-specific verification. Implementation/test results alone do not establish deployment.
 
-Find the first unanswered ID by set membership, not answer count. Do not resample or substitute missing content.
+## 7. Verification and remaining exit criteria
 
-`resumeSession(credential)` reactivates an eligible unfinished session and returns authoritative progress. If already completed, return the report without touching activity. If all answers are saved but no report exists, first completion is permitted **only before 24 hours**. At/after 24 hours it is an expired unfinished attempt, not a late-completion loophole.
+**Stage 2, reported by the primary agent on 2026-09-25:** **282 passing tests, 0 skipped**, against isolated PostgreSQL 18 with real migrations. Independent scoped connections assert backend PIDs and observable lock barriers. Package lint/build pass; typecheck has only **three existing unrelated shared `chart.tsx` errors**. This is not a new validation run by the documentation task, nor evidence that root `pnpm build` succeeded.
 
-One completed branch of `getSession` is sufficient for saved-report retrieval; a separate report endpoint is unnecessary initially.
+Implemented coverage includes exact temporal boundaries, strict credentials/safe envelopes, snapshot fidelity, all lengths, legacy variants, out-of-order authoritative progress, same/different-option replays, once-only completion, expected-state deletion/cascades, the complete bounded credential gate, parent-locked races, fresh time after lock waits, and coherent read snapshots during cascade deletion. The fixture is no longer limited to concurrency on one backend. Maintenance/browser tests below remain exit criteria, not claimed coverage.
 
-### 5.4 Actual deletion
+### Stage 3 exit criteria
 
-Add `deleteSession(credential)` and a POST server-function wrapper around parent-locked deletion. Delete the parent and let existing foreign keys cascade to answers, results, pillar scores, surveys, and snapshot fields. Do not delete bank content.
+- Refresh/reopen for 8/16/32 questions, first unanswered restoration, all-answered first-completion cutoff, saved report/survey recovery before seven days.
+- Multiple/mismatched-configuration blockers; complete bounded discovery; cancel/failure/forget cannot bypass a found blocker. Completed/expired attempts do not block.
+- Confirmation and changed-state handling, response loss, transient handle preservation, terminal per-handle cleanup, blocked/full/corrupt storage, two-tab coordination and unsupported Web Lock behavior.
+- Typed conflict/expiry reconciliation and timer bounds; keyboard/mobile/light/dark/RTL checks using the existing design.
 
-- Require a confirmation explaining that the attempt and accepted answers will be permanently removed.
-- Close races with completion/resume: if the attempt completed meanwhile, return a changed-state outcome and show the saved report rather than silently deleting it under an unfinished-attempt confirmation.
-- Only remove the browser handle and continue creation after confirmed deletion/unavailability.
-- If deletion's response is lost, retry/recheck. An already-missing row may return a generic unavailable result; no token tombstones are needed. A remaining row with invalid credentials must never be deleted.
-- On transient deletion failure, retain the handle and prompt; do not create another attempt.
+### Stage 4 exit criteria
 
-### 5.5 Safe retries
+- Exact `>= 7 days` all-status selection, younger rows preserved, eligibility based on parent creation rather than activity/completion, and every child cascade verified.
+- Independent-backend barriers for answer/resume versus inactivity, completion versus cleanup, and overlapping cleanup; batch limits, skipped-row retry, partial rollback, capped/missed-run catch-up, and capacity.
+- Unauthorized maintenance calls do zero DB work; valid invocations are no-store, bounded, awaited, and safely reported. Verify scheduler/secret setup and a real invocation, not just route existence.
+- A failed cleanup never restores expired access. Verify authorized reruns, backlog/failure visibility, provider backup/WAL/replica policy, and restore cleanup. Never use production credentials/data for preview tests.
 
-- Same accepted option: acknowledge the original answer without changing timing, status, or activity. For an unfinished attempt, normal attempt expiry still applies. A completed report can instead be retrieved during retention without further answer processing.
-- Different option already accepted: conflict; reconcile from `getSession` rather than overwrite.
-- Completion: under the parent lock, return an existing saved report if present and retained. Otherwise enforce the 24-hour deadline, verify the accepted-ID set equals the selected set, and save exactly once in presentation order.
-- Keep uniqueness constraints as backstops; do not continue querying after catching an aborted-transaction uniqueness error.
-- Return authoritative next-question/progress information so simultaneous tabs cannot blindly advance using `index + 1`.
+### Repeatable commands
 
-A lost **creation** response before receiving credentials remains a separate gap. Request-key idempotency is deferred. Local storage failure after receiving credentials must not be mistaken for server failure or trigger automatic duplicate creation.
+Set an explicit dedicated `TEST_DATABASE_URL` with schema-creation permission. From `apps/web`, run:
 
-## 6. Resume-or-delete gate before creation
+```sh
+node --import tsx --test "src/**/*.test.ts"
+```
 
-This gate replaces the earlier “Continue / Start another” recommendation.
+This uses `node:test` and avoids the `tsx` CLI IPC startup in restricted environments. The fixture uses unique data/migration schemas and temporary real-migration copies, cleans up its own resources, and never falls back to `DATABASE_URL`. Missing `TEST_DATABASE_URL` skips DB suites; a configured failure fails.
 
-### Required flow
+Normal root commands remain `pnpm --filter web test`, `pnpm --filter web typecheck`, `pnpm lint`, and **package build** `pnpm --filter web build`. If the pnpm shim is unavailable, use pinned `pnpm@10.33.4`, e.g. `npm exec --yes --package=pnpm@10.33.4 -- pnpm --filter web build` (network may be needed when uncached). Or use installed lockfile-resolved tools from `apps/web`:
 
-1. Candidate requests a new assessment with the desired configuration.
-2. Read all known per-session credentials from browser storage, not just the active pointer and not just the chosen framework/level/length.
-3. Resolve their server statuses/deadlines through bounded credential-authenticated metadata checks. Local flags/clock values are hints, not authority. Complete discovery before deciding there is no blocking session.
-4. If a stored unfinished attempt with age **less than 24 hours** is found, **do not create a new row**. Show its original level/length, accepted progress, and resume deadline.
-5. Offer **Resume assessment** or **Delete assessment**. Closing/canceling the prompt cancels the new-session request; it does not bypass the gate.
-6. Resume loads the original assessment/configuration, not the newly selected settings. An all-answered unfinished attempt proceeds to completion only if still within 24 hours.
-7. Delete requires confirmation, then a successful server deletion. Recheck other stored attempts; create the new assessment with the requested settings only when none still blocks.
+```sh
+node node_modules/typescript/bin/tsc --noEmit
+node node_modules/eslint/bin/eslint.js
+node node_modules/vite/bin/vite.js build
+```
 
-Additional cases:
+Also run the installed ESLint command from `packages/ui` for its lint coverage. Package-tool fallbacks do not establish success of the root Turbo wrapper; report command-specific outcomes and the existing chart errors separately. See the [current-behavior source map](sessions-and-evaluation.md#9-verification-and-source-map).
 
-- `abandoned` within 24 hours is unfinished and blocks creation.
-- Completed attempts and unfinished attempts aged 24 hours or more do not block. Preserve completed-report access until `accessExpiresAt`.
-- Multiple historical blockers are handled one at a time or in a list; no silent deletion or automatic resume.
-- An unexpired legacy attempt without restorable content gets a clear **delete-only** explanation, not a false Resume option or a silently cleared handle.
-- A network/server error during discovery does not mean “no attempt found.” Keep the creation request pending and offer Retry/Cancel.
-- If a blocker expires while the prompt is open, recheck server state and allow creation without forcing deletion. If it completes in another tab, update its report state and recheck the gate.
+## 8. Explicitly deferred and references
 
-### Scope and races
+Deferred: accounts/email recovery, cross-device synchronization/shareable reports, strict global unfinished-attempt ownership, lost-creation-response recovery, heartbeats/real-time presence, new telemetry dashboards, billing, and a general content revision system. **Not deferred:** completing Stage 3 recovery/Resume/Delete UX and Stage 4 daily cleanup with failure recovery.
 
-At final creation, the server revalidates supplied known session credentials and refuses insertion if any authenticated unfinished session is still within 24 hours. Return a typed existing-attempt outcome, not a new session or an automatic destructive replacement. Validate credential-list limits; if checks require chunks, do not authorize creation from only a partial discovery result.
+Provider references (reviewed for the original plan on 2026-09-25; recheck the actual deployment plan/root before rollout):
 
-Where supported, coordinate same-browser creation with a **Web Lock** covering the final storage rescan, server check/create, and credential persistence. Release it while waiting for user decisions; reacquire and rediscover afterward. Coordinate gate-related storage changes through the same mechanism.
+- [Vercel cron usage and pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing) — daily Hobby frequency and hour-level precision.
+- [Managing Vercel cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs) — bearer authentication, best-effort/duplicate delivery, failure retry limitations, concurrency.
 
-This is a guarantee to prompt for **found, stored, authenticated attempts**, not global one-attempt-per-person enforcement. Cleared/blocked storage, another browser profile, omitted credentials, missing Web Locks, or a lost creation response limit discovery. Do not promote the client ID into an ownership credential to conceal those limits. If strict cross-device/server-wide single-attempt enforcement is desired later, it needs an authenticated browser/account identity design.
-
-## 7. Browser storage, XState, and UI
-
-### Credential storage
-
-Add a versioned `machines/savedSessions.ts` adapter with injectable storage. Persist independent per-ID handles containing ID, token, both deadlines, and minimal display hints. Keep report handles when a new attempt starts.
-
-Do not persist questions, grading data, reports, or serialized machine state as authoritative data. Guard SSR and handle blocked, full, or corrupt storage. A successful creation can continue in memory if storage fails, but explicitly warn that later recovery/discovery may not work.
-
-Tokens in localStorage are readable by same-origin scripts and people using that browser profile; this is an explicit same-browser security trade-off. No token-bearing routes or share links.
-
-- At 24 hours, disable resume and show expired-attempt metadata; do not automatically discard completed-report credentials.
-- At the seven-day access cutoff, server confirmation determines unavailable status before clearing the affected handle. An unopened browser cannot be remotely cleared; do not claim backend deletion erases user-controlled bookmark storage or copies of a downloaded/viewed report.
-- Transient failures/conflicts preserve handles. Confirmed deleted/missing/invalid access clears only the affected handle.
-- Do not offer **Forget on this device** as a substitute for Delete on the unexpired unfinished gate. It would remove discoverability without fulfilling the requested deletion.
-- Report-history reads may be lazy/paged; pre-creation blocker discovery must complete before permitting creation.
-
-### XState transitions
-
-Add bootstrap/restoring, checking-existing-attempts, resume-or-delete-choice, deleting-attempt, and unavailable/retry states around the current flow. Keep server-approved configuration and accepted answers authoritative.
-
-- Unfinished below 24 hours → explicit Resume → first unanswered question.
-- All answered, unfinished below 24 hours → idempotent completion.
-- Unfinished at/after 24 hours → attempt-expired screen; no new answers/first completion.
-- Completed before `accessExpiresAt` → saved report with restored survey state.
-- New-session request → discovery → Resume/Delete decision if needed → final recheck → creation.
-- Fresh restoration clears unsubmitted selections/pending answers. In-process retries retain the pending request.
-- Expiry during an open tab/submission is handled with a typed server outcome, not an endless Retry loop.
-- Reset the unanswered-question timer on resume; exclude offline time. Keep client time within 0–3600 seconds and strict server validation. Timing does not affect grading.
-
-Reuse existing shadcn components (including a suitable confirmation/dialog primitive if needed), semantic tokens, keyboard behavior, and colocated component prop interfaces. Show distinct “Resume until” and “Report available until” deadlines. The same `/` flow is sufficient; all lengths stay free.
-
-## 8. Daily maintenance design
-
-### Bounded work
-
-Add `server/sessionMaintenance.ts` with `runSessionMaintenance(db, options)`. Use one maintenance operation with server-controlled policy, not separate primary/reconciliation modes:
-
-1. Capture database-time cutoffs for the invocation; callers cannot supply arbitrary retention durations.
-2. Delete all-status sessions with `createdAt <= now − 7 × 24 hours`, oldest first. Never automatically delete a younger session under the retention policy; explicit authenticated user deletion is separate.
-3. Mark retained, idle `in_progress` rows `abandoned` where `lastActivityAt <= now − 30 minutes`. This never grants resumption beyond 24 hours.
-4. Return affected counts, duration, cap/failure signals, and a best-effort oldest eligible record/cleanup-lag indicator without session IDs/tokens/content.
-
-Use short per-batch transactions with ordered candidate CTEs, `LIMIT`, and `FOR UPDATE SKIP LOCKED`. Mutate the same locked rows, retaining eligibility predicates. Return scalar counts, not unbounded ID arrays.
-
-Initial tunables: 200 sessions per batch and at most five batches per operation, plus a wall-clock budget below the deployment limit and statement/lock timeouts. Measure capacity against daily arrivals and the initial backlog; these bounds may need tuning. Commit each batch separately and give deletion priority while reserving time for the inactivity sweep.
-
-No distributed mutex is needed. Overlapping/repeated runs are safe; skipped locked rows can be retried on a rerun. A short/zero batch does not prove all eligible work is done. Log cap/backlog signals and perform authorized catch-up reruns when needed rather than allow a growing backlog. Test cascade/lock timeouts and partial failure: committed batches remain deleted, an interrupted batch rolls back, and the next invocation safely reprocesses remaining eligible records. Cascades include all session-specific data, not bank content.
-
-### Schedule and secure entry point
-
-Propose `src/routes/api/internal/session-maintenance.ts` for `/api/internal/session-maintenance`:
-
-- Authenticate `Authorization: Bearer <CRON_SECRET>` before DB access; fail closed if missing/wrong, using safe secret comparison.
-- Vercel invocation uses GET. Set `Cache-Control: no-store`; do not redirect or include secrets in URLs.
-- Await bounded work and sanitize errors. Do not launch detached work after responding.
-- Let generated routing update normally; never edit `routeTree.gen.ts` by hand.
-
-At the verified Vercel project root, configure **one daily job at 03:00 UTC: `0 3 * * *`**. This fits Hobby's daily frequency limit. Its invocation may occur within the selected hour; do not promise an exact 03:00 execution time. Confirm registration and actual production invocation after deployment.
-
-Verify the project root before choosing the `vercel.json` location and supply a strong `CRON_SECRET` through hosting configuration. There is no additional weekly, early-purge, or high-frequency job in this plan.
-
-Other deployments must register an actual daily external scheduler calling the same protected operation. The endpoint alone is not scheduling. Keep environment/secret isolation, avoid session-level locks tied to a connection pool, and do not use an application `setInterval` or one timer per session. No paid service or Docker/Compose change is activated by updating the plan.
-
-### Guarantees, failure recovery, and release gates
-
-- Request-time idle classification works at 30 minutes. The daily sweep materializes idle status for unvisited attempts; raw stored status is not precise live presence.
-- Resume/new-answer/first-completion eligibility ends at 24 hours, irrespective of cleanup.
-- Normal report/session access ends at seven days, irrespective of cleanup. Access must not reappear when a job fails.
-- Records aged seven days or more are expected cleanup candidates, not automatically retention breaches. Delayed deletion from failed, missed, locked, or capped runs is an operational backlog to detect and clear; it is not extra report availability.
-- Vercel documents best-effort delivery, possible duplicate invocations, and no automatic retry of a failed cron invocation. Do not assume provider retries. Supply an authorized manual rerun/catch-up procedure; recurring runs always query all remaining eligible rows.
-- Review initial eligible-row counts and cascade scope before destructive activation. Size batches to avoid an increasing backlog, log failed/capped runs and last success, and verify recovery from an incomplete run. No new telemetry dashboard is required.
-- Document provider-managed backup/replica/WAL retention separately and purge expired data before reopening a restored DB. The daily job deletes live session records; it does not certify physical-media erasure at seven days.
-
-## 9. Migration and incremental delivery
-
-**Implementation status (2026-09-25):** stage 1 is implemented in the `session-lifecycle/snapshots` PR layer and validated with 256 passing tests against disposable PostgreSQL. Stages 2–4 remain pending. No production migration or cleanup activation has occurred.
-
-### Legacy/cutover rules
-
-- Generate additive nullable snapshot/index migrations; new writers must always provide snapshots.
-- Drain old writer deployments before enforcing the new invariants; stale clients must still hit current deadline and creation-gate service rules.
-- Both deadlines use original `createdAt`. No fresh 24 hours or seven days is granted at migration.
-- Do not manufacture historical snapshots from current bank content. An unfinished legacy attempt younger than 24 hours offers deletion, not unsafe restoration; after 24 hours it no longer blocks creation.
-- Legacy completed rows expose persisted summaries only until `accessExpiresAt`, seven days from original creation. No rescoring or invented question review.
-- Review all-status cascade scope and existing rows aged seven days or more before activating daily deletion. Clear the initial eligible backlog through authorized bounded catch-up; verify scheduler registration, failure recovery, and backup-policy documentation.
-- Migration cannot rediscover ownership for browsers that never saved a token; only known authenticated credentials participate in recovery and the creation gate.
-
-### Four coherent implementation groups
-
-| Phase | Scope | Exit criteria |
-| --- | --- | --- |
-| **1 — Policy and durable content** | Central 30-minute/24-hour/seven-day rules, safe contracts, snapshot/index migrations, snapshot-backed grading, legacy policy. | Exact boundaries tested; new assessment content survives bank edits; no invented legacy history or extended deadlines. |
-| **2 — Server lifecycle and creation gate** | Parent-row transactions, operation-specific expiry, typed errors, idempotent answer/completion, report/resume/metadata reads, authenticated deletion, known-attempt recheck before creation. | No new row when a known unexpired unfinished blocker exists; deleted attempts cascade safely; all race/retry/report paths have defined outcomes. |
-| **3 — Browser recovery and Resume/Delete UX** | Credential storage, complete discovery, same-browser coordination, XState restore/delete/create paths, saved reports, deadlines, timing, storage-error handling. | Resume or confirmed Delete is required when a blocker is found; cancel/failure does not bypass; expired/completed attempts do not block; 8/16/32 work on refresh and by keyboard. |
-| **4 — Daily cleanup and rollout** | Bounded cleanup/inactivity helpers, protected route, daily schedule, secret provisioning, initial backlog catch-up, failure logging/rerun procedure, and documentation. | Real daily invocation verified; exactly age `>= 7 days` is eligible for all-status deletion; cascades, overlap, retry, partial failure, and capacity checks pass; access ends at seven days even if cleanup is delayed. |
-
-Implement source changes only after confirmation; scheduler/secret configuration and destructive cutover need deployment authorization. Verify deployment root and backup documentation without introducing a separate exact-deadline deletion system. Group later commits by these implementation areas. The existing unrelated chart and Docker/package-script edits remain separate.
-
-### File map for implementation
-
-Existing files:
-
-- `apps/web/src/domain/{constants,types,scoring}.ts` — policy/contracts; no scoring-formula change intended.
-- `apps/web/src/db/{schema,queries}.ts` and generated `apps/web/drizzle/` migrations.
-- `apps/web/src/server/{assessmentService,assessmentFns,assessmentValidation,errors,messages}.ts`.
-- `apps/web/src/machines/{assessmentMachine,assessmentServices,createSessionAdapter}.ts` and tests.
-- Assessment UI: `AssessmentFlow.tsx`, `Intake.tsx`, `Report.tsx`, `SkillRadar.tsx`, and `copy.ts`.
-- `apps/web/src/server/__tests__/postgresFixture.ts` for truly independent test connections.
-- `prd.md`, `docs/sessions-and-evaluation.md`, and README/runbook when behavior actually lands.
-
-Proposed new modules:
-
-- `apps/web/src/domain/sessionLifecycle.ts` and policy tests.
-- `apps/web/src/machines/savedSessions.ts` and storage tests.
-- `apps/web/src/server/sessionMaintenance.ts` and lifecycle/maintenance PostgreSQL tests.
-- `apps/web/src/routes/api/internal/session-maintenance.ts` and handler tests.
-- `vercel.json` at the verified deployment root for the daily job, plus a maintenance runbook.
-
-## 10. Verification
-
-### Policy and authenticated operations
-
-- Exactly before/at/after 30 minutes, 24 hours, and seven days; elapsed UTC semantics across DST.
-- No operation extends either deadline; active tabs cannot submit new answers or first-complete after 24 hours.
-- First completion after 24 hours fails even if all answers were previously stored; retrieval of an already-awarded report still works before seven days.
-- Wrong tokens/malformed credentials disclose no session details and authorize no deletion.
-- Both new and old caller paths enforce `attemptExpiresAt` and `accessExpiresAt`; retained rows awaiting cleanup cannot serve expired content.
-- Report copy distinguishes the seven-day access deadline from daily deletion. Retention cleanup never removes records younger than seven days; explicit candidate deletion may do so.
-
-### Resume/Delete creation gate
-
-- Matching and different framework/level/length settings; zero-answer, partial, all-answered unfinished, inactive, expired, completed, and unrestorable legacy attempts.
-- Multiple saved blockers, stale local metadata, missing active pointer, and bounded multi-page/chunk discovery.
-- No creation while discovery is unresolved or a blocker remains; dismiss/cancel/forget do not bypass.
-- Resume uses original configuration. Delete confirms and cascades before final recheck/creation.
-- Discovery/resume/deletion response loss, token mismatch, and a blocker completing/expiring in another tab.
-- Two tabs starting simultaneously, Web Lock support/fallback, and final server rechecks. Test the documented same-browser scope without claiming global uniqueness.
-
-### Database correctness and content fidelity
-
-Use the isolated `TEST_DATABASE_URL` fixture with real migrations. Extend its current single connection (`max: 1`) to independent scoped connections; `Promise.all` over one connection is not a concurrency test.
-
-- Same-answer replay preserves first accepted timing; different answers conflict; concurrent completion saves once.
-- Bank changes after creation/completion do not alter saved assessment/report content.
-- No private snapshot, keys, correctness, or explanations leak before completion.
-- Lock waits crossing deadlines; resume/answer versus idle sweep; completion versus purge; delete versus completion; both race orderings established with barriers, not sleeps.
-- Daily cleanup selects exactly age `>= 7 days` for every status, including the exact boundary, and leaves younger records unchanged. Eligibility is based on session creation, not recent activity or completion.
-- Test batch limits, capacity, lock contention, skipped-row retry, duplicate/concurrent invocations, partial rollback, and catch-up after missed days. Simulate a failed job: normal access stays denied after seven days and a rerun deletes remaining eligible records.
-- Cascades remove answers, results, pillar rows, and surveys while preserving bank content.
-- Legacy records keep original age and have no fabricated historical data.
-
-### Browser and deployment
-
-- Refresh/reopen during the 24-hour window, saved reports before the seven-day access cutoff, transient failure preservation, terminal per-handle cleanup, corrupt/blocked/full storage, and long-open timer bounds.
-- Keyboard/mobile light/dark/RTL verification of prompts, confirmation, recovery, and reports with existing design tokens.
-- Unauthorized maintenance calls do zero DB work; valid requests are not cached/redirected. Verify the daily schedule/action, secret isolation, backlog/cap handling, failure logs, and authorized manual retries.
-- Verify documented backup/replica/WAL policy and restore cleanup. Do not represent live-row deletion tests as proof of physical-media erasure.
-- Do not use production credentials/data for preview or integration testing.
-
-Run `pnpm --filter web typecheck`, `pnpm --filter web test` with a dedicated `TEST_DATABASE_URL`, `pnpm lint`, and `pnpm build`. Report unrelated existing blockers separately.
-
-## 11. Explicitly deferred
-
-- Accounts, email recovery, cross-device synchronization, and shareable reports.
-- Strict globally unique unfinished-attempt ownership without an authenticated identity design.
-- Recovery from a lost creation response before receiving credentials.
-- Real-time presence/heartbeats, new telemetry dashboards, billing tiers, and a general content revision system.
-
-**Required, not deferred:** authenticated deletion for the Resume/Delete choice, request-time 24-hour/seven-day access checks, and daily cleanup of eligible session records with failure recovery.
-
-**Removed from this plan:** strict seven-day physical-erasure guarantees, early-purge margins, a separate high-frequency deletion system, and weekly reconciliation.
-
-## References and planning limits
-
-- [Vercel cron usage and pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing) — Hobby maximum frequency of once per day; hour-level precision.
-- [Managing Vercel cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs) — bearer-secret authentication, best-effort and duplicate delivery, no automatic failure retries, and concurrency concerns.
-
-Provider cron facts were checked 2026-09-25. Deployment root/plan and backup policy remain to be verified during implementation. This revision changes only the plan; the current-behavior document and PRD must not be presented as if these features are implemented. **The approved policy is 24-hour resumability, seven-day report access, and daily deletion of session records aged seven days or older.**
+No scheduler, paid service, Docker/Compose change, or production deletion is activated by this documentation update.
