@@ -1,18 +1,23 @@
 import { randomBytes } from "node:crypto";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import type { QuestionRow, SessionAnswerRow } from "@/db/schema";
+import type { QuestionRow } from "@/db/schema";
 import type { AssessmentResult, Question } from "@/domain/types";
 import type { SkillCategory } from "@/domain/constants";
-import type { ScorableAnswer } from "@/domain/scoring";
+
 import type { Db } from "@/db/client";
 
 import { createRng, seedFromString } from "@/domain/random";
 import { AssessmentError, ERROR_CODE } from "./errors";
 import { stratifiedSample } from "@/domain/sampling";
-import { scoreAssessment } from "@/domain/scoring";
+import {
+  createQuestionSnapshot,
+  createReportSnapshot,
+  parseQuestionSnapshot,
+  SnapshotError,
+} from "@/domain/sessionSnapshots";
 import { toPublicQuestion } from "@/domain/types";
 import { MESSAGES } from "./messages";
 import { createSessionInput } from "./assessmentValidation";
@@ -26,6 +31,7 @@ import {
 import {
   RATE_LIMIT_WINDOW_MINUTES,
   MAX_SESSIONS_PER_HOUR,
+  SNAPSHOT_ERROR_CODE,
   SURVEY_RATING_MIN,
   SURVEY_RATING_MAX,
   MVP_FRAMEWORKS,
@@ -34,6 +40,7 @@ import {
 
 import {
   questions as questionsTable,
+  skillCategories,
   sessionCategoryScores,
   sessionAnswers,
   sessionResults,
@@ -152,6 +159,27 @@ export function createAssessmentService(db: Db) {
         );
       }
 
+      const selectedQuestionIds = questions.map((q) => q.id);
+      const rowsById = new Map(poolRows.map((row) => [row.id, row]));
+      const pillarRows = await db
+        .select()
+        .from(skillCategories)
+        .orderBy(skillCategories.pillarOrder, skillCategories.name);
+      const selectedCategories = new Set(questions.map((q) => q.skillCategory));
+      const questionSnapshot = createQuestionSnapshot(
+        selectedQuestionIds,
+        questions.map((q) => ({ ...q, source: rowsById.get(q.id)!.source })),
+        pillarRows
+          .filter((row) => selectedCategories.has(row.name as SkillCategory))
+          .map((row) => ({
+            skillCategory: row.name as SkillCategory,
+            displayName: row.displayName,
+            description: row.description,
+            order: row.pillarOrder,
+          })),
+        { framework, targetLevel },
+      );
+
       const [session] = await db
         .insert(testSessions)
         .values({
@@ -159,7 +187,8 @@ export function createAssessmentService(db: Db) {
           clientId,
           framework,
           targetLevel,
-          selectedQuestionIds: questions.map((q) => q.id),
+          selectedQuestionIds,
+          questionSnapshot,
         })
         .returning({ id: testSessions.id });
 
@@ -167,7 +196,7 @@ export function createAssessmentService(db: Db) {
         sessionId: session!.id,
         sessionToken,
         totalQuestions: questions.length,
-        questions: questions.map(toPublicQuestion),
+        questions: questionSnapshot.questions.map(toPublicQuestion),
       };
     },
 
@@ -204,10 +233,9 @@ export function createAssessmentService(db: Db) {
         );
       }
 
-      const [question] = await db
-        .select()
-        .from(questionsTable)
-        .where(eq(questionsTable.id, questionId));
+      const question = session.questionSnapshot.questions.find(
+        (q) => q.id === questionId,
+      );
       if (!question)
         throw new AssessmentError(
           ERROR_CODE.NOT_FOUND,
@@ -293,40 +321,17 @@ export function createAssessmentService(db: Db) {
         );
       }
 
-      const questionRows = await db
-        .select()
-        .from(questionsTable)
-        .where(inArray(questionsTable.id, session.selectedQuestionIds));
-      const questionById = new Map(
-        questionRows.map((q: QuestionRow) => [q.id, q]),
-      );
-
-      const scorable: ScorableAnswer[] = answers.map((a: SessionAnswerRow) => {
-        const q = questionById.get(a.questionId);
-        if (!q) {
-          throw new AssessmentError(
-            ERROR_CODE.NOT_FOUND,
-            MESSAGES.questionNotFound,
-          );
-        }
-        return {
-          question: {
-            id: q.id,
-            skillCategory: q.skillCategory as SkillCategory,
-            difficultyWeight: q.difficultyWeight,
-            correctAnswer: q.correctAnswer,
-            explanation: q.explanation,
-          },
-          selectedAnswer: a.selectedAnswer,
-        };
-      });
-
-      const result = scoreAssessment(
+      const completedAt = new Date();
+      const reportSnapshot = buildReport({
         sessionId,
-        session.framework,
-        session.targetLevel,
-        scorable,
-      );
+        framework: session.framework,
+        targetLevel: session.targetLevel,
+        selectedQuestionIds: session.selectedQuestionIds,
+        questionSnapshot: session.questionSnapshot,
+        answers,
+        completedAt,
+      });
+      const result = reportSnapshot.result;
 
       await db.transaction(async (tx) => {
         await tx.insert(sessionResults).values({
@@ -335,6 +340,8 @@ export function createAssessmentService(db: Db) {
           totalScore: result.totalScore,
           maxScore: result.maxScore,
           proficiencyLevel: result.proficiencyLevel,
+          reportSnapshot,
+          createdAt: completedAt,
         });
         await tx.insert(sessionCategoryScores).values(
           result.categoryScores.map((c) => ({
@@ -350,8 +357,8 @@ export function createAssessmentService(db: Db) {
           .update(testSessions)
           .set({
             status: SESSION_STATUS.COMPLETED,
-            completedAt: new Date(),
-            lastActivityAt: new Date(),
+            completedAt,
+            lastActivityAt: completedAt,
           })
           .where(eq(testSessions.id, sessionId));
       });
@@ -424,7 +431,34 @@ async function loadOpenSession(
       MESSAGES.sessionAlreadyComplete,
     );
   }
-  return session;
+  try {
+    const questionSnapshot = parseQuestionSnapshot(
+      session.questionSnapshot,
+      session.selectedQuestionIds,
+      session,
+    );
+    return { ...session, questionSnapshot };
+  } catch (error) {
+    if (!(error instanceof SnapshotError)) throw error;
+    // Stage 2 will introduce a typed legacy-unrestorable outcome. Until then,
+    // fail closed using the existing error contract; never read the live bank.
+    throw new AssessmentError(ERROR_CODE.CONFLICT, MESSAGES.questionNotFound);
+  }
+}
+
+function buildReport(input: Parameters<typeof createReportSnapshot>[0]) {
+  try {
+    return createReportSnapshot(input);
+  } catch (error) {
+    if (!(error instanceof SnapshotError)) throw error;
+    if (error.code === SNAPSHOT_ERROR_CODE.INVALID_ANSWERS) {
+      throw new AssessmentError(
+        ERROR_CODE.BAD_REQUEST,
+        MESSAGES.incompleteAssessment,
+      );
+    }
+    throw new AssessmentError(ERROR_CODE.CONFLICT, MESSAGES.questionNotFound);
+  }
 }
 
 export type AssessmentService = ReturnType<typeof createAssessmentService>;

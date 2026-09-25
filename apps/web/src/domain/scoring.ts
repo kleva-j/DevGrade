@@ -8,16 +8,16 @@ import type {
 } from "./constants";
 
 import {
-  PROFICIENCY_THRESHOLDS,
-  SKILL_CATEGORIES,
+  SCORING_V1_PROFICIENCY_THRESHOLDS,
+  SCORING_V1_SKILL_CATEGORIES,
   PROFICIENCY,
 } from "./constants";
 
 /** Maps a percentage to a proficiency tier. Boundaries are contiguous. */
-export function proficiencyFor(scorePct: number): ProficiencyLevel {
-  if (scorePct >= PROFICIENCY_THRESHOLDS[PROFICIENCY.PROFICIENT])
+export function proficiencyForV1(scorePct: number): ProficiencyLevel {
+  if (scorePct >= SCORING_V1_PROFICIENCY_THRESHOLDS[PROFICIENCY.PROFICIENT])
     return PROFICIENCY.PROFICIENT;
-  if (scorePct >= PROFICIENCY_THRESHOLDS[PROFICIENCY.DEVELOPING])
+  if (scorePct >= SCORING_V1_PROFICIENCY_THRESHOLDS[PROFICIENCY.DEVELOPING])
     return PROFICIENCY.DEVELOPING;
   return PROFICIENCY.SKILL_GAP;
 }
@@ -41,15 +41,17 @@ function round2(n: number): number {
 }
 
 /**
- * Rule-based weighted scoring engine.
+ * V1 rule-based weighted scoring engine. Preserve this implementation and its
+ * thresholds when adding a new scoring version; unfinished v1 snapshots must
+ * continue to use the same rules.
  *
  *   categoryScore% = Σ(correct · weight) / Σ(weight) · 100   (per pillar)
  *   totalScore%    = Σ(correct · weight) / Σ(weight) · 100   (all pillars)
  *
- * Category scores are computed generically over `SKILL_CATEGORIES`, so adding a
- * pillar later requires no change here (mirrors the normalized results table).
+ * Category order and tier thresholds are pinned to v1, independent of the
+ * current question bank or future scoring versions.
  */
-export function scoreAssessment(
+export function scoreAssessmentV1(
   sessionId: string,
   framework: Framework,
   targetLevel: Difficulty,
@@ -85,8 +87,8 @@ export function scoreAssessment(
     });
   }
 
-  const categoryScores: CategoryScore[] = SKILL_CATEGORIES.filter((c) =>
-    byCategory.has(c),
+  const categoryScores: CategoryScore[] = SCORING_V1_SKILL_CATEGORIES.filter(
+    (c) => byCategory.has(c),
   ).map((skillCategory) => {
     const { correct, total } = byCategory.get(skillCategory)!;
     const scorePct = total === 0 ? 0 : round2((correct / total) * 100);
@@ -95,7 +97,7 @@ export function scoreAssessment(
       correctWeight: round2(correct),
       totalWeight: round2(total),
       scorePct,
-      proficiency: proficiencyFor(scorePct),
+      proficiency: proficiencyForV1(scorePct),
     };
   });
 
@@ -111,9 +113,13 @@ export function scoreAssessment(
     targetLevel,
     totalScore,
     maxScore: 100,
-    proficiencyLevel: proficiencyFor(totalScore),
+    proficiencyLevel: proficiencyForV1(totalScore),
     categoryScores,
     skillGaps,
     questionResults,
   };
 }
+
+/** Existing consumers retain the current scorer's names. */
+export const scoreAssessment = scoreAssessmentV1;
+export const proficiencyFor = proficiencyForV1;
