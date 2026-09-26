@@ -3,10 +3,14 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { test } from "node:test";
 
 import { and, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
 
 import type { TestContext } from "node:test";
 import type { Db } from "@/db/client";
 import type { SessionCredential } from "@/domain/sessionContracts";
+import type { AnswerInput } from "@/domain/types";
+
+import * as schema from "@/db/schema";
 
 import {
   questions,
@@ -253,6 +257,11 @@ test(
             created.sessionId,
             created,
           );
+          assert.equal(award.kind, SESSION_VIEW.REPORT);
+          assert.equal(award.surveyRating, null);
+          assert.equal(award.attemptExpiresAt, created.attemptExpiresAt);
+          assert.equal(award.accessExpiresAt, created.accessExpiresAt);
+          assert.deepEqual(await f.service.getSession(created), award);
           const completed = await parent(f.db, created);
           await age(f, created, 48);
           await f.service.submitSurvey(created.sessionId, {
@@ -262,7 +271,7 @@ test(
           const beforeRead = await parent(f.db, created);
           const report = await f.service.getSession(created);
           assert.equal(report.kind, SESSION_VIEW.REPORT);
-          assert.deepEqual(report.reportSnapshot.result, award);
+          assert.deepEqual(report.reportSnapshot, award.reportSnapshot);
           assert.equal(report.surveyRating, 4);
           assert.equal(
             report.reportSnapshot.completedAt,
@@ -279,7 +288,7 @@ test(
           assert.deepEqual(await f.service.resumeSession(created), report);
           assert.deepEqual(
             await f.service.completeSession(created.sessionId, created),
-            award,
+            report,
           );
           assert.deepEqual(await parent(f.db, created), beforeRead);
           await assert.rejects(
@@ -289,6 +298,118 @@ test(
         },
       );
     }
+  },
+);
+
+test(
+  "mutations return request-ready views and ordered private-safe answers without extra reads",
+  options,
+  async (t) => {
+    const f = await setup(t);
+    const reads: string[] = [];
+    const service = createAssessmentService(
+      drizzle(f.db.$client, {
+        schema,
+        logger: {
+          logQuery(query) {
+            if (/^select\b/i.test(query))
+              reads.push(query.match(/\bfrom "([^"]+)"/i)?.[1] ?? "clock");
+          },
+        },
+      }),
+    );
+    const { sessionToken, ...initial } = await service.createSession({
+      ...configuration,
+      rawClientId: randomUUID(),
+    });
+    assert.deepEqual(reads, [
+      "clock",
+      "test_sessions",
+      "questions",
+      "skill_categories",
+      "clock",
+    ]);
+    const credential = { sessionId: initial.sessionId, sessionToken };
+    assert.deepEqual(initial, await f.service.getSession(credential));
+    assert.doesNotMatch(JSON.stringify(initial), noSecrets);
+
+    const expected: AnswerInput[] = [];
+    for (const [index, question] of [...initial.questions]
+      .reverse()
+      .entries()) {
+      const answer = {
+        questionId: question.id,
+        selectedAnswer: index % 3,
+        timeSpentSeconds: index + 1,
+      };
+      expected.unshift(answer);
+      reads.length = 0;
+      const accepted = await service.submitAnswer(initial.sessionId, {
+        sessionToken,
+        ...answer,
+      });
+      assert.deepEqual(reads, ["test_sessions", "clock", "session_answers"]);
+      assert.deepEqual(accepted, {
+        success: true,
+        sessionComplete: expected.length === initial.totalQuestions,
+        acceptedAnswer: answer,
+        acceptedAnswers: expected,
+        answeredCount: expected.length,
+        totalQuestions: initial.totalQuestions,
+        nextQuestionId:
+          expected.length === initial.totalQuestions
+            ? null
+            : initial.questions[0]!.id,
+      });
+      assert.doesNotMatch(JSON.stringify(accepted), noSecrets);
+    }
+    reads.length = 0;
+    const replay = await service.submitAnswer(initial.sessionId, {
+      sessionToken,
+      ...expected.at(-1)!,
+      timeSpentSeconds: 999,
+    });
+    assert.deepEqual(reads, ["test_sessions", "clock", "session_answers"]);
+    assert.deepEqual(replay.acceptedAnswers, expected);
+    assert.deepEqual(replay.acceptedAnswer, expected.at(-1));
+    assert.equal(replay.nextQuestionId, null);
+    assert.doesNotMatch(JSON.stringify(replay), noSecrets);
+
+    reads.length = 0;
+    const completed = await service.completeSession(
+      initial.sessionId,
+      credential,
+    );
+    assert.deepEqual(reads, ["test_sessions", "clock", "session_answers"]);
+    assert.equal(completed.kind, SESSION_VIEW.REPORT);
+    assert.equal(completed.surveyRating, null);
+    assert.equal(completed.attemptExpiresAt, initial.attemptExpiresAt);
+    assert.equal(completed.accessExpiresAt, initial.accessExpiresAt);
+    assert.deepEqual(completed.reportSnapshot.questions, initial.questions);
+    assert.deepEqual(completed, await f.service.getSession(credential));
+    assert.doesNotMatch(
+      JSON.stringify(completed),
+      /"(?:sessionToken|clientId|questionSnapshot|correctAnswer|difficultyWeight|source)"\s*:/,
+    );
+    await f.db
+      .update(testSessions)
+      .set({ questionSnapshot: null })
+      .where(eq(testSessions.id, initial.sessionId));
+    await f.service.submitSurvey(initial.sessionId, {
+      sessionToken,
+      rating: 4,
+    });
+    reads.length = 0;
+    assert.deepEqual(
+      await service.completeSession(initial.sessionId, credential),
+      { ...completed, surveyRating: 4 },
+    );
+    assert.deepEqual(reads, [
+      "test_sessions",
+      "clock",
+      "session_results",
+      "session_surveys",
+    ]);
   },
 );
 
@@ -427,6 +548,10 @@ test(
         ? SESSION_VIEW.LEGACY_SUMMARY
         : SESSION_VIEW.REPORT;
       assert.equal((await f.service.getSession(created)).kind, expected);
+      assert.equal(
+        (await f.service.completeSession(created.sessionId, created)).kind,
+        expected,
+      );
       await f.service.submitSurvey(created.sessionId, {
         ...created,
         rating: 5,
@@ -528,9 +653,9 @@ test(
       /questionResults|questions|skillGaps|explanation|displayName/,
     );
     assert.deepEqual(await f.service.resumeSession(completed), summary);
-    await assert.rejects(
-      f.service.completeSession(completed.sessionId, completed),
-      errorCode(ERROR_CODE.LEGACY_SUMMARY_AVAILABLE),
+    assert.deepEqual(
+      await f.service.completeSession(completed.sessionId, completed),
+      summary,
     );
   },
 );

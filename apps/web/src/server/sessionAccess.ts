@@ -1,4 +1,5 @@
 import type { SessionLifecycle } from "@/domain/sessionLifecycle";
+import type { AnswerInput } from "@/domain/types";
 import type { Db, Transaction } from "@/db/client";
 import type { TestSessionRow } from "@/db/schema";
 import type {
@@ -212,6 +213,16 @@ export async function acceptedAnswers(tx: Transaction, sessionId: string) {
     .from(sessionAnswers)
     .where(eq(sessionAnswers.sessionId, sessionId));
 }
+export function orderedAcceptedAnswers(
+  session: TestSessionRow,
+  answers: readonly AnswerInput[],
+): AnswerInput[] {
+  const byId = new Map(answers.map((answer) => [answer.questionId, answer]));
+  return session.selectedQuestionIds.flatMap((id) => {
+    const answer = byId.get(id);
+    return answer ? [answer] : [];
+  });
+}
 export function progress(
   session: TestSessionRow,
   answers: readonly { questionId: string }[],
@@ -335,15 +346,11 @@ export async function sessionView(
   if (session.questionSnapshot === null)
     return { kind: SESSION_VIEW.LEGACY_UNRESTORABLE, ...base };
   const snapshot = savedQuestions(session);
-  const byId = new Map(answers.map((answer) => [answer.questionId, answer]));
   return {
     kind: SESSION_VIEW.ASSESSMENT,
     ...base,
     ...progress(session, answers),
     questions: snapshot.questions.map(toPublicQuestion),
-    acceptedAnswers: session.selectedQuestionIds.flatMap((id) => {
-      const answer = byId.get(id);
-      return answer ? [answer] : [];
-    }),
+    acceptedAnswers: orderedAcceptedAnswers(session, answers),
   };
 }

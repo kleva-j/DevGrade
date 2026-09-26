@@ -14,6 +14,7 @@ import {
   FRAMEWORK,
   PROFICIENCY,
   SESSION_STATUS,
+  SESSION_VIEW,
   SKILL_CATEGORIES,
   SKILL_CATEGORY,
   WEIGHT_ADVANCED,
@@ -164,6 +165,13 @@ test(
           selectedAnswer: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
           timeSpentSeconds: index + 1,
         },
+        acceptedAnswers: snapshot.questions
+          .slice(-index - 1)
+          .map((q, offset) => ({
+            questionId: q.id,
+            selectedAnswer: q.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+            timeSpentSeconds: index + 1 - offset,
+          })),
         answeredCount: index + 1,
         totalQuestions: snapshot.questions.length,
         nextQuestionId:
@@ -191,10 +199,12 @@ test(
         question.difficultyWeight === WEIGHT_ADVANCED,
       );
     }
-    const result = await createAssessmentService(db).completeSession(
+    const view = await createAssessmentService(db).completeSession(
       created.sessionId,
       { sessionToken: created.sessionToken },
     );
+    assert.equal(view.kind, SESSION_VIEW.REPORT);
+    const result = view.reportSnapshot.result;
     assert.equal(result.totalScore, 66.67);
     assert.equal(result.proficiencyLevel, PROFICIENCY.DEVELOPING);
     assert.deepEqual(
@@ -227,7 +237,7 @@ test(
     assert.ok(storedResult?.reportSnapshot);
     assert.ok(completed?.completedAt);
     const report = parseReportSnapshot(storedResult.reportSnapshot);
-    assert.deepEqual(report.result, result);
+    assert.deepEqual(report, view.reportSnapshot);
     assert.deepEqual(report.questions, created.questions);
     assert.deepEqual(report.pillars, original.pillars);
     assert.equal(report.completedAt, completed.completedAt.toISOString());
@@ -412,11 +422,12 @@ test(
     await db.execute(
       sql`ALTER TABLE session_category_scores DROP CONSTRAINT reject_test_award`,
     );
-    const result = await service.completeSession(created.sessionId, {
+    const view = await service.completeSession(created.sessionId, {
       sessionToken: created.sessionToken,
     });
-    assert.equal(result.totalScore, 100);
+    assert.equal(view.kind, SESSION_VIEW.REPORT);
+    assert.equal(view.reportSnapshot.result.totalScore, 100);
     const [saved] = await db.select().from(sessionResults);
-    assert.deepEqual(saved!.reportSnapshot!.result, result);
+    assert.deepEqual(saved!.reportSnapshot, view.reportSnapshot);
   },
 );
