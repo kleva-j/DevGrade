@@ -180,10 +180,12 @@ No correctness or explanation is returned on the answer endpoint.
 1. Authenticates and rejects an already-completed session.
 2. Loads the accepted answers and rejects completion if fewer than the persisted
    selected-ID count have been answered.
-3. Loads the selected question rows and builds the scorer's input.
+3. Validates the saved private question snapshot and builds the scorer's input
+   from its questions in selected-ID order, never from mutable question-bank rows.
 4. Calculates the overall and per-pillar results (§7).
-5. In **one transaction**, inserts the overall result and pillar-score rows,
-   marks the session `completed`, and sets `completed_at` and `last_activity_at`.
+5. In **one transaction**, inserts the overall result with its immutable report
+   snapshot and pillar-score rows, marks the session `completed`, and sets
+   `completed_at` and `last_activity_at`.
 6. Returns the report only after the transaction succeeds.
 
 The result writes and status change are atomic. The preceding reads and score
@@ -411,8 +413,9 @@ score of **8/12 = 66.67%**, not 50%.
 
 The completion response still does not contain the `correctAnswer` index field.
 Explanations can reveal the answer and are intentionally released only here.
-The per-question result order follows the loaded answer rows; the service does
-not explicitly order that query by the selected-ID presentation order.
+Per-question results follow the saved snapshot's selected-ID presentation order.
+`createReportSnapshot` iterates those questions and matches accepted answers by ID;
+the answer query's row order does not define report order.
 
 ### Question-content consistency limitation
 
@@ -456,15 +459,17 @@ Sources: [runner](../apps/web/src/components/assessment/QuestionRunner.tsx),
 These are gaps to address in separate implementation work, not capabilities
 added by this document:
 
-1. **Expiration policy and enforcement:** decide whether abandonment is merely
-   classification or a terminal cutoff; align request checks, UX, and scheduled
-   sweeping with that decision.
+1. **Expiration enforcement:** the policy is defined: inactivity is non-terminal,
+   attempts end 24 hours after original creation, and normal access ends after
+   seven days. Apply the existing lifecycle helper in endpoint checks, then align
+   recovery UX and scheduled maintenance with those rules.
 2. **Retention and erasure:** wire the stated retention policy and authenticated
    deletion interface; do not claim an active daily purge without a running mechanism.
 3. **Recovery:** define refresh/resume and saved-report access, plus idempotent
    handling of persisted operations whose responses were lost.
-4. **Content consistency:** prevent in-progress assessment evaluation from
-   changing when question content is edited.
+4. **Content consistency — implemented:** saved private question snapshots and
+   immutable awarded reports prevent bank edits from changing evaluation. Preserve
+   this invariant while adding endpoint enforcement and recovery.
 5. **Timing/signals:** resolve over-limit duration recovery and decide whether
    focus-loss collection should be persisted at all.
 
