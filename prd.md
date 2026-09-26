@@ -1,12 +1,12 @@
 # Product Requirements Document (PRD): DevGrade
 
-**Document Version:** 1.9.1
+**Document Version:** 1.9.3
 
 **Status:** Approved for MVP Development
 
 **Target Release:** Q4 2026
 
-**Last Updated:** 2026-09-25
+**Last Updated:** 2026-09-26
 
 **Change Log:**
 
@@ -23,8 +23,10 @@
 | 1.6.0 | 2026-09-23 | Question-bank Batch B: grew the React bank from 48 to **96 questions** (3 levels × 4 pillars × **four** core + **four** advanced per bucket), deepening the sampling pool (1-of-4 core × 1-of-4 advanced per pillar → far more distinct sessions). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 4 (guard test green at 29 tests). Topics remain distinct across all items in a bucket; provenance tracked per row (§10.1). Remaining toward the §10.1 target (~6/6 per bucket, ~144 total): a future Batch C. |
 | 1.7.0 | 2026-09-23 | Question-bank Batch C: grew the React bank from 96 to **144 questions** (3 levels × 4 pillars × **six** core + **six** advanced per bucket), reaching the §10.1 pool-depth target (~6/6 per bucket). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 6 (guard test green at 29 tests; typecheck + lint clean). New `-05`/`-06` items are topic-distinct from every prior item in each bucket and vary the `correctAnswer` index to reduce answer-position leakage; provenance tracked per row (§10.1). Updated §10.1, §12, §13. |
 | 1.8.0 | 2026-09-24 | Implemented free selectable lengths: Quick (8, default), Standard (16), Deep (32). Strict core/advanced sampling, shared exact numeric `questionCount` validation, unchanged scoring/schema, fixed selected-ID snapshot, and XState configuration preserved through retries. Intake and report copy now reflect the selected length without time or statistical confidence claims. Added sampler, validation, machine, and isolated PostgreSQL tests; verification and the unrelated typecheck blocker are recorded in §13. |
-| 1.9.0 | 2026-09-25 | Session lifecycle Stages 1–2 implemented on `session-lifecycle/server`: immutable question/report snapshots alongside normalized scores; 24-hour attempts, seven-day normal access from original creation, and 30-minute effective inactivity; strict credentials, parent-first transactions/fresh DB time, coherent read-only views, idempotent answers/completion, expected-state deletion, and a bounded known-credential creation gate. Typed no-store POST server functions return authoritative progress including `nextQuestionId`. At this stage browser changes were compatibility-only and recovery/maintenance were pending. Primary agent reported 282 tests passed/0 skipped on isolated PostgreSQL 18, package lint/build passed, and three existing chart typecheck errors. PR #1 existed; no deployment or active cleanup was claimed. Stage 3 is recorded next. |
-| 1.9.1 | 2026-09-25 | Stage 3 source delivered on `session-lifecycle/recovery`: version-1 per-session credential storage, fail-closed creation discovery/preflight, Web Lock coordination, original-configuration resume and accepted-ID reconciliation, confirmed deletion/cancel/changed-state handling, saved-report history/metadata/survey recovery, and bounded timing excluding offline/hidden intervals. Independent validation reported 339 tests passed/0 skipped on disposable PostgreSQL 18.1 with real migrations/144-question seed, plus headed Chrome 153: 5 scenarios/55 named checks. Direct web/UI lint passed and web build passed per implementation agent; three existing chart typecheck errors remain. Root pnpm lint/version switching to 10.33.4 failed signature verification; pinned 10.20/direct checks are not root-wrapper success. Stage 4 remains pending; no production deployment is claimed (§13). |
+| 1.9.0 | 2026-09-25 | Lifecycle Stages 1–2 delivered in source: immutable snapshots and normalized awards; 24-hour attempts/seven-day access from original creation; effective inactivity, strict credentials, parent-first transactions, coherent reads, retry-safe operations, expected-state deletion, bounded known-credential gating, and typed no-store POST/progress contracts. No deployment claimed. |
+| 1.9.1 | 2026-09-25 | Stage 3 browser recovery delivered in source: version-1 handles, fail-closed creation, Web Locks, explicit original-configuration Resume, confirmed Delete, saved reports/surveys, and bounded hidden/offline-aware timing. No production deployment claimed. |
+| 1.9.2 | 2026-09-26 | Approved simplification A/B/C implemented: flat creation view, full accepted-answer progress, direct persisted completion views, fewer machine flags/success-path reads, and fixed-purpose maintenance. Maintenance was uncommitted/default-disabled at this revision; validation, publishing, and authorized rollout remained pending (§13). |
+| 1.9.3 | 2026-09-26 | Maintenance implementation/tests committed locally as `2aaa73a`. Recorded user-confirmed PostgreSQL verification (zero failures/skips) and the reported final regression run. Cleanup remains default-disabled; stack publishing, scheduling, and authorized production rollout remain pending (§13). |
 
 ---
 
@@ -158,17 +160,15 @@ Categories scoring below 50% are flagged with specific remediation paths:
 
 ### 4.5 Session lifecycle
 
-Approved policy: inactivity after **30 minutes** marks an unfinished attempt effectively abandoned, but it remains resumable until **24 hours from creation**. New answers and first completion stop at that deadline. Normal session/report access and surveys stop **seven days from creation**; activity never extends either deadline.
+**30-minute effective inactivity; 24-hour attempts; seven-day normal access.** Both deadlines use original `createdAt` and inclusive elapsed-UTC cutoffs, never activity/completion. Inactivity remains resumable before 24 hours; late answers/retries and first completion are forbidden. An existing award remains readable until seven days. Authenticated expected-state deletion remains possible after expiry.
 
-The implemented server gate authenticates every supplied known credential and blocks creation for an unfinished attempt younger than 24 hours, including inactive or unrestorable attempts. Completed and attempt-expired sessions do not block. Lists are limited to 1,000 credentials and checked server-side in 100-entry batches without truncation. The Stage 3 browser now scans/discovers all known stored/in-memory credentials and requires **Resume** or confirmed server-side **Delete** for a found blocker. Cancel, incomplete/failed discovery, and blocked/full/corrupt storage cannot authorize new creation. Scan/discovery/preflight/create/persist are coordinated by the **`devgrade.session-lifecycle` Web Lock** where supported, with only per-instance serialization otherwise; this is not global account/device ownership enforcement.
+Creation checks every supplied known credential (maximum **1,000**, server batches **100**). Any unfinished attempt below 24 hours—including inactive/unrestorable content—requires **Resume** or confirmed **Delete**; completed/expired attempts do not block. Browser scan/discovery/preflight/create/persist uses a Web Lock where supported, local serialization otherwise. Blocked/full/corrupt storage and incomplete discovery fail closed. This is known-credential gating, not global ownership.
 
-Browser handles are JSON **`version: 1`** at **`devgrade.session.<sessionId>`**: ID/token, optional ISO attempt/access deadlines, and optional `hint: { framework, targetLevel, questionCount }`. No questions, answers, report payloads, or XState snapshots are persisted, and hints are not authority. A valid credential inside a damaged hint/version is retained for discovery but flags corruption. A post-create handle-write failure preserves the current credential in memory and warns; retry reads that same session rather than creating another. Recovery after closing/refreshing an unsaved handle is not guaranteed.
+Browser storage contains version-1 per-ID credential handles, not assessment/report/actor payloads. A post-create write failure retains credentials in memory and uses the returned view, with a recovery warning. Cancel prevents queued/discovering creation; an already-sent request may still succeed and its credentials are retained. See [exact storage and recovery behavior](docs/sessions-and-evaluation.md#4-browser-recovery).
 
-History and explicit Resume restore the **original** server configuration, ordered questions/accepted progress, immutable report metadata, and separate saved survey state. Opening a session is read-only and never auto-resumes or first-completes; all-answered unfinished attempts still require an active/explicit Resume path before 24 hours. The machine reconciles accepted IDs after acknowledgements/conflicts, not local index increments. Display/submission timing is clamped to **0–3600 seconds**, resets on resume/new question, and excludes hidden/observed offline intervals and time between visits. At seven days normal access is denied and matching browser handles are removed only after server confirmation; DB rows remain pending explicit deletion or future cleanup.
+Opening/history is read-only; explicit Resume restores **original configuration** and accepted progress. The machine separates history/creation/viewing/attempting, applies successful operation responses without extra reads, and reads for conflicts/ambiguous completion recovery. Reports use immutable saved questions/pillar metadata and separate survey state. Timing is bounded **0–3600 seconds**, excludes hidden/observed offline intervals and time between visits, and does not affect scoring. Server-confirmed unavailability removes matching handles; it need not mean physical DB deletion.
 
-Stage 4 **plans** daily cleanup at `0 3 * * *` UTC for all-status sessions aged **seven days or older**, including dependent records. **No scheduled cleanup is implemented or active yet.** Once operational, deletion would normally occur around 7–8 days, possibly later after failures/backlog; seven days is the enforced normal-access cutoff and cleanup-eligibility threshold, not a physical-erasure guarantee. Authenticated expected-state deletion is already available even after access expiry. Backup/WAL/replica retention is separate.
-
-Delivery is tracked in §13 and [the lifecycle plan](docs/session-lifecycle-plan.md). Do not infer a production deployment from source implementation.
+Bounded maintenance and its protected handler are **committed locally and disabled by default**; PostgreSQL verification is user-confirmed. No schedule or production activation is verified. Seven days starts cleanup eligibility; a healthy daily job normally deletes around age 7–8 days, later with backlog/failure. Backup/WAL/replica retention is separate. Follow [delivery and the deployment runbook](docs/session-lifecycle-plan.md), not source delivery alone, before activation.
 
 ## 5. Technical Architecture & Data Schema
 
@@ -178,7 +178,7 @@ Delivery is tracked in §13 and [the lifecycle plan](docs/session-lifecycle-plan
 - **Framework:** TanStack Start (`@tanstack/react-router`) — a single full-stack React app (SSR + server functions). API routes (§7) are server functions within this app, not a separate service (decision #2).
 - **Styling:** Tailwind CSS v4 + `shadcn/ui` using OKLCH CSS variables.
 - **Database & ORM:** **PostgreSQL + Drizzle ORM in every environment** (dev, CI, prod) — no SQLite/Postgres split (decision #1). Migrations via Drizzle Kit.
-- **State Management:** **XState** drives the assessment/recovery flow (`apps/web/src/machines/assessmentMachine.ts`); `sessionRecovery.ts` owns credentials and authenticated server-function calls. Safe views remain in memory, minimal handles persist in browser storage, and server reads reconcile progress. The full question set is still delivered up front (decision #5).
+- **State Management:** **XState** drives the assessment/recovery flow (`apps/web/src/machines/assessmentMachine.ts`); `sessionRecovery.ts` owns credentials and authenticated server-function calls. Safe views remain in memory, minimal handles persist in browser storage, and successful responses update progress directly; explicit/reconciliation reads remain. The full question set is still delivered up front (decision #5).
 - **Validation:** Shared Zod schemas validate before DB work inside the typed, safe server-function envelope (§7.2).
 - **Authentication:** Anonymous assessments (MVP) with optional user accounts in Phase 2. Access requires both a canonical UUID `sessionId` and an exact 64-hex-character `sessionToken`. A browser-generated `rawClientId` stored in `localStorage` is hashed only for rate limiting, never ownership (no IP or device fingerprint stored).
 
@@ -188,7 +188,7 @@ PostgreSQL DDL below reflects the implemented Drizzle schema (`apps/web/src/db/s
 
 Selectable lengths themselves require **no DB schema migration** and **no additional stored count or pricing fields**. Persist the ordered selected-question IDs once at creation; the length of `selected_question_ids` is authoritative for totals/progress, and first completion requires exactly that accepted-ID set. Existing 8-ID sessions remain Quick sessions; later defaults or client configuration must not reinterpret them.
 
-Lifecycle migration `0002_dazzling_may_parker.sql` adds the nullable private `question_snapshot`, safe `report_snapshot`, and lifecycle indexes shown below. New writers always save versioned snapshots. Normalized result/pillar rows and the immutable awarded report come from one calculation in one parent-locked transaction. Snapshot reads validate format, selected order, and configuration; they never reconstruct content from the live bank. Null snapshots are legacy-only: unfinished rows are unrestorable, completed rows expose persisted summaries, and both retain their original creation-based deadlines. No stored expiry columns or new status are added.
+Lifecycle migration `0002_dazzling_may_parker.sql` adds the nullable private `question_snapshot`, safe `report_snapshot`, and lifecycle indexes shown below. New writers always save versioned snapshots. Normalized result/pillar rows and the immutable awarded report come from one calculation in one parent-locked transaction. Snapshot reads validate format, selected order, and configuration; they never reconstruct content from the live bank. Null snapshots are legacy-only: unfinished rows are unrestorable, completed rows expose persisted summaries, and both retain their original creation-based deadlines. No stored expiry columns or new status are added; simplification A/B/C needs no further schema migration.
 
 ```sql
 -- 1. Skill Categories (competency pillars as data; extensible)
@@ -233,7 +233,7 @@ CREATE TABLE test_sessions (
     focus_loss_count INT NOT NULL DEFAULT 0,     -- behavioral anti-cheat signal
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
-    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- effective inactivity; future sweep
+    last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now(), -- effective inactivity; bounded maintenance
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_sessions_created_id ON test_sessions(created_at, id);
@@ -388,72 +388,39 @@ CREATE TABLE session_surveys (
 
 ### 7.1 Session API operations
 
-The MVP exposes eight TanStack Start server functions in `server/assessmentFns.ts`, not hand-written REST routes. All use **POST** and **`Cache-Control: no-store`**, including discovery/reads. The `/api/...` headings below are logical operation names, not credential-bearing URLs. Calls use `{ data: input }`; examples show camelCase input and the current response envelope: `{ ok: true, data }` or `{ ok: false, error: { code, message } }`. `existing_attempt` additionally carries safe `error.blockers` metadata. This is not the old plain-error/HTTP-response contract (§7.2).
+The eight TanStack Start functions in `server/assessmentFns.ts` are **POST with `Cache-Control: no-store`**, including reads/discovery—not literal `/api/sessions` REST routes. Calls use `{ data: input }`; responses are `{ ok: true, data }` or `{ ok: false, error: { code, message } }`, with safe `error.blockers` metadata for `existing_attempt`. Logical HTTP mappings differ from the active wire envelope (§7.2).
 
-Every existing-session operation requires `sessionId` (canonical 36-character UUID, normalized lowercase) plus `sessionToken` (exactly 64 hex characters, compared exactly). Validation precedes DB work; authentication precedes expiry/content disclosure. Wrong tokens and unknown IDs are indistinguishable. Credentials are not logged, placed in URLs, or inferred from `rawClientId`. Example credentials below are illustrative, not usable sessions.
+Existing-session inputs require `sessionId` (canonical 36-character UUID, normalized lowercase) and `sessionToken` (exact 64 hex characters, compared exactly). Validate before DB work and authenticate before expiry/content disclosure. Wrong tokens and unknown IDs share `not_found`; neither URLs nor `rawClientId` grant access.
 
-#### POST /api/sessions — `createSessionFn`
+| Function | Input fields | Success `data` |
+| --- | --- | --- |
+| `createSessionFn` | `framework`, `targetLevel`, optional `questionCount`, `rawClientId`, optional `knownCredentials` | Flat `CreatedSession` |
+| `submitAnswerFn` | ID/token, `questionId`, `selectedAnswer`, `timeSpentSeconds` | `AcceptedAnswerResult` |
+| `completeSessionFn` | ID/token | `ReportView` or `LegacySummaryView` |
+| `submitSurveyFn` | ID/token, `rating` | `{ success: true }` |
+| `discoverSessionsFn` | `credentials` | `{ sessions }`: available metadata or generic unavailable IDs |
+| `getSessionFn` | ID/token | `SessionView`, read-only |
+| `resumeSessionFn` | ID/token | `SessionView`; reactivate only an eligible unfinished attempt |
+| `deleteSessionFn` | ID/token, `expectedState` | `deleted` or `changed_state` with `currentState` |
 
-Initialize a new assessment. Optional `questionCount` accepts exactly numeric **8, 16, 32**; omission defaults to **8**, without coercion/rounding. `rawClientId` is a nonempty string of at most 1,024 characters, stored only as a hash for rate limiting. Optional `knownCredentials` is an array of ID/token pairs (maximum **1,000**).
+Creation accepts exact numeric **8/16/32**, missing → 8, without coercion. `rawClientId` has length 1–1024 and is stored only as a rate-limit hash. Known/discovery lists have a **1,000-entry maximum**, processed in **100-entry batches**, never truncated. Creation locks all authenticated known parents in deterministic order before child reads/fresh-time gating; it rejects unfinished attempts below 24 hours irrespective of settings/inactivity/restorability (§4.5), rather than trusting earlier discovery. There is no global ownership lookup.
 
-**Input (Quick example):**
+The pure contracts are in `domain/sessionContracts.ts`:
 
-```json
-{
-  "framework": "react",
-  "targetLevel": "mid",
-  "questionCount": 8,
-  "rawClientId": "anonymous-browser-id",
-  "knownCredentials": []
+```ts
+type CreatedSession = SessionCredential & AssessmentView;
+
+interface AcceptedAnswerResult extends SessionProgress {
+  success: true;
+  sessionComplete: boolean;
+  acceptedAnswer: AnswerInput;
+  acceptedAnswers: AnswerInput[];
 }
 ```
 
-**Success response:**
+`CreatedSession` is **flat**, not `{ assessment: ... }`: `kind: "assessment"`, ID/token, `createdAt`, original `configuration`, both deadlines, effective status/eligibility, all safe ordered `questions`, empty `acceptedAnswers`, and initial `answeredCount`/`totalQuestions`/`nextQuestionId`. All question content arrives up front via `PublicQuestion`; no `correctAnswer` or explanation is released (decision #5).
 
-```json
-{
-  "ok": true,
-  "data": {
-    "sessionId": "11111111-1111-4111-8111-111111111111",
-    "sessionToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "attemptExpiresAt": "2026-09-26T10:00:00.000Z",
-    "accessExpiresAt": "2026-10-02T10:00:00.000Z",
-    "questions": [
-      {
-        "id": "q_123",
-        "skillCategory": "reactivity",
-        "title": "State updates",
-        "prompt": "What happens when...",
-        "codeBlock": null,
-        "options": ["A", "B", "C", "D"]
-      }
-    ],
-    "totalQuestions": 8
-  }
-}
-```
-
-> Example assumes creation at 2026-09-25 10:00 UTC; `questions` is abbreviated to one of eight. All selected questions arrive up front as `PublicQuestion` via `toPublicQuestion`, without `correctAnswer` or `explanation` (decision #5). Totals derive from selected IDs; no duration estimate is returned. The caller needs both credentials for later operations; Stage 3 saves a minimal version-1 handle and also retains it in recovery-layer memory (§4.5).
-
-Creation validates the entire known list, authenticates/locks matching parents in deterministic ID order in **100-entry batches**, then reads fresh DB time and child progress. Any supplied authenticated unfinished attempt younger than 24 hours returns `existing_attempt` without insertion, regardless of settings/inactivity/snapshot restorability. Completed/attempt-expired sessions do not block. No truncation or partial discovery authorizes creation, and the final check does not trust earlier discovery. Omitted/lost credentials cannot be discovered; this is not global ownership enforcement. Stage 3 supplies the complete checked stored/in-memory credential list and implements Resume/Delete, fail-closed storage preflight, and same-browser Web Lock coordination (§4.5).
-
-#### POST /api/sessions/:id/answers — `submitAnswerFn`
-
-The full question set is already client-held. Submission saves an answer and returns **authoritative progress**, not new question content. It validates selected-ID membership, saved option bounds, and integer duration **0–3600 seconds**, then grades from the private snapshot under the parent lock.
-
-**Input:**
-
-```json
-{
-  "sessionId": "11111111-1111-4111-8111-111111111111",
-  "sessionToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "questionId": "q_123",
-  "selectedAnswer": 1,
-  "timeSpentSeconds": 45
-}
-```
-
-**Success response:**
+Answers require saved selected-ID membership, a nonnegative integer option within saved bounds, and integer duration **0–3600**. New acceptance grades from the private snapshot and refreshes activity atomically. Same-option replay returns the original answer/duration without writes; different-option replay conflicts. Completed/expiry checks precede acknowledgement. Success returns the **entire accepted set in selected-ID order**, not just the latest answer:
 
 ```json
 {
@@ -461,11 +428,10 @@ The full question set is already client-held. Submission saves an answer and ret
   "data": {
     "success": true,
     "sessionComplete": false,
-    "acceptedAnswer": {
-      "questionId": "q_123",
-      "selectedAnswer": 1,
-      "timeSpentSeconds": 45
-    },
+    "acceptedAnswer": { "questionId": "q_123", "selectedAnswer": 1, "timeSpentSeconds": 45 },
+    "acceptedAnswers": [
+      { "questionId": "q_123", "selectedAnswer": 1, "timeSpentSeconds": 45 }
+    ],
     "answeredCount": 1,
     "totalQuestions": 8,
     "nextQuestionId": "q_124"
@@ -473,60 +439,17 @@ The full question set is already client-held. Submission saves an answer and ret
 }
 ```
 
-`nextQuestionId` is the first unanswered selected ID by set membership, or `null` when all are accepted. `sessionComplete` does not award the report. Same-option retries acknowledge the original accepted duration without timing/status/activity writes; different-option retries conflict. Completed/expiry checks precede acknowledgement, so late retries do not bypass deadlines. Newly accepted answers atomically set `in_progress` and refresh activity. The Stage 3 API adapter preserves the full result. After acknowledgement the machine rereads `getSession`, derives the first unanswered question from the refreshed accepted-ID set, and handles typed conflicts/expiry rather than incrementing a local index. This is authoritative progress reconciliation; it does not introduce a next-question-content endpoint.
+This illustrative Quick response assumes `q_124` is the first unanswered selected ID. `nextQuestionId` becomes null when all selected IDs are accepted; `sessionComplete` does **not** mean a report is awarded. Submission returns progress, not next-question content or correctness.
 
-#### POST /api/sessions/:id/complete — `completeSessionFn`
+First completion requires exactly the selected accepted-ID set before 24 hours. One parent-locked transaction writes normalized scores/pillars, immutable report, and completed status/timestamps, then returns **`ReportView`** with `reportSnapshot` and `surveyRating: null`. Replay returns the saved **`ReportView` or `LegacySummaryView` directly**, including current survey state, without rescoring/activity writes. It can retrieve an existing award after 24 hours but never after seven days. No transient `AssessmentResult` or error-driven legacy follow-up read is needed. Survey upserts integer **1–5** only in completed state before access expiry, without altering the award/activity.
 
-Accepts `{ sessionId, sessionToken }`. First completion requires the exact selected accepted-ID set and an unfinished attempt strictly younger than 24 hours. Inside one parent-locked transaction, saved inputs produce normalized overall/pillar rows, the immutable report snapshot, and completed status/timestamps. Repeated completion returns the saved result without rescoring/activity writes, including after 24 hours while normal access remains open. Legacy completed rows return `legacy_summary_available`; read their summary with `getSessionFn` instead.
+`getSession` has exactly five kinds: **`assessment`, `report`, `legacy_summary`, `attempt_expired`, `legacy_unrestorable`**. Assessment includes ordered safe questions/accepted answers and progress; report contains saved content and separate survey; legacy summary never invents historical questions; the two unfinished unavailable-to-resume views contain metadata only. Completed state precedes attempt expiry; unfinished expiry precedes legacy content. Invalid non-null snapshots fail closed. Full payloads are in the [current contract reference](docs/sessions-and-evaluation.md#3-operations-and-wire-contracts).
 
-**Success response (`AssessmentResult`; question results abbreviated):**
+Discovery/get use short **read-only `REPEATABLE READ`** transactions with no activity/status writes. Mutations lock authenticated parents before children and check fresh `clock_timestamp()` time after waiting. Resume refreshes only eligible unfinished activity; other retained states return their views without writes. Read/resume does not itself award a report.
 
-```json
-{
-  "ok": true,
-  "data": {
-    "sessionId": "11111111-1111-4111-8111-111111111111",
-    "framework": "react",
-    "targetLevel": "mid",
-    "totalScore": 75,
-    "maxScore": 100,
-    "proficiencyLevel": "developing",
-    "categoryScores": [
-      { "skillCategory": "reactivity", "correctWeight": 3, "totalWeight": 3, "scorePct": 100, "proficiency": "proficient" },
-      { "skillCategory": "lifecycle", "correctWeight": 2, "totalWeight": 3, "scorePct": 66.67, "proficiency": "developing" },
-      { "skillCategory": "performance", "correctWeight": 1, "totalWeight": 3, "scorePct": 33.33, "proficiency": "skill_gap" },
-      { "skillCategory": "async", "correctWeight": 3, "totalWeight": 3, "scorePct": 100, "proficiency": "proficient" }
-    ],
-    "skillGaps": ["performance"],
-    "questionResults": [
-      { "questionId": "q_123", "isCorrect": true, "explanation": "Correct answer explanation" }
-    ]
-  }
-}
-```
+Delete compares the caller-confirmed `expectedState` (`unfinished` or `completed`) under lock. A match cascades; mismatch returns `changed_state` without deletion. Authentication still permits explicit deletion after expiry. The browser preserves changed-state handles and cancels automatic creation; Cancel/Escape cancels the confirmation and creation intent.
 
-> Quick example: correct weight 9 of 12 gives 75; only performance is below 50. Standard/Deep retain the same formula (§4.4). `categoryScores` is an array of normalized rows, not fixed per-pillar columns; `questionResults` follows selected presentation order. No `correctAnswer` field or separate `remediation` map is returned. Completion still returns `AssessmentResult`; the Stage 3 machine then calls `getSessionFn` and renders the immutable saved report, public questions, pillar metadata, and separate survey state. Completion retries read before another attempt, recovering a lost committed award without rescoring.
-
-#### POST /api/sessions/:id/survey — `submitSurveyFn`
-
-Accepts `{ sessionId, sessionToken, rating }`, integer `rating` **1–5**. Requires completed state and normal access before seven days from session creation. Upserts one row in `session_surveys`, leaving session activity and the immutable report unchanged. Success is `{ ok: true, data: { success: true } }`.
-
-#### Discovery, read, resume, and delete — POST server functions
-
-- **`discoverSessionsFn({ data: { credentials } })`:** maximum 1,000 validated ID/token pairs, queried in batches of 100. Returns `data.sessions` entries: `available` with safe metadata (configuration/count, original creation time, both deadlines, effective status, answered/total counts, `blocksCreation`, `canResume`), or generic `unavailable` plus the supplied ID for missing/wrong-token/access-expired rows. Never lists sessions by client-ID hash or returns question/answer content.
-- **`getSessionFn({ data: credential })`:** read-only; before access expiry returns the five `kind` variants below. Discovery and reads use **read-only `REPEATABLE READ`** for coherent multi-query snapshots; no activity/status writes. A snapshot already authorized cannot be recalled after a later deletion.
-- **`resumeSessionFn({ data: credential })`:** parent-locked; eligible unfinished attempts reactivate and refresh activity. Otherwise returns the completed/expired/legacy view without activity writes. Does not auto-complete all-answered attempts; access-expired requests fail.
-- **`deleteSessionFn({ data: { sessionId, sessionToken, expectedState } })`:** `expectedState` is `unfinished` or `completed`, representing the caller's confirmation. Under the parent lock, a match cascades deletion and returns `data: { kind: "deleted" }`; mismatch returns `data: { kind: "changed_state", currentState }` without deletion. Still allowed after access expiry. Missing/wrong-token rows return `not_found`. Stage 3 supplies inline confirmation (Cancel initially focused; Escape cancels), preserves a handle on changed state and opens its current view, and rechecks the creation gate only after confirmed deletion/unavailability. Canceling confirmation also cancels creation.
-
-| `getSession` kind | Returned data |
-| --- | --- |
-| `assessment` | Original configuration/status/deadlines, safe ordered questions, accepted selections/durations without correctness, counts and `nextQuestionId` |
-| `attempt_expired` | Minimal authenticated unfinished metadata/deadlines, no resume payload or partial score |
-| `report` | Immutable `reportSnapshot`, ID, both deadlines, separate nullable survey rating |
-| `legacy_summary` | Persisted overall/pillar summary and completion time, deadlines/survey rating, no invented historical question review |
-| `legacy_unrestorable` | Unfinished null-snapshot metadata; cannot resume and blocks creation below 24 hours |
-
-Completed state precedes attempt expiry; unfinished expiry precedes legacy content. Invalid non-null snapshots fail with `snapshot_unavailable`, never a live-bank reconstruction. Every mutation locks the authenticated parent before children and checks fresh PostgreSQL time after lock acquisition; waiting across a deadline cannot use stale transaction-start time.
+**No automatic get follows successful create, answer, complete, or resume.** The machine applies returned views/full accepted progress directly. Explicit opens/refreshes, conflicts/expiry, and ambiguous completion failures still read; ambiguous answer retries keep their exact pending payload/duration. Responses represent committed state at that operation, not permanent cross-tab state.
 
 ### 7.2 Error Handling Strategy
 
@@ -539,7 +462,7 @@ The active wire failure is **`{ ok: false, error: { code, message } }`**, with `
 - **429:** `rate_limited` — best-effort maximum five sessions per trailing hour per hashed browser client ID, not per IP.
 - **500:** `internal_error` — generic safe message; no credentials, Zod issue payloads, SQL, or raw DB error details.
 
-The browser API adapter preserves typed failures in `AssessmentClientError`. Stage 3 recovery/XState reconciles conflicts, completed/legacy states, and attempt expiry; terminal `not_found`/`access_expired` clears the matching handle, while transient failures preserve it. Local removal failures warn rather than imply that all browser copies were erased.
+`legacy_summary_available` remains a compatibility error code, not the current completion-replay result. The browser adapter preserves typed `AssessmentClientError`; recovery reconciles conflicts/expiry, removes only matching server-confirmed unavailable handles, and preserves handles on transient failure. Local removal failures warn, not claim remote erasure.
 
 ---
 
@@ -549,11 +472,11 @@ The browser API adapter preserves typed failures in `AssessmentClientError`. Sta
 
 **MVP Deployment:**
 
-- **Hosting**: A **single full-stack TanStack Start app** (decision #2) deployed to one Node host (e.g. Railway, Fly.io, or a Vercel Node deployment). The UI and the `/api/*` server functions ship together — there is no separately hosted API service.
+- **Hosting**: A **single full-stack TanStack Start app** (decision #2) on one Node host (e.g. Railway, Fly.io, or a Vercel Node deployment). UI and server functions ship together; there is no separately hosted API service.
 - **Database**: **PostgreSQL in every environment** (decision #1) — local via Docker, managed Postgres in production (e.g. Railway/Neon/Supabase). Drizzle Kit runs migrations on deploy.
 - **CDN**: Edge/CDN caching for static assets and the client bundle.
-- **Scheduled Jobs (Stage 4, not implemented)**: One protected daily `0 3 * * *` UTC maintenance invocation will delete eligible all-status sessions and materialize retained idle status in bounded parent-locked batches. Request-time inactivity and access expiry already work independently of scheduling; there is no active cleanup job yet.
-- **Environment Variables**: `DATABASE_URL` (see `apps/web/.env.example`), managed via the host dashboard.
+- **Maintenance (committed locally/default-disabled)**: `runSessionMaintenance(db)` deletes eligible all-status sessions and materializes retained idle status in fixed parent-locked batches. The protected GET/no-store handler initializes the DB only after authentication and activation. No cron root/configuration or actual schedule is verified; daily `0 3 * * *` UTC activation requires the [deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook). Access expiry works independently.
+- **Environment Variables**: `DATABASE_URL`; high-entropy bearer-safe `CRON_SECRET` (32–256 characters); `SESSION_MAINTENANCE_ENABLED` (default false; only literal `true` enables work). Provision through the authorized host/environment workflow, not this document.
 
 **Infrastructure Requirements:**
 
@@ -635,7 +558,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 **Data Privacy:**
 
 - GDPR-compliant data handling for EU users
-- Seven-day normal-access limit is enforced; daily cleanup of sessions aged seven days or older remains Stage 4 work (§4.5). No exact physical-erasure guarantee; backup/WAL/replica retention must be documented separately.
+- Seven-day normal access is enforced; bounded cleanup is committed locally/default-disabled, with user-confirmed PostgreSQL verification and authorized activation still pending (§4.5). No exact physical-erasure guarantee; backup/WAL/replica retention is separate.
 - Authenticated expected-state erasure and Stage 3 confirmation/recovery UI are implemented in source. Same-origin scripts/shared-profile users can read localStorage credentials; handles are not accounts or shareable report links.
 - Cookie consent mechanism for analytics
 
@@ -683,13 +606,13 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 
 ## 12. Architectural Decisions (Resolved)
 
-The original decisions below were open in v1.1.0 and implemented for the Quick baseline in `apps/web` (domain, DB schema, server services, and the XState machine). Selectable lengths and lifecycle Stages 1–3 are implemented in source; reported independent validation and remaining Stage 4 maintenance/rollout work are recorded in §13, without a production deployment claim.
+The original decisions below were resolved for the Quick baseline in `apps/web`. Selectable lengths, lifecycle Stages 1–3, and simplification A/B/C are implemented in source. Maintenance is committed locally/default-disabled with user-confirmed PostgreSQL verification; publishing and authorized rollout remain pending (§13).
 
 1. **Database engine — RESOLVED: PostgreSQL everywhere.** SQLite is dropped entirely; local, CI, and prod all run PostgreSQL via Drizzle ORM + Drizzle Kit migrations (`apps/web/src/db/schema.ts`, `drizzle.config.ts`).
-2. **Deployment topology — RESOLVED: single full-stack app.** The UI and `/api/*` server functions ship together as one TanStack Start deployment (see §8.1). No separately hosted API.
+2. **Deployment topology — RESOLVED: single full-stack app.** The UI and server functions ship together as one TanStack Start deployment (see §8.1). No separately hosted API.
 3. **Score granularity — RESOLVED: weighted core/advanced pairs.** Each pillar draws 1/2/4 pairs for Quick/Standard/Deep, with exact core (1) and advanced (2) weights. Quick resolves to 0/33.33/66.67/100; longer lengths give finer resolution with unchanged scoring and equal pillar contributions (see §4.2–4.4; `domain/constants.ts`, `domain/sampling.ts`, `domain/scoring.ts`).
 4. **Results storage — RESOLVED: normalized.** Per-pillar scores live in `session_category_scores` (one row per pillar per session); no hardcoded pillar columns (see §5.2). Generalizes to future frameworks/pillars.
-5. **Question delivery — RESOLVED: all up front.** Creation returns all selected client-safe questions (8/16/32), while the answer key stays server-side. Answer success now returns `{ success, sessionComplete, acceptedAnswer, answeredCount, totalQuestions, nextQuestionId }` inside the typed envelope. `nextQuestionId` is authoritative progress, not another question-content round-trip; all content still arrives up front (§7.1).
+5. **Question delivery — RESOLVED: all up front.** Creation returns all selected client-safe questions (8/16/32), while the answer key stays server-side. Answer success returns `{ success, sessionComplete, acceptedAnswer, acceptedAnswers, answeredCount, totalQuestions, nextQuestionId }` inside the typed envelope. `nextQuestionId` is authoritative progress, not another question-content round-trip; all content still arrives up front (§7.1).
 
 **Related considerations — addressed:**
 
@@ -697,26 +620,22 @@ The original decisions below were open in v1.1.0 and implemented for the Quick b
 - **Rate limiting:** keyed on the hash of the browser's localStorage client ID (not a cookie or IP), avoiding shared-NAT grouping. Five creations per trailing hour is best-effort, not globally serialized identity enforcement (`MAX_SESSIONS_PER_HOUR`, `db/queries.ts`).
 - **Privacy:** no raw device fingerprint; the behavioral `focus_loss_count` column and hashed client ID remain. Erasure uses ID/token plus confirmed expected state through `deleteSession`, cascading to all session children/snapshots. Token-only helpers are removed; the client ID never grants access or deletion.
 - **Pool sizing:** content target set to a minimum per (level × pillar) bucket — see §10.1. Sampling must fail closed with an `insufficient_questions` error when the active pool cannot supply the requested 1/2/4 core+advanced pairs per pillar; substitutes, repeats, and silent shortening are forbidden. A pillar-tagged **144-question** React bank ships in `db/seedData.ts` (six core + six advanced per bucket), with per-row `source` provenance for licensing (see §10.1 "Content sourcing & licensing") and a guard test (`db/__tests__/seedData.test.ts`) enforcing the per-bucket minimum depth.
-- **Abandonment:** request-time policy derives effective `abandoned` state at 30 minutes without mutating reads. Eligible explicit resume/new answers reactivate the attempt; neither extends its 24-hour lifetime. The old unbounded helper is removed; a bounded daily materialization/cleanup worker is pending (§8.1).
+- **Abandonment:** request-time policy derives effective `abandoned` state at 30 minutes without mutating reads. Eligible explicit resume/new answers reactivate the attempt; neither extends its 24-hour lifetime. The unbounded helper is replaced by fixed-purpose maintenance; its publishing/activation remain pending (§8.1).
 
 ---
 
 ## 13. Implementation Plan (MVP)
 
-The domain core, server functions, candidate UI/report, selectable lengths, and lifecycle Stages 1–3 are delivered in source (`apps/web/src/{domain,db,server,machines,components,routes}`), currently on `session-lifecycle/recovery`. Stage 4 maintenance/rollout remains pending. Reported independent validation and implementation-agent checks below distinguish passing tests/browser/direct package checks from three existing chart typecheck errors and the failing root pnpm launcher. Source delivery is not production deployment. Lifecycle stage numbers are separate from the original MVP phases below.
+The domain/server/UI, selectable lengths, lifecycle Stages 1–3, and approved simplification **A/B/C are implemented in source**. Maintenance is committed locally/default-disabled with user-confirmed PostgreSQL verification; publishing and authorized rollout remain pending. No production deployment is claimed. Lifecycle stages and simplification letters are separate from the original MVP phases below.
 
 ### Session lifecycle — staged delivery
 
-1. **Policy and durable content — implemented:** pure 30-minute/24-hour/seven-day policy; private question and safe report snapshots alongside normalized scores; pinned v1 scoring; generated nullable snapshot/index migration. No fabricated legacy content or reset of original creation-based deadlines. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for this first layer.
-2. **Server lifecycle and creation gate — implemented on `session-lifecycle/server`:** strict ID/token credentials; parent-first mutation locks and fresh DB clock checks; read-only repeatable-read discovery/views; five `getSession` variants; explicit resume distinct from reads; idempotent answer/completion; confirmed expected-state deletion; full-list known-credential gate (maximum 1,000, batches of 100), not global ownership. All server functions return typed no-store POST envelopes; answer success includes authoritative `nextQuestionId` without changing up-front question delivery.
-3. **Browser recovery and Resume/Delete UX — source delivered on `session-lifecycle/recovery`:** version-1 `devgrade.session.<sessionId>` handles, fail-closed storage/discovery/preflight, `devgrade.session-lifecycle` Web Lock coordination, original-configuration explicit Resume, authoritative accepted-ID reconciliation, confirmed Delete/cancel/changed-state handling, history and saved-report/pillar metadata/survey restoration, typed unavailable/expiry paths, and bounded timing excluding hidden/offline intervals. Post-create storage failure retains the current session in memory with a warning, not duplicate creation. No production deployment is claimed.
-4. **Daily cleanup and rollout — not implemented:** no active scheduled cleanup or inactivity worker. Activation requires authorized migration, bounded maintenance/route implementation, scheduler/secret setup, backlog/backup policy, and deployment verification.
+- **Stages 1–2:** durable snapshots/normalized awards, strict authenticated lifecycle operations, coherent reads, parent-first locks/fresh DB time, known-credential gating, and safe retry/delete contracts (§4.5, §7).
+- **Stage 3:** per-ID credential storage, fail-closed creation coordination, original-configuration Resume, history/report/survey recovery, confirmed Delete/cancel, and bounded timing (§4.5).
+- **Simplification A/B/C:** flat initial assessment view, full accepted progress, direct persisted completion views, distinct viewing/attempting states without redundant flags, and fixed-purpose two-module maintenance. Successful create/answer/complete/resume needs no follow-up get.
+- **Stage 4:** maintenance implementation/tests committed as `2aaa73a`, **not activated**. PostgreSQL verification is user-confirmed; the maintenance PR and authorized rollout remain pending. Existing snapshot/server/recovery PRs are unmerged in the last verified stack state; [delivery status](docs/session-lifecycle-plan.md#delivery-status) records their links and revision details.
 
-**Stage 3 independent validation, reported by the primary agent (2026-09-25): 339 tests passed, 0 skipped**, using disposable **PostgreSQL 18.1**, real migrations, and the **144-question seed**; independent-backend lock-barrier coverage remains in the suite. **Headed Chrome 153: five scenarios, 55 named checks** covered 8/16/32 completion/reload/report/survey, Resume/Delete/cancel/cascades, and two same-context tabs coordinated via Web Locks producing only **one new row**. Expired all-answered unfinished attempts could not first-complete late. At **age ≥7 days**, report access was denied and handles removed while DB rows remained. **197 no-store responses** were observed; **187 pre-completion responses** contained no answer-key markers. Keyboard Delete confirmation and **320px mobile dark RTL** had no horizontal overflow; no console errors or HTTP 5xx were observed. These are scoped observed checks, not exhaustive browser or deployment guarantees.
-
-Direct web/UI lint passed; web build passed **per the implementation agent**. Typecheck remains at **three pre-existing unrelated shared `chart.tsx` errors**. Root `pnpm lint` / version checks failed during automatic switching to **10.33.4** because of signature verification; reported fallback checks used pinned **pnpm 10.20** and direct tools. Neither root lint nor root build success is claimed. No application tests/build/browser runs were repeated by this documentation task. Apply migration `0002_dazzling_may_parker.sql` before new writers and preserve dependency order; Stage 4 still needs authorized migration/scheduler/secret/backlog/backup rollout verification. See [current behavior and validation commands](docs/sessions-and-evaluation.md#9-verification-and-source-map) and [remaining exit criteria](docs/session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria).
-
-**Repeatable validation:** with an explicit dedicated `TEST_DATABASE_URL`, run `node --import tsx --test "src/**/*.test.ts"` from `apps/web` (`node:test`, no `tsx` CLI IPC startup). Configured root entry points remain `pnpm --filter web test`, `pnpm --filter web typecheck`, `pnpm lint`, and package build `pnpm --filter web build`, but the failing **10.33.4** launcher is not a successful validation path. The reported fallback used pinned **pnpm 10.20** and direct checks. Installed lockfile-resolved commands such as `node node_modules/typescript/bin/tsc --noEmit`, `node node_modules/eslint/bin/eslint.js`, and `node node_modules/vite/bin/vite.js build` from `apps/web` bypass the launcher; also run the installed ESLint command from `packages/ui` for that package. Do not change the project pin or infer root Turbo success from package results.
+The single [verification record and repeatable commands](docs/sessions-and-evaluation.md#6-verification-and-source-map) distinguishes earlier agent-recorded PostgreSQL/browser/direct-tool results from the user-confirmed maintenance result and reported final regression run. Earlier unrelated chart errors and the pnpm launcher issue remain documented; no unreported per-command success is inferred. Apply snapshot migration `0002` before writers; A/B/C needs no new migration. Follow the [authorized deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook) for secrets, root/schedule verification, activation, bounded catch-up, and backup/restore policy.
 
 ### Selectable lengths — implemented extension
 
@@ -725,9 +644,7 @@ Direct web/UI lint passed; web build passed **per the implementation agent**. Ty
 - [x] Update intake/progress/report copy for the three free lengths; retain all-public-questions-up-front delivery and server-only answer keys, with no time or statistical confidence/comparability promises.
 - [x] Validate all lengths, omitted and invalid inputs, exact class quotas, uniqueness, active-pool shortfalls (no fallback), unchanged weighted scoring/equal pillar contributions, snapshot-based completion, client-safe delivery, and configuration/retry preservation.
 
-**Verification (2026-09-24):** 217 tests passed with an isolated temporary PostgreSQL 18 database, including all nine length/level combinations. Production build and repo-wide lint passed. Browser smoke tests completed Quick, Standard, and Deep against the seeded 144-question bank; checked keyboard selection, mobile light/LTR and dark/RTL layouts, final-question completion, report counts, and configuration preservation. No answer-key/seed markers were found in the built public JavaScript. Typecheck remains blocked by three unrelated errors in the existing shared `chart.tsx` edits (lines 154/158); this extension does not change that file.
-
-**Repeatable DB tests:** set `TEST_DATABASE_URL` to a dedicated PostgreSQL test database and use the commands above. Integration tests create/drop only their own unique schemas using temporary copies of real migrations; independent clients verify schema/backend identity for concurrency barriers. Without this explicit variable DB suites skip; configured failures fail, with no fallback to `DATABASE_URL`. To enable longer assessments in an existing deployment, apply the existing migrations and run `pnpm --filter web db:seed` against that environment if the bank is not already current. Lengths themselves need no migration; lifecycle snapshots require `0002`.
+All three lengths remain covered by the linked verification record. Existing environments need the current active bank (`pnpm --filter web db:seed` if needed) and existing migrations; lengths themselves need no migration, while lifecycle snapshots require `0002`.
 
 ### Phase 0 — Foundations (complete)
 
@@ -735,7 +652,7 @@ Direct web/UI lint passed; web build passed **per the implementation agent**. Ty
 
 - [x] Domain layer: constants, types, seeded sampling, weighted scoring.
 - [x] PostgreSQL schema (Drizzle) + normalized results + indexes + question `source` provenance column.
-- [x] Server service foundations: create/submit/complete, Zod validation, and rate limiting. Lifecycle Stage 2 now owns authenticated access/deletion and request-time inactivity; scheduled maintenance remains Stage 4 work.
+- [x] Server service foundations: create/submit/complete, Zod validation, and rate limiting. Lifecycle Stage 2 owns authenticated access/deletion and request-time inactivity; Stage 4 maintenance is implemented but not activated.
 - [x] XState assessment machine (configure → create → answer → complete, with retry states).
 - [x] Initial Drizzle migration (`drizzle/0000_init.sql`) committed; `docker-compose.yml` for local Postgres 16.
 - [x] Seed `skill_categories` (from `SKILL_CATEGORY_META`) and a starter React bank of **24 questions** (3 levels × 4 pillars × core/advanced), pillar-tagged with `source` provenance (`db/seedData.ts`, idempotent `db/seed.ts`, `pnpm db:seed`).
@@ -750,7 +667,7 @@ Expose the service through TanStack Start server functions. **Largely complete.*
 - [x] Anonymous client ID: minted client-side in `localStorage`, passed into creation and hashed only for best-effort rate limiting, never ownership. Session records remain server-side.
 - [x] `AssessmentApi` adapter unwraps all eight typed server-function envelopes; `createBrowserRecovery` constructs per-flow storage, credential ownership, Web Lock coordination, and server calls (`machines/assessmentServices.ts`).
 - [x] Erasure POST server function requires ID/token and confirmed expected state, with cascading deletion and changed-state protection; Stage 3 inline confirmation/cancel/reconciliation UI is delivered.
-- **Verification:** client-safe payload/handler tests, isolated PostgreSQL service/race coverage, and the Stage 3 headed-browser response checks above are reported. No production deployment or exhaustive HTTP/browser coverage is implied.
+- **Verification:** safe payload/handler tests, isolated PostgreSQL races, and scoped browser response checks are recorded in the linked verification reference, not a production-deployment guarantee.
 
 ### Phase 2 — Candidate UI (the assessment flow)
 
@@ -760,7 +677,7 @@ Build the screens, driven by `@xstate/react` `useMachine`. **Complete.**
 - [x] Question runner: prompt + `font-mono` code block, radio options, progress `N/Total` bar, per-question timer, `SELECT_OPTION`/`SUBMIT_ANSWER`; `FOCUS_LOSS` wired to `visibilitychange` in the orchestrator.
 - [x] Bootstrap/checking, restoring/resuming, answer/reconciliation, completion, confirmation/deletion, and typed expiry/unavailable/failure states with Retry/Cancel/History actions (`AssessmentFlow.tsx`, `assessmentMachine.ts`).
 - [x] Repeated copy centralized in `components/assessment/copy.ts` (mirrors the server `MESSAGES` seam); RTL-safe logical classes; native radios in `fieldset/legend` for a11y.
-- **Stage 3 verification:** Quick/Standard/Deep completion/reload, saved-report/survey recovery, Resume/Delete/cancel, Web Lock coordination, expiry handling, keyboard confirmation, and 320px dark RTL checks are reported above. Current typecheck still has three unrelated chart errors; production rollout is not claimed.
+- **Recovery verification:** see the shared record for length/reload, request counts, cancellation/concurrency, expiry, and accessibility checks and remaining tooling caveats.
 
 ### Phase 3 — Report & skill radar
 
@@ -775,12 +692,12 @@ Render the immutable completed `ReportSnapshot` with saved public questions/pill
 Make it production-credible.
 
 - Grow the question bank from the 144-item bank (Batches A–C, 6 core + 6 advanced per bucket, meeting the §10.1 pool-depth target) toward the broader §10.1 content goals, each tagged core/advanced via `difficulty_weight`; keep `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` honest via `db/__tests__/seedData.test.ts`; progressively replace `source`-adapted items with `original` ones (§10.1 content-sourcing policy).
-- Lifecycle Stage 4 bounded daily cleanup/inactivity job and authorized rollout; Sentry + funnel logging. Server rate-limit/erasure paths and Stage 3 browser erasure UX are implemented and covered; scheduled maintenance remains pending.
+- Finish publishing and authorized activation of the committed Stage 4 maintenance job; Sentry + funnel logging. Server/browser lifecycle paths are delivered; a real schedule and production rollout are not yet verified.
 - Analytics events for the KPI table (completion, duration, survey).
 - **Exit criteria:** KPIs in §3 are all measurable from real data; launch checklist (legal/accessibility in §10.2) green.
 
 ### Cross-cutting: testing
 
 - **Unit (implemented Quick baseline):** scoring (each 0/33/67/100 path, shown as whole percentages), sampling (weight-class pairing incl. unbalanced pools + seeded determinism + shortfall), proficiency boundaries, and PRNG determinism — `node:test`, run with `pnpm test`. Selectable-length coverage is listed in the extension checklist above.
-- **Integration (implemented):** isolated real-PostgreSQL service/snapshot/lifecycle tests, strict credentials, known-list batching/gate, safe wire handlers, idempotent replays, exact completion membership, expected-state deletion, independent-backend races/fresh-clock barriers, and coherent reads. Maintenance coverage is Stage 4 work.
-- **Machine/browser (Stage 3 delivered):** storage/SSR/failure handling, original-configuration restoration, accepted-ID reconciliation, bounded/offline timing, Resume/Delete/cancel, report/survey recovery, and lifecycle outcomes are covered by automated tests and the scoped independent headed-browser checks above. Stage 4 deployment/maintenance checks remain pending.
+- **Integration (implemented):** isolated real-PostgreSQL service/snapshot/lifecycle tests, strict credentials, known-list batching/gate, safe wire handlers, idempotent replays, exact completion membership, expected-state deletion, independent-backend races/fresh-clock barriers, and coherent reads. Maintenance PostgreSQL verification is user-confirmed in the linked verification record.
+- **Machine/browser (Stage 3 and A/B delivered):** storage/failure handling, restoration, accepted-ID reconciliation, timing, Resume/Delete/cancel, report/survey recovery, and reduced success-path requests have automated/scoped browser coverage. Authorized deployment and scheduler checks remain pending.
