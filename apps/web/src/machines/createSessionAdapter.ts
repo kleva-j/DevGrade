@@ -1,6 +1,11 @@
-import type { AssessmentConfiguration } from "@/domain/types";
+import type { AssessmentConfiguration, AssessmentResult } from "@/domain/types";
+import type { ReportView, LegacySummaryView } from "@/domain/sessionContracts";
 import type { AssessmentEnvelope, AssessmentFailure } from "@/server/errors";
 import type { AssessmentServices } from "./assessmentMachine";
+
+import { SESSION_VIEW } from "@/domain/constants";
+import { ERROR_CODE } from "@/server/errors";
+import { MESSAGES } from "@/server/messages";
 
 interface CreateSessionRequest {
   data: AssessmentConfiguration & { rawClientId: string };
@@ -20,6 +25,18 @@ export class AssessmentClientError extends Error {
 export function unwrapAssessmentEnvelope<T>(result: AssessmentEnvelope<T>): T {
   if (!result.ok) throw new AssessmentClientError(result.error);
   return result.data;
+}
+
+/** Temporary bridge for the baseline machine, which cannot render saved views yet. */
+export function unwrapCompletionEnvelope(
+  result: AssessmentEnvelope<ReportView | LegacySummaryView>,
+): AssessmentResult {
+  const view = unwrapAssessmentEnvelope(result);
+  if (view.kind === SESSION_VIEW.REPORT) return view.reportSnapshot.result;
+  throw new AssessmentClientError({
+    code: ERROR_CODE.LEGACY_SUMMARY_AVAILABLE,
+    message: MESSAGES.legacySummaryAvailable,
+  });
 }
 
 /** Keep the wire translation testable without loading the server runtime. */

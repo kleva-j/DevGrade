@@ -88,14 +88,12 @@ export interface SessionDiscoveryResult {
   sessions: SessionDiscoveryEntry[];
 }
 
-export interface CreatedSession extends SessionCredential, SessionDeadlines {
-  totalQuestions: number;
-  questions: PublicQuestion[];
-}
+export type CreatedSession = SessionCredential & AssessmentView;
 export interface AcceptedAnswerResult extends SessionProgress {
   success: true;
   sessionComplete: boolean;
   acceptedAnswer: AnswerInput;
+  acceptedAnswers: AnswerInput[];
 }
 export interface DeleteSessionInput extends SessionCredential {
   expectedState: (typeof DELETE_EXPECTATION)[keyof typeof DELETE_EXPECTATION];

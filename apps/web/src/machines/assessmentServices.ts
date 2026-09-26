@@ -2,6 +2,7 @@ import type { AssessmentServices } from "@/machines/assessmentMachine";
 
 import {
   unwrapAssessmentEnvelope,
+  unwrapCompletionEnvelope,
   createSessionAdapter,
 } from "./createSessionAdapter";
 
@@ -51,7 +52,7 @@ export const assessmentServices: AssessmentServices = {
   },
 
   async completeSession({ sessionId, sessionToken }) {
-    return unwrapAssessmentEnvelope(
+    return unwrapCompletionEnvelope(
       await completeSessionFn({ data: { sessionId, sessionToken } }),
     );
   },

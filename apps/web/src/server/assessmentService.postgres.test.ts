@@ -7,6 +7,7 @@ import { and, count, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import type { NewQuestion, QuestionRow } from "@/db/schema";
 import type { SkillCategory } from "@/domain/constants";
+import type { AnswerInput } from "@/domain/types";
 import type { AssessmentService } from "@/server/assessmentService";
 
 import * as tables from "@/db/schema";
@@ -17,6 +18,7 @@ import {
   FRAMEWORKS,
   PROFICIENCY,
   SESSION_STATUS,
+  SESSION_VIEW,
   SKILL_CATEGORIES,
   SKILL_CATEGORY,
   SKILL_CATEGORY_META,
@@ -140,13 +142,35 @@ async function assertCreatedSession(
   }
 
   assert.deepEqual(Object.keys(created).sort(), [
+    "acceptedAnswers",
     "accessExpiresAt",
+    "answeredCount",
     "attemptExpiresAt",
+    "blocksCreation",
+    "canResume",
+    "configuration",
+    "createdAt",
+    "effectiveStatus",
+    "kind",
+    "nextQuestionId",
     "questions",
     "sessionId",
     "sessionToken",
     "totalQuestions",
   ]);
+  assert.equal(created.kind, SESSION_VIEW.ASSESSMENT);
+  assert.equal(created.createdAt, stored.createdAt.toISOString());
+  assert.deepEqual(created.configuration, {
+    framework: FRAMEWORK.REACT,
+    targetLevel,
+    questionCount,
+  });
+  assert.equal(created.effectiveStatus, SESSION_STATUS.IN_PROGRESS);
+  assert.equal(created.blocksCreation, true);
+  assert.equal(created.canResume, true);
+  assert.equal(created.answeredCount, 0);
+  assert.equal(created.nextQuestionId, publicIds[0]);
+  assert.deepEqual(created.acceptedAnswers, []);
   for (const question of created.questions) {
     const row = byId.get(question.id);
     assert.ok(row);
@@ -272,6 +296,7 @@ async function answerAndComplete(
   // A fresh instance receives no selected length; only the persisted IDs govern
   // progress and completion. In particular, answer 8 must not finish 16 or 32.
   const service = createAssessmentService(db);
+  const acceptedAnswers: AnswerInput[] = [];
   for (const [index, questionId] of stored.selectedQuestionIds.entries()) {
     if (index === 0 || index === 8 || index === questionCount - 1) {
       await assertIncomplete(db, service, created);
@@ -287,8 +312,14 @@ async function answerAndComplete(
       selectedAnswer,
       timeSpentSeconds: index + 1,
     });
+    acceptedAnswers.push({
+      questionId,
+      selectedAnswer,
+      timeSpentSeconds: index + 1,
+    });
     assert.deepEqual(response, {
       success: true,
+      acceptedAnswers,
       sessionComplete: index === questionCount - 1,
       acceptedAnswer: {
         questionId,
@@ -320,10 +351,15 @@ async function answerAndComplete(
     );
   }
 
-  const result = await createAssessmentService(db).completeSession(
+  const view = await createAssessmentService(db).completeSession(
     created.sessionId,
     { sessionToken: created.sessionToken },
   );
+  assert.equal(view.kind, SESSION_VIEW.REPORT);
+  assert.equal(view.surveyRating, null);
+  assert.equal(view.attemptExpiresAt, created.attemptExpiresAt);
+  assert.equal(view.accessExpiresAt, created.accessExpiresAt);
+  const result = view.reportSnapshot.result;
   // Advanced-only, core-only, all-correct, all-wrong pillars: equal pillar
   // contributions yield 50%, while their individual scores expose weighting.
   const expectedScores = [
@@ -395,7 +431,7 @@ async function answerAndComplete(
   assert.ok(persistedResult);
   assert.ok(persistedResult.reportSnapshot);
   assert.ok(stored.questionSnapshot);
-  assert.deepEqual(persistedResult.reportSnapshot.result, result);
+  assert.deepEqual(persistedResult.reportSnapshot, view.reportSnapshot);
   assert.deepEqual(persistedResult.reportSnapshot.questions, created.questions);
   assert.deepEqual(
     persistedResult.reportSnapshot.pillars,

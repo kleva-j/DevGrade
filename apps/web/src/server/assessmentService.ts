@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 
-import type { AssessmentResult, Question } from "@/domain/types";
+import type { Question } from "@/domain/types";
 import type { SkillCategory } from "@/domain/constants";
 import type { QuestionRow } from "@/db/schema";
 import type { Db } from "@/db/client";
@@ -15,6 +15,8 @@ import type {
   SessionMetadata,
   CreatedSession,
   SessionView,
+  ReportView,
+  LegacySummaryView,
 } from "@/domain/sessionContracts";
 
 import {
@@ -61,6 +63,7 @@ import {
 import { AssessmentError, ERROR_CODE, ExistingAttemptError } from "./errors";
 import { MESSAGES } from "./messages";
 import {
+  orderedAcceptedAnswers,
   authenticatedSession,
   withLockedSession,
   requireUnfinished,
@@ -204,11 +207,12 @@ export function createAssessmentService(db: Db) {
           })
           .returning();
         return {
-          sessionId: session!.id,
+          kind: SESSION_VIEW.ASSESSMENT,
+          ...metadata(session!, createdAt, []),
+          ...progress(session!, []),
           sessionToken,
-          totalQuestions: questions.length,
           questions: questionSnapshot.questions.map(toPublicQuestion),
-          ...deadlines(lifecycle(session!, createdAt)),
+          acceptedAnswers: [],
         };
       });
     },
@@ -322,14 +326,12 @@ export function createAssessmentService(db: Db) {
             selectedAnswer: data.selectedAnswer,
             timeSpentSeconds: data.timeSpentSeconds,
           };
-          await tx
-            .insert(sessionAnswers)
-            .values({
-              ...accepted,
-              sessionId: session.id,
-              isCorrect: data.selectedAnswer === question.correctAnswer,
-              answeredAt: now,
-            });
+          await tx.insert(sessionAnswers).values({
+            ...accepted,
+            sessionId: session.id,
+            isCorrect: data.selectedAnswer === question.correctAnswer,
+            answeredAt: now,
+          });
           await tx
             .update(testSessions)
             .set({ status: SESSION_STATUS.IN_PROGRESS, lastActivityAt: now })
@@ -341,16 +343,17 @@ export function createAssessmentService(db: Db) {
           success: true,
           sessionComplete: current.nextQuestionId === null,
           acceptedAnswer: accepted,
+          acceptedAnswers: orderedAcceptedAnswers(session, answers),
           ...current,
         };
       });
     },
 
-    /** Compatibility result for Stage 2 callers; Stage 3 renders getSession's saved report. */
+    /** First completion awards once; retries return the saved view without rescoring. */
     async completeSession(
       sessionId: string,
       input: { sessionToken: string },
-    ): Promise<AssessmentResult> {
+    ): Promise<ReportView | LegacySummaryView> {
       const credential = parseInput(sessionCredentialSchema, {
         ...input,
         sessionId,
@@ -360,11 +363,14 @@ export function createAssessmentService(db: Db) {
         requireAccess(policy);
         if (session.status === SESSION_STATUS.COMPLETED) {
           const view = await sessionView(tx, session, now);
-          if (view.kind === SESSION_VIEW.REPORT)
-            return view.reportSnapshot.result;
+          if (
+            view.kind === SESSION_VIEW.REPORT ||
+            view.kind === SESSION_VIEW.LEGACY_SUMMARY
+          )
+            return view;
           throw new AssessmentError(
-            ERROR_CODE.LEGACY_SUMMARY_AVAILABLE,
-            MESSAGES.legacySummaryAvailable,
+            ERROR_CODE.SNAPSHOT_UNAVAILABLE,
+            MESSAGES.snapshotUnavailable,
           );
         }
         const questionSnapshot = requireUnfinished(session, policy);
@@ -379,25 +385,21 @@ export function createAssessmentService(db: Db) {
           completedAt: now,
         });
         const result = reportSnapshot.result;
-        await tx
-          .insert(sessionResults)
-          .values({
+        await tx.insert(sessionResults).values({
+          sessionId: session.id,
+          targetLevel: session.targetLevel,
+          totalScore: result.totalScore,
+          maxScore: result.maxScore,
+          proficiencyLevel: result.proficiencyLevel,
+          reportSnapshot,
+          createdAt: now,
+        });
+        await tx.insert(sessionCategoryScores).values(
+          result.categoryScores.map((score) => ({
+            ...score,
             sessionId: session.id,
-            targetLevel: session.targetLevel,
-            totalScore: result.totalScore,
-            maxScore: result.maxScore,
-            proficiencyLevel: result.proficiencyLevel,
-            reportSnapshot,
-            createdAt: now,
-          });
-        await tx
-          .insert(sessionCategoryScores)
-          .values(
-            result.categoryScores.map((score) => ({
-              ...score,
-              sessionId: session.id,
-            })),
-          );
+          })),
+        );
         await tx
           .update(testSessions)
           .set({
@@ -406,7 +408,13 @@ export function createAssessmentService(db: Db) {
             lastActivityAt: now,
           })
           .where(eq(testSessions.id, session.id));
-        return result;
+        return {
+          kind: SESSION_VIEW.REPORT,
+          sessionId: session.id,
+          ...deadlines(policy),
+          reportSnapshot,
+          surveyRating: null,
+        };
       });
     },
 
