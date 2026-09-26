@@ -179,6 +179,30 @@ export const SESSION_RETENTION_DAYS = 7;
 
 export const QUESTION_SNAPSHOT_VERSION = 1;
 export const REPORT_SNAPSHOT_VERSION = 1;
+
+/** Above the legitimate same-browser weekly maximum (5 × 24 × 7 = 840). */
+export const MAX_KNOWN_SESSION_CREDENTIALS = 1000;
+export const SESSION_DISCOVERY_BATCH_SIZE = 100;
+
+export const SESSION_VIEW = {
+  ASSESSMENT: "assessment",
+  ATTEMPT_EXPIRED: "attempt_expired",
+  REPORT: "report",
+  LEGACY_SUMMARY: "legacy_summary",
+  LEGACY_UNRESTORABLE: "legacy_unrestorable",
+} as const;
+export const SESSION_DISCOVERY = {
+  AVAILABLE: "available",
+  UNAVAILABLE: "not_found",
+} as const;
+export const DELETE_EXPECTATION = {
+  UNFINISHED: "unfinished",
+  COMPLETED: "completed",
+} as const;
+export const DELETE_OUTCOME = {
+  DELETED: "deleted",
+  CHANGED_STATE: "changed_state",
+} as const;
 export const SCORING_VERSION = { V1: "weighted-v1" } as const;
 
 export const SNAPSHOT_ERROR_CODE = {

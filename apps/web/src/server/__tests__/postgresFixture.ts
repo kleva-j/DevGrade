@@ -66,12 +66,41 @@ export async function createPostgresFixture(t: TestContext) {
     onnotice: () => {},
   });
   const db = drizzle(client, { schema });
+  const independentClients: ReturnType<typeof postgres>[] = [];
+  async function connect() {
+    const scoped = postgres(url.toString(), {
+      max: 1,
+      prepare: false,
+      connect_timeout: 5,
+      idle_timeout: 5,
+      onnotice: () => {},
+    });
+    independentClients.push(scoped);
+    const [scope] = await scoped<
+      { name: string; pid: number }[]
+    >`SELECT current_schema() AS name, pg_backend_pid() AS pid`;
+    assert.equal(scope?.name, dataSchema);
+    assert.ok(scope.pid);
+    return { db: drizzle(scoped, { schema }), pid: scope.pid };
+  }
+  /** Observable lock barrier on another backend, never a timing sleep. */
+  async function waitForBlocked(pid: number) {
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline) {
+      const [row] = await client<
+        { blocked: boolean }[]
+      >`SELECT cardinality(pg_blocking_pids(${pid})) > 0 AS blocked`;
+      if (row?.blocked) return;
+    }
+    throw new Error("Expected independent backend to reach a lock barrier");
+  }
   const ownedSchemas: string[] = [];
   let migrationsFolder: string | undefined;
 
   t.after(async () => {
     const failedDrops: string[] = [];
     try {
+      for (const scoped of independentClients) await scoped.end({ timeout: 5 });
       for (const name of [...ownedSchemas].reverse()) {
         try {
           await client`DROP SCHEMA ${client(name)} CASCADE`;
@@ -149,5 +178,5 @@ export async function createPostgresFixture(t: TestContext) {
     throw new Error(`PostgreSQL test setup failed while ${phase}${code}`);
   }
 
-  return { db, dataSchema, journalSchema };
+  return { db, connect, waitForBlocked, dataSchema, journalSchema };
 }

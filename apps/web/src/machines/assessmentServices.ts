@@ -1,6 +1,10 @@
 import type { AssessmentServices } from "@/machines/assessmentMachine";
 
-import { createSessionAdapter } from "./createSessionAdapter";
+import {
+  unwrapAssessmentEnvelope,
+  unwrapCompletionEnvelope,
+  createSessionAdapter,
+} from "./createSessionAdapter";
 
 import {
   completeSessionFn,
@@ -44,14 +48,18 @@ export const assessmentServices: AssessmentServices = {
         timeSpentSeconds: answer.timeSpentSeconds,
       },
     });
-    return { sessionComplete: res.sessionComplete };
+    return { sessionComplete: unwrapAssessmentEnvelope(res).sessionComplete };
   },
 
   async completeSession({ sessionId, sessionToken }) {
-    return completeSessionFn({ data: { sessionId, sessionToken } });
+    return unwrapCompletionEnvelope(
+      await completeSessionFn({ data: { sessionId, sessionToken } }),
+    );
   },
 
   async submitSurvey({ sessionId, sessionToken, rating }) {
-    return submitSurveyFn({ data: { sessionId, sessionToken, rating } });
+    return unwrapAssessmentEnvelope(
+      await submitSurveyFn({ data: { sessionId, sessionToken, rating } }),
+    );
   },
 };
