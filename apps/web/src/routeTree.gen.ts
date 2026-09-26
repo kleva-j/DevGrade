@@ -10,33 +10,44 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiInternalSessionMaintenanceRouteImport } from './routes/api/internal/session-maintenance'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInternalSessionMaintenanceRoute =
+  ApiInternalSessionMaintenanceRouteImport.update({
+    id: '/api/internal/session-maintenance',
+    path: '/api/internal/session-maintenance',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/internal/session-maintenance': typeof ApiInternalSessionMaintenanceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/internal/session-maintenance': typeof ApiInternalSessionMaintenanceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/internal/session-maintenance': typeof ApiInternalSessionMaintenanceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/api/internal/session-maintenance'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/internal/session-maintenance'
+  id: '__root__' | '/' | '/api/internal/session-maintenance'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiInternalSessionMaintenanceRoute: typeof ApiInternalSessionMaintenanceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +59,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/session-maintenance': {
+      id: '/api/internal/session-maintenance'
+      path: '/api/internal/session-maintenance'
+      fullPath: '/api/internal/session-maintenance'
+      preLoaderRoute: typeof ApiInternalSessionMaintenanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiInternalSessionMaintenanceRoute: ApiInternalSessionMaintenanceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
