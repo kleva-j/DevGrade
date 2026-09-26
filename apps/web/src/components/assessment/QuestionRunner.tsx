@@ -24,12 +24,16 @@ import {
 import { SKILL_CATEGORY_META } from "@/domain/constants";
 
 import { UI } from "./copy";
+import { boundedDuration } from "@/machines/assessmentMachine";
 
 export interface QuestionRunnerProps {
   question: PublicQuestion;
   /** Zero-based index of the current question. */
   index: number;
   total: number;
+  answeredCount: number;
+  questionStartedAt: number;
+  timerPausedAt: number | null;
   selectedOption: number | null;
   submitting: boolean;
   isLast: boolean;
@@ -55,8 +59,8 @@ function CodeBlock({ code }: CodeBlockProps) {
   return (
     <pre
       tabIndex={0}
-      aria-label="Code example"
-      className="mt-4 overflow-x-auto rounded-lg bg-muted p-4 font-mono text-[0.8rem] leading-relaxed"
+      aria-label={UI.report.codeLabel}
+      className="mt-4 overflow-x-auto rounded-lg bg-muted p-4 font-mono text-sm leading-relaxed"
     >
       {code}
     </pre>
@@ -67,6 +71,9 @@ export function QuestionRunner({
   question,
   index,
   total,
+  answeredCount,
+  questionStartedAt,
+  timerPausedAt,
   selectedOption,
   submitting,
   isLast,
@@ -77,14 +84,18 @@ export function QuestionRunner({
 }: QuestionRunnerProps) {
   const [elapsed, setElapsed] = useState(0);
 
-  // Reset + run the per-question timer whenever the question changes.
+  // The machine resets this timestamp on explicit resume and reconciliation.
   useEffect(() => {
-    setElapsed(0);
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    const update = () =>
+      setElapsed(
+        boundedDuration(questionStartedAt, timerPausedAt ?? Date.now()),
+      );
+    update();
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [question.id]);
+  }, [questionStartedAt, timerPausedAt]);
 
-  const progressPct = ((index + 1) / total) * 100;
+  const progressPct = (answeredCount / total) * 100;
 
   return (
     <Card className="w-full max-w-2xl [--card-spacing:--spacing(8)]">
@@ -118,7 +129,7 @@ export function QuestionRunner({
           <RadioGroup
             value={selectedOption}
             onValueChange={(value) => onSelect(value as number)}
-            disabled={submitting}
+            disabled={submitting || error !== null}
           >
             {question.options.map((option, i) => (
               <FieldLabel key={i} htmlFor={`${question.id}-${i}`}>

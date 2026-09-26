@@ -9,10 +9,12 @@ import {
   Radar,
 } from "@workspace/ui/components/chart";
 
-import { SKILL_CATEGORY_META } from "@/domain/constants";
+import type { SnapshotPillar } from "@/domain/sessionSnapshots";
+import { UI } from "./copy";
 
 export interface SkillRadarProps {
   scores: readonly CategoryScore[];
+  pillars: readonly SnapshotPillar[];
 }
 
 /**
@@ -22,21 +24,23 @@ export interface SkillRadarProps {
  * Order follows the `categoryScores` array as given.
  */
 const chartConfig = {
-  score: { label: "Score", color: "var(--primary)" },
+  score: { label: UI.report.scoreLabel, color: "var(--primary)" },
 } satisfies ChartConfig;
 
-export function SkillRadar({ scores }: SkillRadarProps) {
+export function SkillRadar({ scores, pillars }: SkillRadarProps) {
   if (scores.length < 3) return null;
 
   const data = scores.map((s) => ({
-    pillar: SKILL_CATEGORY_META[s.skillCategory].displayName,
+    pillar:
+      pillars.find((pillar) => pillar.skillCategory === s.skillCategory)
+        ?.displayName ?? "",
     score: s.scorePct,
   }));
 
   return (
     <ChartContainer
       config={chartConfig}
-      className="mx-auto aspect-square max-h-[260px] w-full"
+      className="mx-auto aspect-square max-h-64 w-full [&_.recharts-polar-angle-axis-tick-value]:text-xs"
     >
       <RadarChart
         data={data}
@@ -46,7 +50,7 @@ export function SkillRadar({ scores }: SkillRadarProps) {
         <PolarGrid />
         <PolarAngleAxis
           dataKey="pillar"
-          tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+          tick={{ fill: "var(--muted-foreground)" }}
         />
         <Radar
           dataKey="score"
