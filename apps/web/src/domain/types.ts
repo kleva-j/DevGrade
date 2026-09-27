@@ -52,7 +52,7 @@ export function toPublicQuestion(q: Question): PublicQuestion {
     title: q.title,
     prompt: q.prompt,
     codeBlock: q.codeBlock,
-    options: q.options,
+    options: [...q.options],
   };
 }
 

@@ -23,6 +23,7 @@ export type SurveyPhase = "prompt" | "submitting" | "thanks";
 
 export interface SatisfactionSurveyProps {
   phase: SurveyPhase;
+  savedRating: number | null;
   error: string | null;
   onSubmit: (rating: number) => void;
 }
@@ -43,6 +44,7 @@ const SELECTED_ITEM_CLASS =
 
 export function SatisfactionSurvey({
   phase,
+  savedRating,
   error,
   onSubmit,
 }: SatisfactionSurveyProps) {
@@ -54,7 +56,14 @@ export function SatisfactionSurvey({
       <Card className="mt-6 [--card-spacing:--spacing(8)]">
         <CardContent className="flex items-center justify-center gap-2 text-sm font-medium text-primary">
           <CheckCircleIcon weight="fill" className="size-5" />
-          {UI.survey.thanks}
+          <span>
+            {UI.survey.thanks}
+            {savedRating !== null ? (
+              <span className="block text-muted-foreground">
+                {UI.survey.savedRating(savedRating)}
+              </span>
+            ) : null}
+          </span>
         </CardContent>
       </Card>
     );

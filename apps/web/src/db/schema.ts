@@ -22,6 +22,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type {
+  QuestionSnapshot,
+  ReportSnapshot,
+} from "@/domain/sessionSnapshots";
+
 import {
   PROFICIENCY_LEVELS,
   SESSION_STATUSES,
@@ -97,6 +102,8 @@ export const testSessions = pgTable(
     selectedQuestionIds: jsonb("selected_question_ids")
       .$type<string[]>()
       .notNull(),
+    /** Private immutable content. Nullable only for pre-snapshot legacy rows. */
+    questionSnapshot: jsonb("question_snapshot").$type<QuestionSnapshot>(),
     /** Behavioral anti-cheat signal (not identifying; no fingerprint stored). */
     focusLossCount: integer("focus_loss_count").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true })
@@ -112,7 +119,12 @@ export const testSessions = pgTable(
       .defaultNow(),
   },
   (t) => [
-    index("idx_sessions_status").on(t.status),
+    index("idx_sessions_created_id").on(t.createdAt, t.id),
+    index("idx_sessions_status_activity_id").on(
+      t.status,
+      t.lastActivityAt,
+      t.id,
+    ),
     index("idx_sessions_client_recent").on(t.clientId, t.createdAt),
   ],
 );
@@ -152,6 +164,8 @@ export const sessionResults = pgTable("session_results", {
   totalScore: real("total_score").notNull(),
   maxScore: integer("max_score").notNull().default(100),
   proficiencyLevel: proficiencyEnum("proficiency_level").notNull(),
+  /** Awarded safe report; never backfill legacy rows from current bank content. */
+  reportSnapshot: jsonb("report_snapshot").$type<ReportSnapshot>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
