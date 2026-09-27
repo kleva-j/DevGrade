@@ -1,12 +1,12 @@
 # Product Requirements Document (PRD): DevGrade
 
-**Document Version:** 1.9.3
+**Document Version:** 1.9.4
 
 **Status:** Approved for MVP Development
 
 **Target Release:** Q4 2026
 
-**Last Updated:** 2026-09-26
+**Last Updated:** 2026-09-27
 
 **Change Log:**
 
@@ -26,7 +26,8 @@
 | 1.9.0 | 2026-09-25 | Lifecycle Stages 1–2 delivered in source: immutable snapshots and normalized awards; 24-hour attempts/seven-day access from original creation; effective inactivity, strict credentials, parent-first transactions, coherent reads, retry-safe operations, expected-state deletion, bounded known-credential gating, and typed no-store POST/progress contracts. No deployment claimed. |
 | 1.9.1 | 2026-09-25 | Stage 3 browser recovery delivered in source: version-1 handles, fail-closed creation, Web Locks, explicit original-configuration Resume, confirmed Delete, saved reports/surveys, and bounded hidden/offline-aware timing. No production deployment claimed. |
 | 1.9.2 | 2026-09-26 | Approved simplification A/B/C implemented: flat creation view, full accepted-answer progress, direct persisted completion views, fewer machine flags/success-path reads, and fixed-purpose maintenance. Maintenance was uncommitted/default-disabled at this revision; validation, publishing, and authorized rollout remained pending (§13). |
-| 1.9.3 | 2026-09-26 | Maintenance implementation/tests committed locally as `2aaa73a`. Recorded user-confirmed PostgreSQL verification (zero failures/skips) and the reported final regression run. Cleanup remains default-disabled; stack publishing, scheduling, and authorized production rollout remain pending (§13). |
+| 1.9.3 | 2026-09-26 | Maintenance implementation/tests committed locally as `2aaa73a`. Recorded user-confirmed PostgreSQL verification (zero failures/skips) and the reported final regression run. At this revision cleanup remained default-disabled; stack publishing, scheduling, and authorized production rollout were pending (§13). |
+| 1.9.4 | 2026-09-27 | Review fixes on existing draft PRs #1/#2/#4/#5: owning-branch documentation corrections, visible-and-online timer resumption, immediate unavailable storage warnings, shared pure credential validation, and centralized error codes. Scoped verification is recorded in §13; fix commits await push and review threads are not claimed resolved. No schema/product/policy changes; maintenance remains off. |
 
 ---
 
@@ -166,9 +167,9 @@ Creation checks every supplied known credential (maximum **1,000**, server batch
 
 Browser storage contains version-1 per-ID credential handles, not assessment/report/actor payloads. A post-create write failure retains credentials in memory and uses the returned view, with a recovery warning. Cancel prevents queued/discovering creation; an already-sent request may still succeed and its credentials are retained. See [exact storage and recovery behavior](docs/sessions-and-evaluation.md#4-browser-recovery).
 
-Opening/history is read-only; explicit Resume restores **original configuration** and accepted progress. The machine separates history/creation/viewing/attempting, applies successful operation responses without extra reads, and reads for conflicts/ambiguous completion recovery. Reports use immutable saved questions/pillar metadata and separate survey state. Timing is bounded **0–3600 seconds**, excludes hidden/observed offline intervals and time between visits, and does not affect scoring. Server-confirmed unavailability removes matching handles; it need not mean physical DB deletion.
+Opening/history is read-only; explicit Resume restores **original configuration** and accepted progress. The machine separates history/creation/viewing/attempting, applies successful operation responses without extra reads, and reads for conflicts/ambiguous completion recovery. Reports use immutable saved questions/pillar metadata and separate survey state. Timing is bounded **0–3600 seconds**, excludes hidden/offline intervals and time between visits, and resumes only while **visible and online**—reconnect while hidden stays paused. It does not affect scoring. Server-confirmed unavailability removes matching handles; removal failures warn immediately in `unavailable`, and unavailability need not mean physical DB deletion.
 
-Bounded maintenance and its protected handler are **committed locally and disabled by default**; PostgreSQL verification is user-confirmed. No schedule or production activation is verified. Seven days starts cleanup eligibility; a healthy daily job normally deletes around age 7–8 days, later with backlog/failure. Backup/WAL/replica retention is separate. Follow [delivery and the deployment runbook](docs/session-lifecycle-plan.md), not source delivery alone, before activation.
+Bounded maintenance and its protected handler are **implemented and off/default-disabled**; earlier PostgreSQL verification is user-confirmed. No schedule or production activation is verified. Seven days starts cleanup eligibility; a healthy daily job normally deletes around age 7–8 days, later with backlog/failure. Backup/WAL/replica retention is separate. Follow [delivery and the deployment runbook](docs/session-lifecycle-plan.md), not source delivery alone, before activation.
 
 ## 5. Technical Architecture & Data Schema
 
@@ -179,7 +180,7 @@ Bounded maintenance and its protected handler are **committed locally and disabl
 - **Styling:** Tailwind CSS v4 + `shadcn/ui` using OKLCH CSS variables.
 - **Database & ORM:** **PostgreSQL + Drizzle ORM in every environment** (dev, CI, prod) — no SQLite/Postgres split (decision #1). Migrations via Drizzle Kit.
 - **State Management:** **XState** drives the assessment/recovery flow (`apps/web/src/machines/assessmentMachine.ts`); `sessionRecovery.ts` owns credentials and authenticated server-function calls. Safe views remain in memory, minimal handles persist in browser storage, and successful responses update progress directly; explicit/reconciliation reads remain. The full question set is still delivered up front (decision #5).
-- **Validation:** Shared Zod schemas validate before DB work inside the typed, safe server-function envelope (§7.2).
+- **Validation:** One pure domain credential schema is reused by server validation and browser storage. Validation remains inside the typed, safe server-function envelope (§7.2), with unchanged credential rules.
 - **Authentication:** Anonymous assessments (MVP) with optional user accounts in Phase 2. Access requires both a canonical UUID `sessionId` and an exact 64-hex-character `sessionToken`. A browser-generated `rawClientId` stored in `localStorage` is hashed only for rate limiting, never ownership (no IP or device fingerprint stored).
 
 ### 5.2 Core Data Schema
@@ -462,7 +463,7 @@ The active wire failure is **`{ ok: false, error: { code, message } }`**, with `
 - **429:** `rate_limited` — best-effort maximum five sessions per trailing hour per hashed browser client ID, not per IP.
 - **500:** `internal_error` — generic safe message; no credentials, Zod issue payloads, SQL, or raw DB error details.
 
-`legacy_summary_available` remains a compatibility error code, not the current completion-replay result. The browser adapter preserves typed `AssessmentClientError`; recovery reconciles conflicts/expiry, removes only matching server-confirmed unavailable handles, and preserves handles on transient failure. Local removal failures warn, not claim remote erasure.
+`legacy_summary_available` remains a compatibility error code, not the current completion-replay result. The browser adapter preserves typed `AssessmentClientError`; recovery reconciles conflicts/expiry, removes only matching server-confirmed unavailable handles, and preserves handles on transient failure. Local removal failures warn immediately in `unavailable`, not claim remote erasure. Client and maintenance error codes are centralized without changing wire behavior.
 
 ---
 
@@ -475,7 +476,7 @@ The active wire failure is **`{ ok: false, error: { code, message } }`**, with `
 - **Hosting**: A **single full-stack TanStack Start app** (decision #2) on one Node host (e.g. Railway, Fly.io, or a Vercel Node deployment). UI and server functions ship together; there is no separately hosted API service.
 - **Database**: **PostgreSQL in every environment** (decision #1) — local via Docker, managed Postgres in production (e.g. Railway/Neon/Supabase). Drizzle Kit runs migrations on deploy.
 - **CDN**: Edge/CDN caching for static assets and the client bundle.
-- **Maintenance (committed locally/default-disabled)**: `runSessionMaintenance(db)` deletes eligible all-status sessions and materializes retained idle status in fixed parent-locked batches. The protected GET/no-store handler initializes the DB only after authentication and activation. No cron root/configuration or actual schedule is verified; daily `0 3 * * *` UTC activation requires the [deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook). Access expiry works independently.
+- **Maintenance (implemented/default-disabled)**: `runSessionMaintenance(db)` deletes eligible all-status sessions and materializes retained idle status in fixed parent-locked batches. The protected GET/no-store handler initializes the DB only after authentication and activation. No cron root/configuration or actual schedule is verified; daily `0 3 * * *` UTC activation requires the [deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook). Access expiry works independently.
 - **Environment Variables**: `DATABASE_URL`; high-entropy bearer-safe `CRON_SECRET` (32–256 characters); `SESSION_MAINTENANCE_ENABLED` (default false; only literal `true` enables work). Provision through the authorized host/environment workflow, not this document.
 
 **Infrastructure Requirements:**
@@ -558,7 +559,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 **Data Privacy:**
 
 - GDPR-compliant data handling for EU users
-- Seven-day normal access is enforced; bounded cleanup is committed locally/default-disabled, with user-confirmed PostgreSQL verification and authorized activation still pending (§4.5). No exact physical-erasure guarantee; backup/WAL/replica retention is separate.
+- Seven-day normal access is enforced; bounded cleanup is implemented/default-disabled, with historical user-confirmed PostgreSQL verification and authorized activation still pending (§4.5). No exact physical-erasure guarantee; backup/WAL/replica retention is separate.
 - Authenticated expected-state erasure and Stage 3 confirmation/recovery UI are implemented in source. Same-origin scripts/shared-profile users can read localStorage credentials; handles are not accounts or shareable report links.
 - Cookie consent mechanism for analytics
 
@@ -606,7 +607,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 
 ## 12. Architectural Decisions (Resolved)
 
-The original decisions below were resolved for the Quick baseline in `apps/web`. Selectable lengths, lifecycle Stages 1–3, and simplification A/B/C are implemented in source. Maintenance is committed locally/default-disabled with user-confirmed PostgreSQL verification; publishing and authorized rollout remain pending (§13).
+The original decisions below were resolved for the Quick baseline in `apps/web`. Selectable lengths, lifecycle Stages 1–3, and simplification A/B/C are implemented in source. Maintenance is implemented/default-disabled with historical user-confirmed PostgreSQL verification; the draft stack exists, while review-fix pushes and authorized rollout remain pending (§13).
 
 1. **Database engine — RESOLVED: PostgreSQL everywhere.** SQLite is dropped entirely; local, CI, and prod all run PostgreSQL via Drizzle ORM + Drizzle Kit migrations (`apps/web/src/db/schema.ts`, `drizzle.config.ts`).
 2. **Deployment topology — RESOLVED: single full-stack app.** The UI and server functions ship together as one TanStack Start deployment (see §8.1). No separately hosted API.
@@ -620,22 +621,22 @@ The original decisions below were resolved for the Quick baseline in `apps/web`.
 - **Rate limiting:** keyed on the hash of the browser's localStorage client ID (not a cookie or IP), avoiding shared-NAT grouping. Five creations per trailing hour is best-effort, not globally serialized identity enforcement (`MAX_SESSIONS_PER_HOUR`, `db/queries.ts`).
 - **Privacy:** no raw device fingerprint; the behavioral `focus_loss_count` column and hashed client ID remain. Erasure uses ID/token plus confirmed expected state through `deleteSession`, cascading to all session children/snapshots. Token-only helpers are removed; the client ID never grants access or deletion.
 - **Pool sizing:** content target set to a minimum per (level × pillar) bucket — see §10.1. Sampling must fail closed with an `insufficient_questions` error when the active pool cannot supply the requested 1/2/4 core+advanced pairs per pillar; substitutes, repeats, and silent shortening are forbidden. A pillar-tagged **144-question** React bank ships in `db/seedData.ts` (six core + six advanced per bucket), with per-row `source` provenance for licensing (see §10.1 "Content sourcing & licensing") and a guard test (`db/__tests__/seedData.test.ts`) enforcing the per-bucket minimum depth.
-- **Abandonment:** request-time policy derives effective `abandoned` state at 30 minutes without mutating reads. Eligible explicit resume/new answers reactivate the attempt; neither extends its 24-hour lifetime. The unbounded helper is replaced by fixed-purpose maintenance; its publishing/activation remain pending (§8.1).
+- **Abandonment:** request-time policy derives effective `abandoned` state at 30 minutes without mutating reads. Eligible explicit resume/new answers reactivate the attempt; neither extends its 24-hour lifetime. The unbounded helper is replaced by fixed-purpose maintenance; it remains off pending authorized activation (§8.1).
 
 ---
 
 ## 13. Implementation Plan (MVP)
 
-The domain/server/UI, selectable lengths, lifecycle Stages 1–3, and approved simplification **A/B/C are implemented in source**. Maintenance is committed locally/default-disabled with user-confirmed PostgreSQL verification; publishing and authorized rollout remain pending. No production deployment is claimed. Lifecycle stages and simplification letters are separate from the original MVP phases below.
+The domain/server/UI, selectable lengths, lifecycle Stages 1–4, and approved simplification **A/B/C are implemented in source**. PRs #1/#2/#4/#5 were published as drafts; new review-fix commits await push to those same PRs. Maintenance remains off/default-disabled; production migration, secrets, cron configuration, deployment, and activation remain unperformed. Lifecycle stages and simplification letters are separate from the original MVP phases below.
 
 ### Session lifecycle — staged delivery
 
 - **Stages 1–2:** durable snapshots/normalized awards, strict authenticated lifecycle operations, coherent reads, parent-first locks/fresh DB time, known-credential gating, and safe retry/delete contracts (§4.5, §7).
 - **Stage 3:** per-ID credential storage, fail-closed creation coordination, original-configuration Resume, history/report/survey recovery, confirmed Delete/cancel, and bounded timing (§4.5).
 - **Simplification A/B/C:** flat initial assessment view, full accepted progress, direct persisted completion views, distinct viewing/attempting states without redundant flags, and fixed-purpose two-module maintenance. Successful create/answer/complete/resume needs no follow-up get.
-- **Stage 4:** maintenance implementation/tests committed as `2aaa73a`, **not activated**. PostgreSQL verification is user-confirmed; the maintenance PR and authorized rollout remain pending. Existing snapshot/server/recovery PRs are unmerged in the last verified stack state; [delivery status](docs/session-lifecycle-plan.md#delivery-status) records their links and revision details.
+- **Stage 4:** maintenance implementation/tests are in existing draft PR #5, **not activated**. Earlier PostgreSQL verification is user-confirmed. [Delivery status](docs/session-lifecycle-plan.md#delivery-status) records the existing draft stack, pending review-fix pushes, and owning-branch documentation corrections; thread resolution is not yet claimed.
 
-The single [verification record and repeatable commands](docs/sessions-and-evaluation.md#6-verification-and-source-map) distinguishes earlier agent-recorded PostgreSQL/browser/direct-tool results from the user-confirmed maintenance result and reported final regression run. Earlier unrelated chart errors and the pnpm launcher issue remain documented; no unreported per-command success is inferred. Apply snapshot migration `0002` before writers; A/B/C needs no new migration. Follow the [authorized deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook) for secrets, root/schedule verification, activation, bounded catch-up, and backup/restore policy.
+The single [verification record and repeatable commands](docs/sessions-and-evaluation.md#6-verification-and-source-map) separates new focused PR #2/#4 checks and typecheck/scoped lint with unrelated edits stashed from historical PostgreSQL/browser/maintenance results. No new DB/browser run or unreported final maintenance/build outcome is inferred; earlier user-chart diagnostics and launcher limitations retain their historical scope. Apply snapshot migration `0002` before writers; A/B/C needs no new migration. Follow the [authorized deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook) for secrets, root/schedule verification, activation, bounded catch-up, and backup/restore policy.
 
 ### Selectable lengths — implemented extension
 
@@ -692,7 +693,7 @@ Render the immutable completed `ReportSnapshot` with saved public questions/pill
 Make it production-credible.
 
 - Grow the question bank from the 144-item bank (Batches A–C, 6 core + 6 advanced per bucket, meeting the §10.1 pool-depth target) toward the broader §10.1 content goals, each tagged core/advanced via `difficulty_weight`; keep `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` honest via `db/__tests__/seedData.test.ts`; progressively replace `source`-adapted items with `original` ones (§10.1 content-sourcing policy).
-- Finish publishing and authorized activation of the committed Stage 4 maintenance job; Sentry + funnel logging. Server/browser lifecycle paths are delivered; a real schedule and production rollout are not yet verified.
+- Push review-fix updates to the existing draft stack and complete authorized activation of the Stage 4 maintenance job; Sentry + funnel logging. Server/browser lifecycle paths are delivered; a real schedule and production rollout are not yet verified.
 - Analytics events for the KPI table (completion, duration, survey).
 - **Exit criteria:** KPIs in §3 are all measurable from real data; launch checklist (legal/accessibility in §10.2) green.
 

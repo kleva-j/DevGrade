@@ -1,6 +1,6 @@
 # Assessment sessions and evaluation
 
-**Current source — 2026-09-26.** Lifecycle Stages 1–4 and approved simplification Phases A/B/C are implemented. Maintenance is **committed locally and disabled by default**; its PostgreSQL verification is user-confirmed. No production deployment or active schedule is established. See [delivery and activation](session-lifecycle-plan.md), [simplification findings](session-lifecycle-simplification-plan.md), and the [PRD](../prd.md).
+**Current source — 2026-09-27.** Lifecycle Stages 1–4 and approved simplification Phases A/B/C are implemented and published in the draft stack; review-fix updates await push. Maintenance remains **off/default-disabled**. Production migration, secrets, cron configuration, deployment, and activation remain unperformed. See [delivery and activation](session-lifecycle-plan.md), [simplification findings](session-lifecycle-simplification-plan.md), and the [PRD](../prd.md).
 
 ## 1. Policy and authority
 
@@ -14,7 +14,7 @@ These are elapsed UTC durations with inclusive expiry boundaries, not sliding or
 
 Seven days also starts cleanup eligibility, **not guaranteed physical erasure**. While maintenance is disabled, expired rows can remain until explicit deletion. A healthy daily schedule would normally delete around age 7–8 days; missed runs, locks, or backlog can delay deletion without extending access. Backups/WAL/PITR/replicas have separate retention.
 
-Every existing-session operation authenticates **both** a canonical 36-character UUID `sessionId` (normalized lowercase) and an exact 64-hex-character `sessionToken` (not case-normalized). The server creates the token from 32 random bytes. Unknown IDs and wrong tokens share `not_found`; authentication precedes expiry/content disclosure. No cookie ownership, token-only helper, token refresh, or client-ID recovery exists.
+One pure `sessionCredentialSchema` in `domain/sessionContracts.ts` is reused by server validation and browser storage, with unchanged credential rules. Every existing-session operation authenticates **both** a canonical 36-character UUID `sessionId` (normalized lowercase) and an exact 64-hex-character `sessionToken` (not case-normalized). The server creates the token from 32 random bytes. Unknown IDs and wrong tokens share `not_found`; authentication precedes expiry/content disclosure. No cookie ownership, token-only helper, token refresh, or client-ID recovery exists.
 
 `rawClientId`, stored at `devgrade.clientId`, is hashed server-side only for best-effort **five creations per trailing 60 minutes**. It grants no listing, ownership, or deletion rights; simultaneous creations can exceed that nominal limit.
 
@@ -54,7 +54,7 @@ All eight `server/assessmentFns.ts` functions are **POST**, with **`Cache-Contro
 // existing_attempt additionally carries error.blockers: SessionMetadata[]
 ```
 
-These are TanStack Start server functions, not literal `/api/sessions` REST routes. Logical `AssessmentError.status`/`toErrorResponse` mappings are **not automatically emitted HTTP statuses**. The adapter unwraps typed `AssessmentClientError`; callers inspect codes, not messages. See [PRD §7](../prd.md#7-api-specifications) for inputs and logical errors.
+These are TanStack Start server functions, not literal `/api/sessions` REST routes. Logical `AssessmentError.status`/`toErrorResponse` mappings are **not automatically emitted HTTP statuses**. The adapter unwraps typed `AssessmentClientError`; callers inspect codes, not messages. Client transport failures use centralized `CLIENT_ERROR_CODE`, and changed-state notices reuse `DELETE_OUTCOME.CHANGED_STATE`. See [PRD §7](../prd.md#7-api-specifications) for inputs and logical errors.
 
 Validation happens before DB work: exact numeric count 8/16/32 (missing defaults to 8), `rawClientId` length 1–1024, question ID length 1–50, nonnegative integer option within the saved options, integer duration **0–3600**, and integer survey rating **1–5**. No submitted secrets, Zod issues, or raw DB errors are exposed.
 
@@ -136,11 +136,11 @@ The machine separates **`history`, `creation`, `viewing`, and `attempting`** sta
 
 History retains completed handles across new attempts and shows server configuration/count/progress/status and both deadlines, newest-created first. Reports render **saved** public questions, pillar/radar metadata, and awarded results; legacy views render persisted summaries only. Separate saved survey state restores thanks/rating; the API allows upserts, but the thanks UI has no change-rating control.
 
-Storage/visibility/online events, manual refresh, advisory deadlines, and a bounded gate refresh recheck eligible screens. Server-confirmed `not_found`, `access_expired`, or discovery `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) removes the matching handle; transient errors preserve it and removal failures warn. Seven-day denial can clear handles while the DB row remains with maintenance disabled. Unopened browser storage and viewed copies are not remotely erased.
+Storage/visibility/online events, manual refresh, advisory deadlines, and a bounded gate refresh recheck eligible screens. Server-confirmed `not_found`, `access_expired`, or discovery `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) removes the matching handle; transient errors preserve it. Entering `unavailable` synchronizes the recovery storage warning immediately, so failed credential removal is visible without navigation or retry. Seven-day denial can clear handles while the DB row remains with maintenance disabled. Unopened browser storage and viewed copies are not remotely erased.
 
 ### Timing
 
-Display and submission use `boundedDuration`: finite rounded integer seconds clamped to **0–3600**, non-finite values becoming zero. Resume/new-question entry resets timing; hidden-tab and observed offline intervals pause it, and time between visits is not reconstructed. Same-question reconciliation preserves elapsed time; pending retries preserve the captured duration rather than add network waiting. Timing/focus loss does not affect scores or extend server deadlines.
+Display and submission use `boundedDuration`: finite rounded integer seconds clamped to **0–3600**, non-finite values becoming zero. Resume/new-question entry resets timing; hidden-tab and observed offline intervals pause it, and time between visits is not reconstructed. The flow and listener tests share `attachAssessmentBrowserEvents`: timing resumes only when **visible and online**; reconnecting while hidden keeps it paused. Same-question reconciliation preserves elapsed time; pending retries preserve the captured duration rather than add network waiting. Timing/focus loss does not affect scores or extend server deadlines.
 
 ## 5. Maintenance implementation
 
@@ -157,28 +157,40 @@ Both use parent-first `FOR UPDATE SKIP LOCKED`, repeat eligibility in the mutati
 
 The summary contains `ok`, `durationMs`, `clockFailure`, and `deletion`/`abandonment`, each with `count`, `batches`, `cap`, `failure`, `backlog`, `backlogFailure`. Caps are `batch_limit`, `budget`, or null; failures classify statement timeout, lock timeout, or database error. Bounded `EXISTS` checks include locked/skipped eligible rows: **`backlog: true` = remains, `false` = none observed, `null` = unknown**. Observation failures include budget exhaustion. A short batch is not proof of drainage. HTTP 200/`ok` can still carry caps/backlog requiring attention; unknown is never success at catching up.
 
-`/api/internal/session-maintenance` authenticates before method, activation, or DB access. `CRON_SECRET` must be high-entropy, 32–256 bearer-safe characters (`[A-Za-z0-9+/_-]+={0,2}`); SHA-256 digests are compared with `timingSafeEqual`. Invalid auth gets 401; authenticated non-GET (including HEAD) gets 405/`Allow: GET`. Only literal **`SESSION_MAINTENANCE_ENABLED=true`** enables work; otherwise authorized GET returns 200 `{ ok: true, enabled: false }` without initializing the DB. Enabled requests lazily initialize and await the runner. Explicit output/log projections exclude identities, secrets, and content; logging failures cannot change committed outcomes. Every response is no-store; enabled success is 200, failed summaries/unexpected failures are 503. No caller URL/body tuning exists.
+`/api/internal/session-maintenance` authenticates before method, activation, or DB access. `CRON_SECRET` must be high-entropy, 32–256 bearer-safe characters (`[A-Za-z0-9+/_-]+={0,2}`); SHA-256 digests are compared with `timingSafeEqual`. Invalid auth gets 401; authenticated non-GET (including HEAD) gets 405/`Allow: GET`. Only literal **`SESSION_MAINTENANCE_ENABLED=true`** enables work; otherwise authorized GET returns 200 `{ ok: true, enabled: false }` without initializing the DB. Enabled requests lazily initialize and await the runner. Explicit output/log projections exclude identities, secrets, and content; logging failures cannot change committed outcomes. Every response is no-store; enabled success is 200, failed summaries/unexpected failures are 503. No caller URL/body tuning exists. Handler failures use centralized `MAINTENANCE_ERROR_CODE` values from `server/errors.ts`, without changing HTTP behavior.
 
 **No cron configuration root or actual schedule has been verified; no production activation is claimed.** Use the [deployment runbook](session-lifecycle-plan.md#deployment-runbook), not endpoint existence, as the activation checklist.
 
 ## 6. Verification and source map
 
-**Verification record — not rerun for this documentation update:**
+**Current review-fix verification — reported agent runs, not rerun by this documentation task:**
 
-- **Maintenance PostgreSQL: user-confirmed successful run, zero failures and zero skipped tests.** The passing-test total and output were not captured in the handoff; the earlier interrupted agent attempts are not recorded as failures or successful runs.
-- **Final regression:** the user reports that the full database-backed suite, lint, typecheck, and production build have already been run. Per-command outcomes were not supplied, so this record does not infer a new all-green result or resolution of the earlier chart errors.
-- Earlier agent-recorded **post-Phase A+B PostgreSQL suite: 344 passed, 0 skipped**. This is a historical A+B count, not the final Phase C count.
-- Browser: **five scenarios, 137 named checks**. **62 ordinary answers** each used one submit request/no get; **three final answers** each used two requests (answer + complete); **five starts** used discovery + create/no get; explicit Resume used one request.
+- **PR #2 focused: 126 passed, 0 skipped.**
+- **PR #4 combined focused: 207 passed, 0 skipped**, using the command below from `apps/web`.
+- The two machine defects were reproduced red before the fix, then the focused machine run was **39/39 green**; this is a subset, not an additional combined total.
+- **Final stack checks with unrelated user edits stashed:** maintenance/contract tests **17 passed, 0 skipped** (`sessionMaintenance.test.ts`, `sessionMaintenanceHandler.test.ts`, `sessionContracts.test.ts`); app typecheck (`--incremental false`), app ESLint, and production Vite build passed. No DB/browser rerun was performed for the fixes.
+- **Shared UI lint remains non-green:** `packages/ui` ESLint reported six errors and one `no-shadow` warning in the unchanged `chart.tsx` (lines 85, 154, 158, 214, 351, 357). These were observed against the committed chart with user edits stashed and are outside this PR stack's changes.
+- Tooling warnings: Node 26/tsx reports the `module.register()` deprecation; Vite warns about `NODE_ENV=production` in the local `.env`. No dependency or local environment edits were made to suppress them.
+
+```sh
+TSX_DISABLE_CACHE=1 node --import tsx --test src/machines/*.test.ts src/server/sessionContracts.test.ts src/server/assessmentValidation.test.ts src/components/assessment/report.test.ts
+```
+
+**Historical validation — predates the current review fixes:**
+
+- **Maintenance PostgreSQL: user-confirmed zero failures and zero skipped tests.** The passing-test total/output was not captured; interrupted attempts are not counted as completed runs.
+- **Post-Phase A+B PostgreSQL on the original simplified branch: 344 passed, 0 skipped**, not a final Phase C or review-fix total.
+- **Browser on the original simplified branch: five scenarios, 137 named checks.** **62 ordinary answers** each used one submit request/no get; **three final answers** each used two requests (answer + complete); **five starts** used discovery + create/no get; explicit Resume used one request.
 - Covered 8/16/32 completion/reload/resume/report/survey, Resume/Delete gate/cancel/cascades, two same-context Web-Locked tabs producing one creation, ≥24-hour late-completion rejection, seven-day report denial, and keyboard/320px/dark/RTL without overflow.
 - **129 no-store responses** observed; **120 pre-completion responses** checked without answer-key markers. These are exercised-response counts, not exhaustive guarantees.
-- Earlier direct app/UI lint and web build passed. Clean-branch typecheck passed before restoring unrelated user chart edits; the subsequent check reported **three pre-existing `chart.tsx` errors at lines 154/158**. No fix is claimed by this documentation update.
+- Earlier direct app/UI lint, web build, and clean-branch typecheck passed. Restoring unrelated user chart edits produced **three `chart.tsx` errors**; those edits are not fixed by this review work and are separate from the scoped clean-worktree checks above.
 - Root pnpm lint/version launch failed switching to **10.33.4** because of signature verification. Reported fallback used pinned **pnpm 10.20** and direct installed tools. No successful root lint/build wrapper run is claimed.
 
 Tests use `node:test`, not Vitest/Jest. Export an explicit dedicated `TEST_DATABASE_URL`; from `apps/web`, run installed lockfile-resolved tools:
 
 ```sh
 node --import tsx --test "src/**/*.test.ts"
-node node_modules/typescript/bin/tsc --noEmit
+node node_modules/typescript/bin/tsc --noEmit --incremental false
 node node_modules/eslint/bin/eslint.js
 node node_modules/vite/bin/vite.js build
 ```
@@ -192,4 +204,4 @@ Source map, relative to `apps/web/src/`:
 - Browser: `machines/{sessionStorage,sessionRecovery,assessmentMachine,assessmentServices,createSessionAdapter}.ts`, `components/assessment/AssessmentFlow.tsx` and report/history/confirmation/timer components.
 - Maintenance: `server/{sessionMaintenance,sessionMaintenanceHandler}.ts`, `routes/api/internal/session-maintenance.ts` and corresponding tests. Schema migration: `apps/web/drizzle/0002_dazzling_may_parker.sql`.
 
-Publishing and authorized operational rollout remain in the [delivery plan](session-lifecycle-plan.md).
+Pending review-fix pushes to the existing draft PRs and authorized operational rollout are tracked in the [delivery plan](session-lifecycle-plan.md).
