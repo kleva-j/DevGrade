@@ -27,6 +27,7 @@ import {
   SESSION_DISCOVERY_BATCH_SIZE,
   SESSION_STATUS,
   SESSION_VIEW,
+  SKILL_CATEGORIES,
 } from "@/domain/constants";
 import {
   parseQuestionSnapshot,
@@ -36,6 +37,10 @@ import {
 
 import { AssessmentError, ERROR_CODE } from "./errors";
 import { MESSAGES } from "./messages";
+
+const skillCategoryOrder = new Map<string, number>(
+  SKILL_CATEGORIES.map((category, index) => [category, index]),
+);
 
 function credentialPredicate(credential: SessionCredential) {
   return and(
@@ -325,6 +330,12 @@ export async function sessionView(
       .from(sessionCategoryScores)
       .where(eq(sessionCategoryScores.sessionId, session.id))
       .orderBy(sessionCategoryScores.skillCategory);
+    // Stable sort keeps unknown legacy pillars in SQL alphabetical order, last.
+    categoryScores.sort(
+      (a, b) =>
+        (skillCategoryOrder.get(a.skillCategory) ?? skillCategoryOrder.size) -
+        (skillCategoryOrder.get(b.skillCategory) ?? skillCategoryOrder.size),
+    );
     return {
       kind: SESSION_VIEW.LEGACY_SUMMARY,
       ...base,

@@ -29,6 +29,7 @@ import {
   DIFFICULTY,
   FRAMEWORK,
   MAX_KNOWN_SESSION_CREDENTIALS,
+  PROFICIENCY,
   SESSION_DISCOVERY,
   SESSION_STATUS,
   SESSION_VIEW,
@@ -647,15 +648,59 @@ test(
     const summary = await f.service.getSession(completed);
     assert.equal(summary.kind, SESSION_VIEW.LEGACY_SUMMARY);
     assert.equal(summary.summary.totalScore, 37);
-    assert.equal(summary.summary.categoryScores.length, 4);
+    assert.deepEqual(
+      summary.summary.categoryScores.map((score) => score.skillCategory),
+      SKILL_CATEGORIES,
+    );
     assert.doesNotMatch(
       JSON.stringify(summary),
       /questionResults|questions|skillGaps|explanation|displayName/,
     );
-    assert.deepEqual(await f.service.resumeSession(completed), summary);
+    const unknownScores = [
+      {
+        skillCategory: "legacy-z",
+        correctWeight: 2,
+        totalWeight: 5,
+        scorePct: 40,
+        proficiency: PROFICIENCY.SKILL_GAP,
+      },
+      {
+        skillCategory: "legacy-a",
+        correctWeight: 3,
+        totalWeight: 5,
+        scorePct: 60,
+        proficiency: PROFICIENCY.DEVELOPING,
+      },
+    ];
+    await f.db.insert(skillCategories).values(
+      unknownScores.map(({ skillCategory }, index) => ({
+        name: skillCategory,
+        displayName: skillCategory,
+        pillarOrder: index,
+      })),
+    );
+    await f.db.insert(sessionCategoryScores).values(
+      unknownScores.map((score) => ({
+        ...score,
+        sessionId: completed.sessionId,
+      })),
+    );
+    const extendedSummary = {
+      ...summary,
+      summary: {
+        ...summary.summary,
+        categoryScores: [
+          ...summary.summary.categoryScores,
+          unknownScores[1],
+          unknownScores[0],
+        ],
+      },
+    };
+    assert.deepEqual(await f.service.getSession(completed), extendedSummary);
+    assert.deepEqual(await f.service.resumeSession(completed), extendedSummary);
     assert.deepEqual(
       await f.service.completeSession(completed.sessionId, completed),
-      summary,
+      extendedSummary,
     );
   },
 );
