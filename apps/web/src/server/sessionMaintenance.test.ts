@@ -144,6 +144,58 @@ test("the 20-second deadline stops new batches and leaves unobserved backlog unk
   }
 });
 
+for (const phase of ["pool acquisition", "timeout setup"]) {
+  test(`shared cutoffs preserve abandonment reserve after ${phase} reaches deletion deadline`, async (t) => {
+    let now = 0;
+    t.mock.method(performance, "now", () => now);
+    let clocks = 0;
+    const { db, transactions } = fakeDb((text, params) => {
+      if (text.includes("set_config")) {
+        assert.deepEqual(params, ["1000ms", "250ms", "2000ms"]);
+        if (phase === "timeout setup") now = 15_000;
+        return [];
+      }
+      if (text.includes("WITH reference")) {
+        clocks++;
+        return [cutoffs];
+      }
+      if (text.includes("changed AS")) {
+        assert.match(text, /UPDATE test_sessions/);
+        assert.ok(params.includes(cutoffs.deletion));
+        assert.ok(params.includes(cutoffs.abandonment));
+        return [{ count: 1 }];
+      }
+      assert.match(text, /SELECT EXISTS/);
+      return [{ backlog: !text.includes("last_activity_at") }];
+    });
+    if (phase === "pool acquisition") {
+      const transact = db.transaction.bind(db);
+      t.mock.method(
+        db,
+        "transaction",
+        (...args: Parameters<Db["transaction"]>) => {
+          now = 15_000;
+          return transact(...args);
+        },
+      );
+    }
+    const result = await runSessionMaintenance(db);
+    assert.equal(result.clockFailure, null);
+    assert.equal(clocks, 1);
+    assert.equal(result.ok, true);
+    assert.equal(result.deletion.count, 0);
+    assert.equal(result.deletion.batches, 0);
+    assert.equal(result.deletion.cap, "budget");
+    assert.equal(result.deletion.backlog, true);
+    assert.equal(result.abandonment.count, 1);
+    assert.equal(result.abandonment.batches, 1);
+    assert.equal(result.abandonment.cap, null);
+    assert.equal(result.abandonment.backlog, false);
+    assert.equal(result.durationMs, 15_000);
+    assert.doesNotMatch(transactions.flat().join("\n"), /DELETE/);
+  });
+}
+
 test("pool acquisition or timeout setup consuming the budget cannot start work", async (t) => {
   let now = 0;
   t.mock.method(performance, "now", () => now);

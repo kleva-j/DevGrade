@@ -119,7 +119,7 @@ export async function runSessionMaintenance(
     // One DB clock, 24-hour days, and text round-trip to preserve microseconds.
     [cutoffs] = await execute<Cutoffs>(
       db,
-      deletionDeadline,
+      deadline,
       sql`
       WITH reference AS MATERIALIZED (SELECT clock_timestamp() AS now)
       SELECT (now - ${SESSION_RETENTION_DAYS} * interval '24 hours')::text AS deletion,
