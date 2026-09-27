@@ -1,6 +1,6 @@
 # Assessment sessions and evaluation
 
-**Current source — 2026-09-27.** Lifecycle Stages 1–4 and approved simplification Phases A/B/C are implemented and published in the draft stack; review-fix updates await push. Maintenance remains **off/default-disabled**. Production migration, secrets, cron configuration, deployment, and activation remain unperformed. See [delivery and activation](session-lifecycle-plan.md), [simplification findings](session-lifecycle-simplification-plan.md), and the [PRD](../prd.md).
+**Current source — 2026-09-27.** Lifecycle Stages 1–4 and approved simplification Phases A/B/C are implemented. The owning PRs linked in the delivery plan provide live publication and review status. Maintenance remains **off/default-disabled**. Production migration, secrets, cron configuration, deployment, and activation remain unperformed. See [delivery and activation](session-lifecycle-plan.md), [simplification findings](session-lifecycle-simplification-plan.md), and the [PRD](../prd.md).
 
 ## 1. Policy and authority
 
@@ -136,7 +136,7 @@ The machine separates **`history`, `creation`, `viewing`, and `attempting`** sta
 
 History retains completed handles across new attempts and shows server configuration/count/progress/status and both deadlines, newest-created first. Reports render **saved** public questions, pillar/radar metadata, and awarded results; legacy views render persisted summaries only. Separate saved survey state restores thanks/rating; the API allows upserts, but the thanks UI has no change-rating control.
 
-Storage/visibility/online events, manual refresh, advisory deadlines, and a bounded gate refresh recheck eligible screens. Server-confirmed `not_found`, `access_expired`, or discovery `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) removes the matching handle; transient errors preserve it. Entering `unavailable` synchronizes the recovery storage warning immediately, so failed credential removal is visible without navigation or retry. Seven-day denial can clear handles while the DB row remains with maintenance disabled. Unopened browser storage and viewed copies are not remotely erased.
+Storage/visibility/online events, manual refresh, advisory deadlines, and a bounded gate refresh recheck eligible screens. Attempt-expired views schedule only access expiry, like completed reports, rather than polling the expired attempt deadline. Server-confirmed `not_found`, `access_expired`, or discovery `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) removes the matching handle; transient errors preserve it. Entering `unavailable` synchronizes the recovery storage warning immediately, so failed credential removal is visible without navigation or retry. Seven-day denial can clear handles while the DB row remains with maintenance disabled. Unopened browser storage and viewed copies are not remotely erased.
 
 ### Timing
 
@@ -146,7 +146,7 @@ Display and submission use `boundedDuration`: finite rounded integer seconds cla
 
 `runSessionMaintenance(db)` has **no options**. Two implementation modules—`sessionMaintenance.ts` and `sessionMaintenanceHandler.ts`—plus thin routing replace the configurable three-module design. Public options/Zod tuning schemas and oldest-row/lag reporting are removed.
 
-Fixed limits: **200 rows/batch, at most five batches per operation, 20-second cooperative budget, 5-second idle-work reserve, 1-second statement timeout, 250ms lock timeout**. Deletion gets the first 15-second window. Pool/network unavailability is not bounded by this cooperative budget; hosting limits remain necessary.
+Fixed limits: **200 rows/batch, at most five batches per operation, 20-second cooperative budget, 5-second idle-work reserve, 1-second statement timeout, 250ms lock timeout**. Deletion gets the first 15-second window. The shared cutoff query uses the overall 20-second deadline so delayed pool acquisition/timeout setup does not discard abandonment's reserved window; deletion still stops at its own deadline. Pool/network unavailability is not bounded by this cooperative budget; hosting limits remain necessary.
 
 One PostgreSQL clock establishes fixed cutoffs, preserving timestamp precision and elapsed 24-hour days:
 
@@ -163,7 +163,16 @@ The summary contains `ok`, `durationMs`, `clockFailure`, and `deletion`/`abandon
 
 ## 6. Verification and source map
 
-**Current review-fix verification — reported agent runs, not rerun by this documentation task:**
+**Second review pass — 2026-09-27, unrelated user edits stashed:**
+
+- Legacy pillar-order regression against disposable PostgreSQL: **red 0 passed / 1 failed / 0 skipped**, then **green 1 passed / 0 failed / 0 skipped**. Covers read, resume, and completion replay, including unknown legacy categories. The owned database was stopped and removed afterward.
+- Recovery deadline regression reproduced the 30-second polling defect, then all **five advisory-refresh checks passed**. Covers expired/report deadlines, active attempts, clock-skew retry, and bounded gate refresh.
+- Both maintenance reserve regressions failed with `clockFailure: "budget"` before the fix and passed afterward; **8 maintenance unit tests passed, 0 failed/skipped**. Fake pool acquisition and timeout setup each reach the deletion deadline without consuming the remaining abandonment window.
+- Combined command `TSX_DISABLE_CACHE=1 node --import tsx --test 'src/**/*.test.ts'` from `apps/web`: **308 passed, 0 failed, 26 skipped**. PostgreSQL suites were skipped without `TEST_DATABASE_URL`; this is not a full database-backed rerun.
+- App typecheck (`--noEmit --incremental false`), app ESLint, and production Vite build passed using installed tools. No browser rerun, production migration, deployment, or activation was performed.
+- Shared UI lint still reports **six errors and one warning** in unchanged `chart.tsx`; left outside these lifecycle fixes.
+
+**First review pass — earlier reported runs, not totals for the second pass:**
 
 - **PR #2 focused: 126 passed, 0 skipped.**
 - **PR #4 combined focused: 207 passed, 0 skipped**, using the command below from `apps/web`.
@@ -204,4 +213,4 @@ Source map, relative to `apps/web/src/`:
 - Browser: `machines/{sessionStorage,sessionRecovery,assessmentMachine,assessmentServices,createSessionAdapter}.ts`, `components/assessment/AssessmentFlow.tsx` and report/history/confirmation/timer components.
 - Maintenance: `server/{sessionMaintenance,sessionMaintenanceHandler}.ts`, `routes/api/internal/session-maintenance.ts` and corresponding tests. Schema migration: `apps/web/drizzle/0002_dazzling_may_parker.sql`.
 
-Pending review-fix pushes to the existing draft PRs and authorized operational rollout are tracked in the [delivery plan](session-lifecycle-plan.md).
+The [delivery plan](session-lifecycle-plan.md) links the owning PRs for live review status and documents the authorized operational rollout prerequisites.

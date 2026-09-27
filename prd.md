@@ -27,7 +27,7 @@
 | 1.9.1 | 2026-09-25 | Stage 3 browser recovery delivered in source: version-1 handles, fail-closed creation, Web Locks, explicit original-configuration Resume, confirmed Delete, saved reports/surveys, and bounded hidden/offline-aware timing. No production deployment claimed. |
 | 1.9.2 | 2026-09-26 | Approved simplification A/B/C implemented: flat creation view, full accepted-answer progress, direct persisted completion views, fewer machine flags/success-path reads, and fixed-purpose maintenance. Maintenance was uncommitted/default-disabled at this revision; validation, publishing, and authorized rollout remained pending (§13). |
 | 1.9.3 | 2026-09-26 | Maintenance implementation/tests committed locally as `2aaa73a`. Recorded user-confirmed PostgreSQL verification (zero failures/skips) and the reported final regression run. At this revision cleanup remained default-disabled; stack publishing, scheduling, and authorized production rollout were pending (§13). |
-| 1.9.4 | 2026-09-27 | Review fixes on existing draft PRs #1/#2/#4/#5: owning-branch documentation corrections, visible-and-online timer resumption, immediate unavailable storage warnings, shared pure credential validation, and centralized error codes. Scoped verification is recorded in §13; fix commits await push and review threads are not claimed resolved. No schema/product/policy changes; maintenance remains off. |
+| 1.9.4 | 2026-09-27 | Review fixes in PRs #1/#2/#4/#5: owning-branch documentation corrections, visible-and-online timer resumption, immediate unavailable storage warnings, shared pure credential validation, and centralized error codes. Scoped verification is recorded in §13; live publication/review status belongs to the linked GitHub PRs. No schema/product/policy changes; maintenance remains off. |
 
 ---
 
@@ -607,7 +607,7 @@ To reach a working, testable product quickly, the MVP seeds an _original, pillar
 
 ## 12. Architectural Decisions (Resolved)
 
-The original decisions below were resolved for the Quick baseline in `apps/web`. Selectable lengths, lifecycle Stages 1–3, and simplification A/B/C are implemented in source. Maintenance is implemented/default-disabled with historical user-confirmed PostgreSQL verification; the draft stack exists, while review-fix pushes and authorized rollout remain pending (§13).
+The original decisions below were resolved for the Quick baseline in `apps/web`. Selectable lengths, lifecycle Stages 1–3, and simplification A/B/C are implemented in source. Maintenance is implemented/default-disabled with historical user-confirmed PostgreSQL verification; the owning PRs provide live review status, while authorized rollout remains pending (§13).
 
 1. **Database engine — RESOLVED: PostgreSQL everywhere.** SQLite is dropped entirely; local, CI, and prod all run PostgreSQL via Drizzle ORM + Drizzle Kit migrations (`apps/web/src/db/schema.ts`, `drizzle.config.ts`).
 2. **Deployment topology — RESOLVED: single full-stack app.** The UI and server functions ship together as one TanStack Start deployment (see §8.1). No separately hosted API.
@@ -627,16 +627,16 @@ The original decisions below were resolved for the Quick baseline in `apps/web`.
 
 ## 13. Implementation Plan (MVP)
 
-The domain/server/UI, selectable lengths, lifecycle Stages 1–4, and approved simplification **A/B/C are implemented in source**. PRs #1/#2/#4/#5 were published as drafts; new review-fix commits await push to those same PRs. Maintenance remains off/default-disabled; production migration, secrets, cron configuration, deployment, and activation remain unperformed. Lifecycle stages and simplification letters are separate from the original MVP phases below.
+The domain/server/UI, selectable lengths, lifecycle Stages 1–4, and approved simplification **A/B/C are implemented in source**. The [owning PRs](docs/session-lifecycle-plan.md#delivery-status) provide live publication, review, and merge status. Maintenance remains off/default-disabled; production migration, secrets, cron configuration, deployment, and activation remain unperformed. Lifecycle stages and simplification letters are separate from the original MVP phases below.
 
 ### Session lifecycle — staged delivery
 
 - **Stages 1–2:** durable snapshots/normalized awards, strict authenticated lifecycle operations, coherent reads, parent-first locks/fresh DB time, known-credential gating, and safe retry/delete contracts (§4.5, §7).
 - **Stage 3:** per-ID credential storage, fail-closed creation coordination, original-configuration Resume, history/report/survey recovery, confirmed Delete/cancel, and bounded timing (§4.5).
 - **Simplification A/B/C:** flat initial assessment view, full accepted progress, direct persisted completion views, distinct viewing/attempting states without redundant flags, and fixed-purpose two-module maintenance. Successful create/answer/complete/resume needs no follow-up get.
-- **Stage 4:** maintenance implementation/tests are in existing draft PR #5, **not activated**. Earlier PostgreSQL verification is user-confirmed. [Delivery status](docs/session-lifecycle-plan.md#delivery-status) records the existing draft stack, pending review-fix pushes, and owning-branch documentation corrections; thread resolution is not yet claimed.
+- **Stage 4:** maintenance implementation/tests are in [PR #5](https://github.com/kleva-j/DevGrade/pull/5), **not activated**. Earlier PostgreSQL verification is user-confirmed. [Delivery status](docs/session-lifecycle-plan.md#delivery-status) links all owning PRs; consult GitHub for current reviews and merge status.
 
-The single [verification record and repeatable commands](docs/sessions-and-evaluation.md#6-verification-and-source-map) separates new focused PR #2/#4 checks and typecheck/scoped lint with unrelated edits stashed from historical PostgreSQL/browser/maintenance results. No new DB/browser run or unreported final maintenance/build outcome is inferred; earlier user-chart diagnostics and launcher limitations retain their historical scope. Apply snapshot migration `0002` before writers; A/B/C needs no new migration. Follow the [authorized deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook) for secrets, root/schedule verification, activation, bounded catch-up, and backup/restore policy.
+The single [verification record and repeatable commands](docs/sessions-and-evaluation.md#6-verification-and-source-map) separates the second review pass (legacy-order PostgreSQL regression, deadline/reserve regressions, combined tests, app typecheck/lint/build) from first-pass and historical PostgreSQL/browser/maintenance results. Skipped database suites, unchanged shared-UI lint failures, and tooling caveats are explicit; no full DB/browser rerun or production readiness is inferred. Apply snapshot migration `0002` before writers; A/B/C needs no new migration. Follow the [authorized deployment runbook](docs/session-lifecycle-plan.md#deployment-runbook) for secrets, root/schedule verification, activation, bounded catch-up, and backup/restore policy.
 
 ### Selectable lengths — implemented extension
 
@@ -693,7 +693,7 @@ Render the immutable completed `ReportSnapshot` with saved public questions/pill
 Make it production-credible.
 
 - Grow the question bank from the 144-item bank (Batches A–C, 6 core + 6 advanced per bucket, meeting the §10.1 pool-depth target) toward the broader §10.1 content goals, each tagged core/advanced via `difficulty_weight`; keep `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` honest via `db/__tests__/seedData.test.ts`; progressively replace `source`-adapted items with `original` ones (§10.1 content-sourcing policy).
-- Push review-fix updates to the existing draft stack and complete authorized activation of the Stage 4 maintenance job; Sentry + funnel logging. Server/browser lifecycle paths are delivered; a real schedule and production rollout are not yet verified.
+- Complete authorized activation of the Stage 4 maintenance job; Sentry + funnel logging. Server/browser lifecycle paths are delivered; a real schedule and production rollout are not yet verified.
 - Analytics events for the KPI table (completion, duration, survey).
 - **Exit criteria:** KPIs in §3 are all measurable from real data; launch checklist (legal/accessibility in §10.2) green.
 

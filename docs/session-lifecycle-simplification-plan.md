@@ -1,6 +1,6 @@
 # Session lifecycle simplification
 
-**Status — 2026-09-27: user-approved Phases A/B/C implemented; stack PRs published as drafts, review-fix updates pending push to those existing PRs.** Maintenance remains off; no production activation. The [current-behavior reference](sessions-and-evaluation.md) supersedes the former file-by-file implementation plan; [delivery and rollout](session-lifecycle-plan.md) owns PR status and the deployment runbook.
+**Status — 2026-09-27: user-approved Phases A/B/C implemented.** Maintenance remains off; no production activation. The [current-behavior reference](sessions-and-evaluation.md) supersedes the former file-by-file implementation plan; [delivery and rollout](session-lifecycle-plan.md) links the owning PRs for live GitHub status and provides the deployment runbook.
 
 ## Implemented findings
 
@@ -31,4 +31,4 @@
 
 The [verification record](sessions-and-evaluation.md#6-verification-and-source-map) separates current focused review-fix checks and clean-worktree typecheck/scoped lint from historical PostgreSQL/browser runs, including user-confirmed maintenance verification. Earlier user-chart diagnostics and launcher limitations are historical, not new failures or proof of final maintenance/build sign-off.
 
-Push review-fix updates to the existing draft stack after review; do not create replacement PRs or claim review threads resolved before publication. Scheduler root/configuration, secrets, deployment, and destructive activation still require the [authorized runbook](session-lifecycle-plan.md#deployment-runbook). Source completion is not a merge, schedule, or production-deployment claim.
+Scheduler root/configuration, secrets, deployment, and destructive activation still require the [authorized runbook](session-lifecycle-plan.md#deployment-runbook). Source completion is not a merge, schedule, or production-deployment claim.
