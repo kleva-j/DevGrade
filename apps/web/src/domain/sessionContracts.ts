@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type {
   DELETE_EXPECTATION,
   DELETE_OUTCOME,
@@ -14,10 +16,20 @@ import type {
   PublicQuestion,
 } from "./types";
 
-export interface SessionCredential {
-  sessionId: string;
-  sessionToken: string;
-}
+// Reject PostgreSQL's permissive non-UUID spellings at every credential boundary.
+export const sessionIdSchema = z
+  .uuid()
+  .length(36)
+  .transform((id) => id.toLowerCase());
+export const sessionTokenSchema = z
+  .string()
+  .length(64)
+  .regex(/^[a-fA-F0-9]{64}$/);
+export const sessionCredentialSchema = z.object({
+  sessionId: sessionIdSchema,
+  sessionToken: sessionTokenSchema,
+});
+export type SessionCredential = z.infer<typeof sessionCredentialSchema>;
 
 /** ISO UTC strings, never promises of physical erasure. */
 export interface SessionDeadlines {

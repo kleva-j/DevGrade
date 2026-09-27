@@ -13,6 +13,7 @@ import {
   FRAMEWORK,
   MAX_KNOWN_SESSION_CREDENTIALS,
 } from "@/domain/constants";
+import { sessionCredentialSchema as sharedCredentialSchema } from "@/domain/sessionContracts";
 import { createAssessmentHandlers } from "./assessmentHandlers";
 import { createAssessmentService } from "./assessmentService";
 import { AssessmentError, ERROR_CODE, assessmentEnvelope } from "./errors";
@@ -43,6 +44,14 @@ const malformed = [
 ];
 
 test("UUID and token shapes are strict, normalized IDs preserve deterministic lock order", () => {
+  assert.equal(sessionCredentialSchema, sharedCredentialSchema);
+  assert.equal(
+    sessionCredentialSchema.parse({
+      ...credential,
+      sessionToken: "Ab".repeat(32),
+    }).sessionToken,
+    "Ab".repeat(32),
+  );
   assert.equal(
     sessionCredentialSchema.parse({
       ...credential,

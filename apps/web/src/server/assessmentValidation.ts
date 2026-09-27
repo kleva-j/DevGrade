@@ -10,22 +10,15 @@ import {
   SURVEY_RATING_MIN,
   SURVEY_RATING_MAX,
 } from "@/domain/constants";
+import {
+  sessionCredentialSchema,
+  sessionIdSchema,
+  sessionTokenSchema,
+} from "@/domain/sessionContracts";
 import { AssessmentError, ERROR_CODE } from "./errors";
 import { MESSAGES } from "./messages";
 
-// Reject PostgreSQL's permissive non-UUID spellings before any DB access.
-export const sessionIdSchema = z
-  .uuid()
-  .length(36)
-  .transform((id) => id.toLowerCase());
-export const sessionTokenSchema = z
-  .string()
-  .length(64)
-  .regex(/^[a-fA-F0-9]{64}$/);
-export const sessionCredentialSchema = z.object({
-  sessionId: sessionIdSchema,
-  sessionToken: sessionTokenSchema,
-});
+export { sessionCredentialSchema, sessionIdSchema, sessionTokenSchema };
 export const knownCredentialsSchema = z
   .array(sessionCredentialSchema)
   .max(MAX_KNOWN_SESSION_CREDENTIALS);
