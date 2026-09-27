@@ -22,6 +22,11 @@ export const ERROR_CODE = {
 } as const;
 export type ErrorCode = (typeof ERROR_CODE)[keyof typeof ERROR_CODE];
 
+/** Client transport failures are separate from server envelope error codes. */
+export const CLIENT_ERROR_CODE = {
+  REQUEST_FAILED: "request_failed",
+} as const;
+
 export type AssessmentFailure =
   | {
       code: typeof ERROR_CODE.EXISTING_ATTEMPT;

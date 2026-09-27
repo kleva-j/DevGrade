@@ -6,6 +6,7 @@ import type {
   SessionMetadata,
 } from "@/domain/sessionContracts";
 import { DIFFICULTIES, FRAMEWORKS } from "@/domain/constants";
+import { sessionCredentialSchema as credentialSchema } from "@/domain/sessionContracts";
 
 export const SESSION_STORAGE_PREFIX = "devgrade.session.";
 export const SESSION_STORAGE_VERSION = 1;
@@ -38,13 +39,6 @@ export type StoragePort = Pick<
   "length" | "key" | "getItem" | "setItem" | "removeItem"
 >;
 
-const credentialSchema = z.object({
-  sessionId: z
-    .uuid()
-    .length(36)
-    .transform((id) => id.toLowerCase()),
-  sessionToken: z.string().regex(/^[a-fA-F0-9]{64}$/),
-});
 const handleSchema = credentialSchema
   .extend({
     version: z.literal(SESSION_STORAGE_VERSION),

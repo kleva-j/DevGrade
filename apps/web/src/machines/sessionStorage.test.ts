@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+
+import { sessionCredentialSchema } from "@/domain/sessionContracts";
 import {
   createSessionLock,
   createSessionStorage,
@@ -115,6 +117,29 @@ test("malformed token and mismatched key cannot be silently accepted or overwrit
   assert.equal(storage.save(saved), STORAGE_ISSUE.CORRUPT);
   assert.equal(storage.remove(saved), STORAGE_ISSUE.CORRUPT);
   assert.deepEqual([...port.values], before);
+});
+test("stored credentials follow the shared normalization and exact token contract", () => {
+  const credential = makeSession().credential;
+  for (const input of [
+    credential,
+    { ...credential, sessionId: credential.sessionId.toUpperCase() },
+    { ...credential, sessionToken: "Ab".repeat(32) },
+    { ...credential, sessionId: credential.sessionId.replaceAll("-", "") },
+    { ...credential, sessionToken: "a".repeat(63) },
+    { ...credential, sessionToken: `${"a".repeat(64)}\n` },
+  ]) {
+    const port = new MemoryStorage();
+    const storage = createSessionStorage(() => port);
+    port.setItem(
+      SESSION_STORAGE_PREFIX + credential.sessionId,
+      JSON.stringify({ ...input, version: SESSION_STORAGE_VERSION }),
+    );
+    const expected = sessionCredentialSchema.safeParse(input);
+    assert.deepEqual(storage.scan(), {
+      handles: expected.success ? [expected.data] : [],
+      issue: expected.success ? null : STORAGE_ISSUE.CORRUPT,
+    });
+  }
 });
 test("write/quota failures and silent writes fail preflight without touching handles", () => {
   const port = new MemoryStorage();

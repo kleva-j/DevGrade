@@ -11,6 +11,7 @@ import type {
 import type { ErrorCode } from "@/server/errors";
 import type { DiscoveryCheck, SessionRecovery } from "./sessionRecovery";
 import type { StorageIssue } from "./sessionStorage";
+import { SESSION_STORAGE_PREFIX } from "./sessionStorage";
 
 import {
   DELETE_EXPECTATION,
@@ -20,7 +21,7 @@ import {
   SURVEY_RATING_MAX,
   SURVEY_RATING_MIN,
 } from "@/domain/constants";
-import { ERROR_CODE } from "@/server/errors";
+import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import { AssessmentClientError } from "./createSessionAdapter";
 import { isUnavailableError, needsReconciliation } from "./sessionRecovery";
 
@@ -40,8 +41,8 @@ export interface AssessmentContext {
   expectedDeleteState: DeleteSessionInput["expectedState"];
   /** Only deletion from the creation gate may continue the original Start. */
   afterDelete: AssessmentConfiguration | null;
-  error: ErrorCode | "request_failed" | null;
-  notice: "changed_state" | null;
+  error: ErrorCode | typeof CLIENT_ERROR_CODE.REQUEST_FAILED | null;
+  notice: typeof DELETE_OUTCOME.CHANGED_STATE | null;
   pendingRating: number | null;
 }
 export interface AssessmentInput {
@@ -70,6 +71,56 @@ export type AssessmentEvent =
   | { type: "RETRY" }
   | { type: "HISTORY" }
   | { type: "SUBMIT_SURVEY"; rating: number };
+
+interface AssessmentBrowser {
+  window: Pick<EventTarget, "addEventListener" | "removeEventListener">;
+  document: Pick<EventTarget, "addEventListener" | "removeEventListener"> &
+    Pick<Document, "visibilityState">;
+  navigator: Pick<Navigator, "onLine">;
+}
+
+/** Shared by the flow effect and listener tests; reads browser state at event time. */
+export function attachAssessmentBrowserEvents(
+  send: (event: AssessmentEvent) => void,
+  answering: boolean,
+  { window, document, navigator }: AssessmentBrowser,
+): () => void {
+  function visibility() {
+    if (document.visibilityState === "hidden") send({ type: "FOCUS_LOSS" });
+    else if (navigator.onLine) refresh();
+  }
+  function storage(event: Event) {
+    if (
+      "key" in event &&
+      (event.key === null ||
+        (typeof event.key === "string" &&
+          event.key.startsWith(SESSION_STORAGE_PREFIX)))
+    )
+      send({ type: "REFRESH" });
+  }
+  function refresh() {
+    if (document.visibilityState === "visible" && navigator.onLine)
+      send({ type: "FOCUS_RETURN" });
+    send({ type: "REFRESH" });
+  }
+  function offline() {
+    send({ type: "OFFLINE" });
+  }
+  document.addEventListener("visibilitychange", visibility);
+  window.addEventListener("storage", storage);
+  window.addEventListener("online", refresh);
+  window.addEventListener("focus", visibility);
+  window.addEventListener("offline", offline);
+  if (answering && (!navigator.onLine || document.visibilityState === "hidden"))
+    offline();
+  return () => {
+    document.removeEventListener("visibilitychange", visibility);
+    window.removeEventListener("storage", storage);
+    window.removeEventListener("online", refresh);
+    window.removeEventListener("focus", visibility);
+    window.removeEventListener("offline", offline);
+  };
+}
 
 export function boundedDuration(startedAt: number, now: number) {
   const seconds = Math.round((now - startedAt) / 1000);
@@ -142,7 +193,7 @@ const machineSetup = setup({
       error: ({ event }) =>
         "error" in event && event.error instanceof AssessmentClientError
           ? event.error.code
-          : "request_failed",
+          : CLIENT_ERROR_CODE.REQUEST_FAILED,
     }),
 
     goHome: assign({
@@ -501,6 +552,7 @@ export const assessmentMachine = machineSetup.createMachine({
     },
     unavailable: {
       entry: assign(({ context }) => ({
+        storageIssue: context.recovery.warning,
         view: null,
         pendingAnswer: null,
         selectedOption: null,
@@ -520,7 +572,10 @@ export const assessmentMachine = machineSetup.createMachine({
             guard: ({ event }) =>
               event.output.kind === DELETE_OUTCOME.CHANGED_STATE,
             target: "viewing.restoring",
-            actions: assign({ afterDelete: null, notice: "changed_state" }),
+            actions: assign({
+              afterDelete: null,
+              notice: DELETE_OUTCOME.CHANGED_STATE,
+            }),
           },
           { target: "deleted" },
         ],

@@ -5,18 +5,20 @@ import type { AssessmentConfiguration } from "@/domain/types";
 import type { DeleteSessionInput } from "@/domain/sessionContracts";
 import type { AssessmentContext } from "@/machines/assessmentMachine";
 import type { StorageIssue } from "@/machines/sessionStorage";
-import { DELETE_EXPECTATION, SESSION_VIEW } from "@/domain/constants";
-import { ERROR_CODE } from "@/server/errors";
+import {
+  DELETE_EXPECTATION,
+  DELETE_OUTCOME,
+  SESSION_VIEW,
+} from "@/domain/constants";
+import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import {
   assessmentMachine,
+  attachAssessmentBrowserEvents,
   firstUnanswered,
   deletionExpectation,
 } from "@/machines/assessmentMachine";
 import { createBrowserRecovery } from "@/machines/assessmentServices";
-import {
-  STORAGE_ISSUE,
-  SESSION_STORAGE_PREFIX,
-} from "@/machines/sessionStorage";
+import { STORAGE_ISSUE } from "@/machines/sessionStorage";
 import {
   Alert,
   AlertDescription,
@@ -95,6 +97,7 @@ const storageCopy: Record<StorageIssue, string> = {
 const errorMessages: Partial<
   Record<NonNullable<AssessmentContext["error"]>, string>
 > = {
+  [CLIENT_ERROR_CODE.REQUEST_FAILED]: UI.recovery.requestFailed,
   [ERROR_CODE.SNAPSHOT_UNAVAILABLE]: UI.recovery.snapshotUnavailable,
   [ERROR_CODE.ATTEMPT_EXPIRED]: UI.recovery.expiredDescription,
   [ERROR_CODE.NOT_FOUND]: UI.recovery.unavailable,
@@ -149,40 +152,15 @@ export function AssessmentFlow() {
   useEffect(() => {
     send({ type: "BOOTSTRAP" });
   }, [send]);
-  useEffect(() => {
-    function visibility() {
-      if (document.visibilityState === "hidden") send({ type: "FOCUS_LOSS" });
-      else if (navigator.onLine) refresh();
-    }
-    function storage(event: StorageEvent) {
-      if (event.key === null || event.key.startsWith(SESSION_STORAGE_PREFIX))
-        send({ type: "REFRESH" });
-    }
-    function refresh() {
-      send({ type: "FOCUS_RETURN" });
-      send({ type: "REFRESH" });
-    }
-    function offline() {
-      send({ type: "OFFLINE" });
-    }
-    document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("storage", storage);
-    window.addEventListener("online", refresh);
-    window.addEventListener("focus", visibility);
-    window.addEventListener("offline", offline);
-    if (
-      phase === "answering" &&
-      (!navigator.onLine || document.visibilityState === "hidden")
-    )
-      offline();
-    return () => {
-      document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("storage", storage);
-      window.removeEventListener("online", refresh);
-      window.removeEventListener("focus", visibility);
-      window.removeEventListener("offline", offline);
-    };
-  }, [send, phase, question?.id]);
+  useEffect(
+    () =>
+      attachAssessmentBrowserEvents(send, phase === "answering", {
+        window,
+        document,
+        navigator,
+      }),
+    [send, phase, question?.id],
+  );
 
   // Advisory wakeup only. The server decides expiry, including when browser clocks differ.
   useEffect(() => {
@@ -464,7 +442,7 @@ export function AssessmentFlow() {
             </AlertDescription>
           </Alert>
         ) : null}
-        {context.notice === "changed_state" ? (
+        {context.notice === DELETE_OUTCOME.CHANGED_STATE ? (
           <Alert>
             <AlertDescription>{UI.recovery.changedState}</AlertDescription>
           </Alert>

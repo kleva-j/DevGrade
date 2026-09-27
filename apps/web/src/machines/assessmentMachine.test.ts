@@ -6,13 +6,15 @@ import { createActor, waitFor } from "xstate";
 import {
   ASSESSMENT_LENGTHS,
   DELETE_EXPECTATION,
+  DELETE_OUTCOME,
   DIFFICULTY,
   SESSION_VIEW,
   SESSION_STATUS,
 } from "@/domain/constants";
-import { ERROR_CODE } from "@/server/errors";
+import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import {
   assessmentMachine,
+  attachAssessmentBrowserEvents,
   boundedDuration,
   firstUnanswered,
 } from "./assessmentMachine";
@@ -21,6 +23,7 @@ import {
   createSessionStorage,
   createSessionLock,
   STORAGE_ISSUE,
+  SESSION_STORAGE_PREFIX,
 } from "./sessionStorage";
 import {
   configuration,
@@ -34,6 +37,7 @@ import {
   createdAt,
 } from "./sessionTestFixtures";
 import type { TestSession } from "./sessionTestFixtures";
+import type { AssessmentEvent } from "./assessmentMachine";
 
 type Actor = ActorRefFrom<typeof assessmentMachine>;
 type State = Parameters<SnapshotFrom<typeof assessmentMachine>["matches"]>[0];
@@ -457,7 +461,10 @@ test("completion during delete confirmation shows report and preserves it; new c
   session.completed = true;
   h.actor.send({ type: "CONFIRM_DELETE" });
   await until(h.actor, "completed");
-  assert.equal(h.actor.getSnapshot().context.notice, "changed_state");
+  assert.equal(
+    h.actor.getSnapshot().context.notice,
+    DELETE_OUTCOME.CHANGED_STATE,
+  );
   assert.equal(h.server.calls.delete, 1);
   assert.equal(h.server.calls.create, 0);
   assert.equal(h.storage.scan().handles.length, 1);
@@ -508,6 +515,31 @@ test("saved report and survey rating survive refresh after 24h; seven-day cutoff
   await until(h.actor, "unavailable");
   assert.equal(h.storage.scan().handles.length, 1);
 });
+test("blocked removal on access expiry retains credentials and displays the recovery warning", async (t) => {
+  const session = makeSession();
+  session.completed = true;
+  const other = makeSession();
+  const h = fixture(t, [session, other]);
+  await h.boot();
+  h.open(session);
+  await until(h.actor, "completed");
+  assert.equal(h.actor.getSnapshot().context.storageIssue, null);
+  const before = h.storage.scan().handles;
+  h.port.blockRemove = true;
+  h.setNow(Date.parse(accessExpiresAt));
+  h.actor.send({ type: "REFRESH" });
+  await until(h.actor, "unavailable");
+  const context = h.actor.getSnapshot().context;
+  assert.equal(context.view, null);
+  assert.deepEqual(h.storage.scan().handles, before);
+  assert.deepEqual(
+    context.history.map((entry) => entry.sessionId),
+    [other.credential.sessionId],
+  );
+  assert.equal(h.recovery.warning, STORAGE_ISSUE.UNAVAILABLE);
+  assert.equal(context.storageIssue, STORAGE_ISSUE.UNAVAILABLE);
+});
+
 test("survey failure preserves report, valid resubmission persists rating, expiry exits retry flow", async (t) => {
   const session = makeSession();
   session.completed = true;
@@ -521,7 +553,10 @@ test("survey failure preserves report, valid resubmission persists rating, expir
   };
   h.actor.send({ type: "SUBMIT_SURVEY", rating: 4 });
   await until(h.actor, { completed: "surveyPrompt" });
-  assert.equal(h.actor.getSnapshot().context.error, "request_failed");
+  assert.equal(
+    h.actor.getSnapshot().context.error,
+    CLIENT_ERROR_CODE.REQUEST_FAILED,
+  );
   h.server.api.submitSurvey = survey;
   h.actor.send({ type: "SUBMIT_SURVEY", rating: 4 });
   await until(h.actor, { completed: "surveyPrompt" });
@@ -633,6 +668,142 @@ test("background refresh preserves the current choice/timer; offline time is exc
   await until(h.actor, { attempting: "answering" });
   assert.equal(h.current().acceptedAnswers[0]?.timeSpentSeconds, 30);
 });
+class VisibilityTarget extends EventTarget {
+  visibilityState: DocumentVisibilityState = "visible";
+}
+function browserEvents() {
+  return {
+    window: new EventTarget(),
+    document: new VisibilityTarget(),
+    navigator: { onLine: true },
+  };
+}
+
+test("browser listeners exclude hidden online reconciliation from submitted duration", async (t) => {
+  const session = makeSession();
+  const h = fixture(t, [session]);
+  await h.boot();
+  h.resume(session);
+  await until(h.actor, { attempting: "answering" });
+  const browser = browserEvents();
+  const send = (event: AssessmentEvent) => h.actor.send(event);
+  let detach = attachAssessmentBrowserEvents(send, true, browser);
+  t.after(() => detach());
+  const start = Date.parse(createdAt);
+  h.setNow(start + 10_000);
+  browser.document.visibilityState = "hidden";
+  browser.document.dispatchEvent(new Event("visibilitychange"));
+  browser.navigator.onLine = false;
+  browser.window.dispatchEvent(new Event("offline"));
+
+  let arrived!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  const response = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  t.after(() => release());
+  const get = h.server.api.getSession;
+  h.server.api.getSession = async (known) => {
+    arrived();
+    await response;
+    return get(known);
+  };
+  h.setNow(start + 70_000);
+  browser.navigator.onLine = true;
+  browser.window.dispatchEvent(new Event("online"));
+  await entered;
+  await until(h.actor, { attempting: "reconciling" });
+  const pausedDuringRead = h.actor.getSnapshot().context.timerPausedAt;
+  // Exercise the effect's cleanup/rebind across reconciling and answering.
+  detach();
+  detach = attachAssessmentBrowserEvents(send, false, browser);
+  h.setNow(start + 100_000);
+  release();
+  await until(h.actor, { attempting: "answering" });
+  detach();
+  detach = attachAssessmentBrowserEvents(send, true, browser);
+
+  h.setNow(start + 130_000);
+  browser.document.visibilityState = "visible";
+  browser.document.dispatchEvent(new Event("visibilitychange"));
+  await until(h.actor, { attempting: "answering" });
+  const submit = t.mock.method(h.server.api, "submitAnswer");
+  h.submit();
+  await until(h.actor, { attempting: "answering" });
+  assert.equal(submit.mock.calls[0]!.arguments[0].answer.timeSpentSeconds, 10);
+  assert.equal(h.current().acceptedAnswers[0]?.timeSpentSeconds, 10);
+  assert.equal(pausedDuringRead, start + 10_000);
+  assert.equal(h.server.calls.get, 2);
+});
+
+test("browser listeners keep visible-offline time paused until online", async (t) => {
+  const session = makeSession();
+  const h = fixture(t, [session]);
+  await h.boot();
+  h.resume(session);
+  await until(h.actor, { attempting: "answering" });
+  const browser = browserEvents();
+  const detach = attachAssessmentBrowserEvents(
+    (event) => h.actor.send(event),
+    true,
+    browser,
+  );
+  t.after(detach);
+  const start = Date.parse(createdAt);
+  h.setNow(start + 10_000);
+  browser.document.visibilityState = "hidden";
+  browser.document.dispatchEvent(new Event("visibilitychange"));
+  browser.navigator.onLine = false;
+  browser.window.dispatchEvent(new Event("offline"));
+  h.setNow(start + 70_000);
+  browser.document.visibilityState = "visible";
+  browser.document.dispatchEvent(new Event("visibilitychange"));
+  browser.window.dispatchEvent(new Event("focus"));
+  assert.equal(h.actor.getSnapshot().context.timerPausedAt, start + 10_000);
+  assert.equal(h.server.calls.get, 0);
+  h.setNow(start + 130_000);
+  browser.navigator.onLine = true;
+  browser.window.dispatchEvent(new Event("online"));
+  await until(h.actor, { attempting: "answering" });
+  h.submit();
+  await until(h.actor, { attempting: "answering" });
+  assert.equal(h.current().acceptedAnswers[0]?.timeSpentSeconds, 10);
+});
+
+test("browser listeners preserve storage filtering, initial pause and cleanup", () => {
+  const browser = browserEvents();
+  browser.navigator.onLine = false;
+  const events: AssessmentEvent[] = [];
+  const detach = attachAssessmentBrowserEvents(
+    (event) => events.push(event),
+    true,
+    browser,
+  );
+  assert.deepEqual(events, [{ type: "OFFLINE" }]);
+  events.length = 0;
+  const storage = (key: string | null) =>
+    browser.window.dispatchEvent(Object.assign(new Event("storage"), { key }));
+  storage("unrelated");
+  storage(SESSION_STORAGE_PREFIX + "saved-id");
+  storage(null);
+  assert.deepEqual(events, [{ type: "REFRESH" }, { type: "REFRESH" }]);
+  events.length = 0;
+  browser.navigator.onLine = true;
+  browser.window.dispatchEvent(new Event("focus"));
+  assert.deepEqual(events, [{ type: "FOCUS_RETURN" }, { type: "REFRESH" }]);
+  detach();
+  events.length = 0;
+  browser.document.visibilityState = "hidden";
+  browser.document.dispatchEvent(new Event("visibilitychange"));
+  for (const type of ["online", "offline", "focus"])
+    browser.window.dispatchEvent(new Event(type));
+  storage(null);
+  assert.deepEqual(events, []);
+});
+
 test("timer bounds and in-process retries preserve original duration", async (t) => {
   assert.equal(boundedDuration(1000, 0), 0);
   assert.equal(boundedDuration(0, 10_000_000), 3600);
