@@ -42,7 +42,7 @@ These are TanStack Start server functions, **not** literal `/api/sessions` REST 
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lastActivityAt + 30 minutes`                | An unfinished session is effectively `abandoned` at or after this point. This is inactivity, not terminal expiry. Reads derive the status without writing it.                                                                                  |
 | `attemptExpiresAt = createdAt + 24 hours`    | At or after this time, no unfinished resume, answer processing (including retries), or first completion. Authenticated metadata remains readable until access expiry.                                                                          |
-| `accessExpiresAt = createdAt + 7 × 24 hours` | At or after this time, normal reads, resume, answer/completion operations, and surveys are denied, regardless of stored status. Discovery returns generic `unavailable`. Authenticated explicit deletion remains allowed while the row exists. |
+| `accessExpiresAt = createdAt + 7 × 24 hours` | At or after this time, normal reads, resume, answer/completion operations, and surveys are denied, regardless of stored status. Discovery returns generic `not_found`. Authenticated explicit deletion remains allowed while the row exists. |
 
 These are elapsed UTC durations with inclusive expiry boundaries, not calendar days. Mutation checks use fresh PostgreSQL `clock_timestamp()` time after acquiring locks. Neither deadline slides forward.
 
@@ -61,7 +61,7 @@ Both `knownCredentials` and discovery's `credentials` have a maximum of **1,000 
 `discoverSessions({ credentials })` returns an entry for each supplied credential:
 
 - `available` with session ID, creation time, original configuration/count, both deadlines, effective status, answered/total counts, `blocksCreation`, and `canResume`;
-- `unavailable` with only the supplied session ID for missing rows, token mismatches, or access-expired rows. These cases are intentionally indistinguishable.
+- `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) with only the supplied session ID for missing rows, token mismatches, or access-expired rows. These cases are intentionally indistinguishable.
 
 This is **known-credential gating, not global ownership or one-attempt-per-person enforcement**. There is no list-by-client-ID capability. Omitted credentials, cleared/blocked storage, another browser, and a lost creation response limit discovery. The baseline browser currently supplies no known-session list. The Stage 3 Resume/Delete gate and same-browser coordination are still pending.
 

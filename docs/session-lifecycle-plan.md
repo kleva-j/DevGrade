@@ -26,7 +26,7 @@ All boundaries use elapsed UTC durations and authoritative server time. Neither 
 - **Unfinished, below 24 hours:** resume/answer/complete only with valid saved content; explicit delete is allowed. Effective abandonment still blocks new creation. Null-snapshot legacy attempts are delete-only while unexpired.
 - **Unfinished, 24 hours to below seven days:** metadata and delete only; no resume payload, late first completion, or automatic partial award. Does not block creation.
 - **Completed, below seven days:** saved report (or persisted legacy summary), survey, completion retry returning the saved report/legacy summary, or delete. Does not block creation.
-- **Any status, at/after seven days:** normal access denied; discovery returns generic `unavailable`. Authenticated expected-state erasure remains possible while the row exists. Physical cleanup awaits Stage 4.
+- **Any status, at/after seven days:** normal access denied; discovery returns generic `not_found`. Authenticated expected-state erasure remains possible while the row exists. Physical cleanup awaits Stage 4.
 
 `resumeSession` returns the appropriate completed/expired/legacy view without activity changes when resumption is unavailable; it does not revive the attempt. An all-answered unfinished session still must complete before 24 hours. Returning an existing award afterward is retrieval, not late scoring.
 
@@ -82,7 +82,7 @@ Deletion compares the caller's confirmed expected state with current state under
 
 Discovery accepts `credentials`; creation accepts optional `knownCredentials`. Each list is validated in full with a maximum of **1,000**, never silently truncated. Authenticated parent lookups and answer-ID metadata queries are batched in **100s**. No per-handle full-answer/content fetch is needed for discovery.
 
-Discovery returns `available` metadata or generic `unavailable` for missing/wrong-token/access-expired credentials. Creation rejects with `existing_attempt` if any supplied authenticated unfinished session is below 24 hours, irrespective of requested settings or snapshot restorability. Completed and attempt-expired sessions do not block.
+Discovery returns `available` metadata or generic `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) for missing/wrong-token/access-expired credentials. Creation rejects with `existing_attempt` if any supplied authenticated unfinished session is below 24 hours, irrespective of requested settings or snapshot restorability. Completed and attempt-expired sessions do not block.
 
 This cannot discover omitted or lost credentials. There is no list-by-client-ID or global single-attempt guarantee, and the existing browser currently supplies no saved list. Best-effort creation rate limiting (five per hashed client ID per trailing hour) also remains separate from ownership and does not serialize simultaneous new creations by client ID. Lost creation-response recovery/request-key idempotency is deferred.
 
