@@ -13,6 +13,7 @@ import {
 import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import {
   assessmentMachine,
+  advisoryRefreshDelay,
   attachAssessmentBrowserEvents,
   firstUnanswered,
   deletionExpectation,
@@ -164,24 +165,14 @@ export function AssessmentFlow() {
 
   // Advisory wakeup only. The server decides expiry, including when browser clocks differ.
   useEffect(() => {
-    if (!view && !choosing) return;
     if (!["ready", "answering", "completed"].includes(phase ?? "")) return;
-    const deadlines = view
-      ? view.kind === SESSION_VIEW.REPORT ||
-        view.kind === SESSION_VIEW.LEGACY_SUMMARY
-        ? [view.accessExpiresAt]
-        : [view.attemptExpiresAt, view.accessExpiresAt]
-      : context.history.flatMap((entry) => [
-          entry.attemptExpiresAt,
-          entry.accessExpiresAt,
-        ]);
-    const times = deadlines.map(Date.parse);
-    // Poll only a gate prompt. Do not repeatedly unmount an active question or
-    // reset intake controls just to refresh unchanged metadata.
-    const ceiling = choosing ? 30_000 : 2_147_483_647;
-    if (times.length === 0 && !choosing) return;
-    const remaining = Math.min(...times) - Date.now();
-    const wait = remaining > 0 ? Math.min(ceiling, remaining) : 30_000;
+    const wait = advisoryRefreshDelay(
+      view,
+      context.history,
+      choosing,
+      Date.now(),
+    );
+    if (wait === null) return;
     const id = window.setTimeout(() => send({ type: "REFRESH" }), wait);
     return () => window.clearTimeout(id);
   }, [view, context.history, phase, choosing, send]);

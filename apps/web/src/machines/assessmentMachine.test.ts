@@ -14,6 +14,7 @@ import {
 import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import {
   assessmentMachine,
+  advisoryRefreshDelay,
   attachAssessmentBrowserEvents,
   boundedDuration,
   firstUnanswered,
@@ -646,6 +647,63 @@ test("snapshot_unavailable never drops credential or bypasses the creation gate"
   await until(h.actor, { creation: "ready" });
   assert.equal(h.server.calls.create, 0);
 });
+test("advisory refresh waits for access expiry after the attempt has expired", async () => {
+  const session = makeSession();
+  const server = fakeServer([session]);
+  const now = Date.parse(attemptExpiresAt) + 60_000;
+  server.setNow(now);
+  const view = await server.api.getSession(session.credential);
+  assert.equal(view.kind, SESSION_VIEW.ATTEMPT_EXPIRED);
+  assert.equal(advisoryRefreshDelay(view, [], false, now), 518_340_000);
+  assert.equal(
+    advisoryRefreshDelay(view, [], false, now + 30_000),
+    518_310_000,
+  );
+});
+
+for (const legacy of [false, true])
+  test(`advisory refresh keeps ${legacy ? "legacy summaries" : "reports"} on the access deadline`, async () => {
+    const session = makeSession();
+    session.completed = true;
+    session.legacy = legacy;
+    const server = fakeServer([session]);
+    const now = Date.parse(attemptExpiresAt) + 60_000;
+    server.setNow(now);
+    const view = await server.api.getSession(session.credential);
+    assert.equal(advisoryRefreshDelay(view, [], false, now), 518_340_000);
+  });
+
+test("advisory refresh keeps active attempt deadlines and clock-skew retries", () => {
+  const { assessment } = makeSession();
+  const now = Date.parse(createdAt);
+  assert.equal(advisoryRefreshDelay(assessment, [], false, now), 86_400_000);
+  assert.equal(
+    advisoryRefreshDelay(assessment, [], false, Date.parse(attemptExpiresAt)),
+    30_000,
+  );
+});
+
+test("advisory refresh bounds creation-gate polling without polling idle intake", () => {
+  const history = [makeSession().assessment];
+  const now = Date.parse(createdAt);
+  assert.equal(advisoryRefreshDelay(null, history, false, now), null);
+  assert.equal(advisoryRefreshDelay(null, [], true, now), 30_000);
+  assert.equal(advisoryRefreshDelay(null, history, true, now), 30_000);
+  assert.equal(
+    advisoryRefreshDelay(
+      null,
+      history,
+      true,
+      Date.parse(attemptExpiresAt) - 5000,
+    ),
+    5000,
+  );
+  assert.equal(
+    advisoryRefreshDelay(null, history, true, Date.parse(attemptExpiresAt)),
+    30_000,
+  );
+});
+
 test("background refresh preserves the current choice/timer; offline time is excluded", async (t) => {
   const session = makeSession();
   const h = fixture(t, [session]);

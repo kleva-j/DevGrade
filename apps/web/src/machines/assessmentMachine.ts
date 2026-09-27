@@ -122,6 +122,32 @@ export function attachAssessmentBrowserEvents(
   };
 }
 
+export function advisoryRefreshDelay(
+  view: SessionView | null,
+  history: SessionMetadata[],
+  choosing: boolean,
+  now: number,
+): number | null {
+  if (!view && !choosing) return null;
+  const deadlines = view
+    ? view.kind === SESSION_VIEW.REPORT ||
+      view.kind === SESSION_VIEW.LEGACY_SUMMARY ||
+      view.kind === SESSION_VIEW.ATTEMPT_EXPIRED
+      ? [view.accessExpiresAt]
+      : [view.attemptExpiresAt, view.accessExpiresAt]
+    : history.flatMap((entry) => [
+        entry.attemptExpiresAt,
+        entry.accessExpiresAt,
+      ]);
+  const times = deadlines.map(Date.parse);
+  // Poll only a gate prompt. Do not repeatedly unmount an active question or
+  // reset intake controls just to refresh unchanged metadata.
+  const ceiling = choosing ? 30_000 : 2_147_483_647;
+  if (times.length === 0 && !choosing) return null;
+  const remaining = Math.min(...times) - now;
+  return remaining > 0 ? Math.min(ceiling, remaining) : 30_000;
+}
+
 export function boundedDuration(startedAt: number, now: number) {
   const seconds = Math.round((now - startedAt) / 1000);
   return Number.isFinite(seconds) ? Math.min(3600, Math.max(0, seconds)) : 0;
