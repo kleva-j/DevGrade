@@ -27,6 +27,12 @@ export const CLIENT_ERROR_CODE = {
   REQUEST_FAILED: "request_failed",
 } as const;
 
+export const MAINTENANCE_ERROR_CODE = {
+  UNAUTHORIZED: "unauthorized",
+  METHOD_NOT_ALLOWED: "method_not_allowed",
+  FAILED: "maintenance_failed",
+} as const;
+
 export type AssessmentFailure =
   | {
       code: typeof ERROR_CODE.EXISTING_ATTEMPT;

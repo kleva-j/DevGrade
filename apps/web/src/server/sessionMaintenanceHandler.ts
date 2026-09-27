@@ -4,6 +4,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import type { SessionMaintenanceResult } from "./sessionMaintenance";
 
+import { MAINTENANCE_ERROR_CODE } from "./errors";
+
 function projectOperation(result: SessionMaintenanceResult["deletion"]) {
   return {
     count: result.count,
@@ -80,13 +82,16 @@ export function createSessionMaintenanceHandler({
     try {
       const env = environment();
       if (!authorized(request, env.CRON_SECRET)) {
-        return respond(401, { ok: false, error: "unauthorized" });
+        return respond(401, {
+          ok: false,
+          error: MAINTENANCE_ERROR_CODE.UNAUTHORIZED,
+        });
       }
       // TanStack falls back from HEAD to GET; never let HEAD execute maintenance.
       if (request.method !== "GET") {
         return respond(
           405,
-          { ok: false, error: "method_not_allowed" },
+          { ok: false, error: MAINTENANCE_ERROR_CODE.METHOD_NOT_ALLOWED },
           { Allow: "GET" },
         );
       }
@@ -114,7 +119,10 @@ export function createSessionMaintenanceHandler({
       return respond(summary.ok ? 200 : 503, { ...summary, enabled: true });
     } catch {
       record("error", { event: "session_maintenance_failed" });
-      return respond(503, { ok: false, error: "maintenance_failed" });
+      return respond(503, {
+        ok: false,
+        error: MAINTENANCE_ERROR_CODE.FAILED,
+      });
     }
   };
 }
