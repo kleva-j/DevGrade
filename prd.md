@@ -6,7 +6,7 @@
 
 **Target Release:** Q4 2026
 
-**Last Updated:** 2026-09-25
+**Last Updated:** 2026-09-26
 
 **Change Log:**
 
@@ -23,7 +23,7 @@
 | 1.6.0 | 2026-09-23 | Question-bank Batch B: grew the React bank from 48 to **96 questions** (3 levels × 4 pillars × **four** core + **four** advanced per bucket), deepening the sampling pool (1-of-4 core × 1-of-4 advanced per pillar → far more distinct sessions). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 4 (guard test green at 29 tests). Topics remain distinct across all items in a bucket; provenance tracked per row (§10.1). Remaining toward the §10.1 target (~6/6 per bucket, ~144 total): a future Batch C. |
 | 1.7.0 | 2026-09-23 | Question-bank Batch C: grew the React bank from 96 to **144 questions** (3 levels × 4 pillars × **six** core + **six** advanced per bucket), reaching the §10.1 pool-depth target (~6/6 per bucket). Raised the enforced per-bucket floor to `MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET` = 6 (guard test green at 29 tests; typecheck + lint clean). New `-05`/`-06` items are topic-distinct from every prior item in each bucket and vary the `correctAnswer` index to reduce answer-position leakage; provenance tracked per row (§10.1). Updated §10.1, §12, §13. |
 | 1.8.0 | 2026-09-24 | Implemented free selectable lengths: Quick (8, default), Standard (16), Deep (32). Strict core/advanced sampling, shared exact numeric `questionCount` validation, unchanged scoring/schema, fixed selected-ID snapshot, and XState configuration preserved through retries. Intake and report copy now reflect the selected length without time or statistical confidence claims. Added sampler, validation, machine, and isolated PostgreSQL tests; verification and the unrelated typecheck blocker are recorded in §13. |
-| 1.9.0 | 2026-09-25 | Session lifecycle Stages 1–2 implemented on `session-lifecycle/server`: immutable question/report snapshots alongside normalized scores; 24-hour attempts, seven-day normal access from original creation, and 30-minute effective inactivity; strict credentials, parent-first transactions/fresh DB time, coherent read-only views, idempotent answers/completion, expected-state deletion, and a bounded known-credential creation gate. Typed no-store POST server functions return authoritative progress including `nextQuestionId`; browser changes are compatibility-only. Stage 3 recovery and Stage 4 maintenance remain pending. Primary agent reports 282 tests passed/0 skipped on isolated PostgreSQL 18, package lint/build passed, and only three existing chart typecheck errors. PR #1 exists; no deployment or active cleanup is claimed (§13). |
+| 1.9.0 | 2026-09-25 | Session lifecycle Stages 1–2 implemented on `session-lifecycle/server`: immutable question/report snapshots alongside normalized scores; 24-hour attempts, seven-day normal access from original creation, and 30-minute effective inactivity; strict credentials, parent-first transactions/fresh DB time, coherent read-only views, idempotent answers/completion, expected-state deletion, and a bounded known-credential creation gate. Typed no-store POST server functions return authoritative progress including `nextQuestionId`; browser changes are compatibility-only. Stage 3 recovery and Stage 4 maintenance remain pending. Historical pre-simplification and confirmed post-Phase A primary-agent verification are recorded in the [main verification record](docs/session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria), including excluded-user-edit typecheck context. PR #1 exists; no deployment or active cleanup is claimed (§13). |
 
 ---
 
@@ -403,14 +403,20 @@ Initialize a new assessment. Optional `questionCount` accepts exactly numeric **
 }
 ```
 
-**Success response:**
+**Success response (flat `CreatedSession = SessionCredential & AssessmentView`, not a nested view):**
 
 ```json
 {
   "ok": true,
   "data": {
+    "kind": "assessment",
     "sessionId": "11111111-1111-4111-8111-111111111111",
     "sessionToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "createdAt": "2026-09-25T10:00:00.000Z",
+    "configuration": { "framework": "react", "targetLevel": "mid", "questionCount": 8 },
+    "effectiveStatus": "in_progress",
+    "blocksCreation": true,
+    "canResume": true,
     "attemptExpiresAt": "2026-09-26T10:00:00.000Z",
     "accessExpiresAt": "2026-10-02T10:00:00.000Z",
     "questions": [
@@ -423,7 +429,10 @@ Initialize a new assessment. Optional `questionCount` accepts exactly numeric **
         "options": ["A", "B", "C", "D"]
       }
     ],
-    "totalQuestions": 8
+    "acceptedAnswers": [],
+    "answeredCount": 0,
+    "totalQuestions": 8,
+    "nextQuestionId": "q_123"
   }
 }
 ```
@@ -461,6 +470,9 @@ The full question set is already client-held. Submission saves an answer and ret
       "selectedAnswer": 1,
       "timeSpentSeconds": 45
     },
+    "acceptedAnswers": [
+      { "questionId": "q_123", "selectedAnswer": 1, "timeSpentSeconds": 45 }
+    ],
     "answeredCount": 1,
     "totalQuestions": 8,
     "nextQuestionId": "q_124"
@@ -468,39 +480,48 @@ The full question set is already client-held. Submission saves an answer and ret
 }
 ```
 
-`nextQuestionId` is the first unanswered selected ID by set membership, or `null` when all are accepted. `sessionComplete` does not award the report. Same-option retries acknowledge the original accepted duration without timing/status/activity writes; different-option retries conflict. Completed/expiry checks precede acknowledgement, so late retries do not bypass deadlines. Newly accepted answers atomically set `in_progress` and refresh activity. The current compatibility adapter forwards only `sessionComplete` to the baseline machine; Stage 3 must consume/reconcile authoritative progress.
+`acceptedAnswers` contains all accepted selections/durations in selected-question order, not submission order. `nextQuestionId` is the first unanswered selected ID by set membership, or `null` when all are accepted. `sessionComplete` does not award the report. Same-option retries acknowledge the original accepted duration without timing/status/activity writes; different-option retries conflict. Completed/expiry checks precede acknowledgement, so late retries do not bypass deadlines. Newly accepted answers atomically set `in_progress` and refresh activity. The current compatibility adapter forwards only `sessionComplete` to the baseline machine; Stage 3 must consume/reconcile authoritative progress.
 
 #### POST /api/sessions/:id/complete — `completeSessionFn`
 
-Accepts `{ sessionId, sessionToken }`. First completion requires the exact selected accepted-ID set and an unfinished attempt strictly younger than 24 hours. Inside one parent-locked transaction, saved inputs produce normalized overall/pillar rows, the immutable report snapshot, and completed status/timestamps. Repeated completion returns the saved result without rescoring/activity writes, including after 24 hours while normal access remains open. Legacy completed rows return `legacy_summary_available`; read their summary with `getSessionFn` instead.
+Accepts `{ sessionId, sessionToken }`. First completion requires the exact selected accepted-ID set and an unfinished attempt strictly younger than 24 hours. Inside one parent-locked transaction, saved inputs produce normalized overall/pillar rows, the immutable report snapshot, and completed status/timestamps. Success returns the committed `ReportView` directly. Repeated completion returns the persisted `ReportView` or successful `LegacySummaryView` without rescoring/activity writes, including after 24 hours while normal access remains open. No `legacy_summary_available` service error or follow-up `getSessionFn` call is required.
 
-**Success response (`AssessmentResult`; question results abbreviated):**
+**Success response (`ReportView`; snapshot abbreviated to `result`, question results abbreviated):**
 
 ```json
 {
   "ok": true,
   "data": {
+    "kind": "report",
     "sessionId": "11111111-1111-4111-8111-111111111111",
-    "framework": "react",
-    "targetLevel": "mid",
-    "totalScore": 75,
-    "maxScore": 100,
-    "proficiencyLevel": "developing",
-    "categoryScores": [
-      { "skillCategory": "reactivity", "correctWeight": 3, "totalWeight": 3, "scorePct": 100, "proficiency": "proficient" },
-      { "skillCategory": "lifecycle", "correctWeight": 2, "totalWeight": 3, "scorePct": 66.67, "proficiency": "developing" },
-      { "skillCategory": "performance", "correctWeight": 1, "totalWeight": 3, "scorePct": 33.33, "proficiency": "skill_gap" },
-      { "skillCategory": "async", "correctWeight": 3, "totalWeight": 3, "scorePct": 100, "proficiency": "proficient" }
-    ],
-    "skillGaps": ["performance"],
-    "questionResults": [
-      { "questionId": "q_123", "isCorrect": true, "explanation": "Correct answer explanation" }
-    ]
+    "attemptExpiresAt": "2026-09-26T10:00:00.000Z",
+    "accessExpiresAt": "2026-10-02T10:00:00.000Z",
+    "reportSnapshot": {
+      "result": {
+        "sessionId": "11111111-1111-4111-8111-111111111111",
+        "framework": "react",
+        "targetLevel": "mid",
+        "totalScore": 75,
+        "maxScore": 100,
+        "proficiencyLevel": "developing",
+        "categoryScores": [
+          { "skillCategory": "reactivity", "correctWeight": 3, "totalWeight": 3, "scorePct": 100, "proficiency": "proficient" },
+          { "skillCategory": "lifecycle", "correctWeight": 2, "totalWeight": 3, "scorePct": 66.67, "proficiency": "developing" },
+          { "skillCategory": "performance", "correctWeight": 1, "totalWeight": 3, "scorePct": 33.33, "proficiency": "skill_gap" },
+          { "skillCategory": "async", "correctWeight": 3, "totalWeight": 3, "scorePct": 100, "proficiency": "proficient" }
+        ],
+        "skillGaps": ["performance"],
+        "questionResults": [
+          { "questionId": "q_123", "isCorrect": true, "explanation": "Correct answer explanation" }
+        ]
+      }
+    },
+    "surveyRating": null
   }
 }
 ```
 
-> Quick example: correct weight 9 of 12 gives 75; only performance is below 50. Standard/Deep retain the same formula (§4.4). `categoryScores` is an array of normalized rows, not fixed per-pillar columns; `questionResults` follows selected presentation order. No `correctAnswer` field or separate `remediation` map is returned. Stage 2 completion retains this compatibility result; the full saved report, public questions, and pillar metadata are available through `getSessionFn`.
+> Quick example: correct weight 9 of 12 gives 75; only performance is below 50. Standard/Deep retain the same formula (§4.4). `categoryScores` is an array of normalized rows, not fixed per-pillar columns; `questionResults` follows selected presentation order. No `correctAnswer` field or separate `remediation` map is returned. The actual `reportSnapshot` also includes format/scoring versions, completion time, saved public questions, and pillar metadata. A legacy retry instead succeeds with `data.kind: "legacy_summary"`, persisted `summary`, ID, both deadlines, and survey state—no invented question review. Only the baseline browser adapter projects a full report to `AssessmentResult`; it raises `legacy_summary_available` for a successful legacy view it cannot render.
 
 #### POST /api/sessions/:id/survey — `submitSurveyFn`
 
@@ -529,7 +550,7 @@ The active wire failure is **`{ ok: false, error: { code, message } }`**, with `
 
 - **400:** `bad_request` — invalid inputs, including unsupported count, malformed credentials, invalid option/duration, or incomplete first completion.
 - **404:** `not_found` — unknown session or mismatched token, without expiry disclosure.
-- **409:** `conflict` for a different accepted option; `session_completed`, `insufficient_questions`, `existing_attempt`, `legacy_unrestorable`, `legacy_summary_available`, or `snapshot_unavailable`. Same-option eligible replay is success, not conflict.
+- **409:** `conflict` for a different accepted option; `session_completed`, `insufficient_questions`, `existing_attempt`, `legacy_unrestorable`, or `snapshot_unavailable`. Same-option eligible replay is success, not conflict.
 - **410:** `attempt_expired` or `access_expired` for operations barred by their deadlines. An authenticated read/resume may instead return the retained `attempt_expired` view before access expiry.
 - **429:** `rate_limited` — best-effort maximum five sessions per trailing hour per hashed browser client ID, not per IP.
 - **500:** `internal_error` — generic safe message; no credentials, Zod issue payloads, SQL, or raw DB error details.
@@ -684,7 +705,7 @@ The original decisions below were open in v1.1.0 and implemented for the Quick b
 2. **Deployment topology — RESOLVED: single full-stack app.** The UI and `/api/*` server functions ship together as one TanStack Start deployment (see §8.1). No separately hosted API.
 3. **Score granularity — RESOLVED: weighted core/advanced pairs.** Each pillar draws 1/2/4 pairs for Quick/Standard/Deep, with exact core (1) and advanced (2) weights. Quick resolves to 0/33.33/66.67/100; longer lengths give finer resolution with unchanged scoring and equal pillar contributions (see §4.2–4.4; `domain/constants.ts`, `domain/sampling.ts`, `domain/scoring.ts`).
 4. **Results storage — RESOLVED: normalized.** Per-pillar scores live in `session_category_scores` (one row per pillar per session); no hardcoded pillar columns (see §5.2). Generalizes to future frameworks/pillars.
-5. **Question delivery — RESOLVED: all up front.** Creation returns all selected client-safe questions (8/16/32), while the answer key stays server-side. Answer success now returns `{ success, sessionComplete, acceptedAnswer, answeredCount, totalQuestions, nextQuestionId }` inside the typed envelope. `nextQuestionId` is authoritative progress, not another question-content round-trip; all content still arrives up front (§7.1).
+5. **Question delivery — RESOLVED: all up front.** Creation returns all selected client-safe questions (8/16/32), while the answer key stays server-side. Answer success now returns `{ success, sessionComplete, acceptedAnswer, acceptedAnswers, answeredCount, totalQuestions, nextQuestionId }` inside the typed envelope, with all `acceptedAnswers` in selected-question order. `nextQuestionId` is authoritative progress, not another question-content round-trip; all content still arrives up front (§7.1).
 
 **Related considerations — addressed:**
 
@@ -698,7 +719,7 @@ The original decisions below were open in v1.1.0 and implemented for the Quick b
 
 ## 13. Implementation Plan (MVP)
 
-The domain core, server functions, baseline candidate UI/report, and selectable lengths are implemented (`apps/web/src/{domain,db,server,machines,components,routes}`). Lifecycle Stages 1–2 are implemented; Stage 3 browser recovery and Stage 4 maintenance are not. Current verification below records passing tests/package lint/build and three existing chart typecheck errors, not a fully green validation set or production deployment. Lifecycle stage numbers are separate from the original MVP phases below.
+The domain core, server functions, baseline candidate UI/report, and selectable lengths are implemented (`apps/web/src/{domain,db,server,machines,components,routes}`). Lifecycle Stages 1–2 are implemented; Stage 3 browser recovery and Stage 4 maintenance are not. The linked verification record distinguishes historical and post-Phase A runs and excluded-user-edit diagnostics; it is not a production deployment claim. Lifecycle stage numbers are separate from the original MVP phases below.
 
 ### Session lifecycle — staged delivery
 
@@ -707,7 +728,7 @@ The domain core, server functions, baseline candidate UI/report, and selectable 
 3. **Browser recovery and Resume/Delete UX — not implemented:** current browser remains the in-memory baseline, with only envelope compatibility adapters. No session credential storage, discovery/recovery/history, Web Lock coordination, or confirmation/expiry UX. Only the anonymous rate-limit client ID persists.
 4. **Daily cleanup and rollout — not implemented:** no active scheduled cleanup or inactivity worker. Activation requires authorized migration, bounded maintenance/route implementation, scheduler/secret setup, backlog/backup policy, and deployment verification.
 
-**Stage 2 verification, reported by the primary agent (2026-09-25): 282 tests passed, 0 skipped**, against isolated PostgreSQL 18 with real migrations, independent backend connections, and observable lock barriers. Package lint/build passed. Typecheck has only **three pre-existing unrelated shared `chart.tsx` errors**. This documents that run, not a rerun by the documentation task, success of root `pnpm build`, or deployment. Apply migration `0002_dazzling_may_parker.sql` before new writers; preserve dependency order. See [current behavior and exact validation commands](docs/sessions-and-evaluation.md#9-verification-and-source-map) and [remaining stage exit criteria](docs/session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria).
+**Stage 2 verification:** see the [main verification record and remaining stage exit criteria](docs/session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria) for the historical pre-simplification and confirmed post-Phase A primary-agent runs, plus excluded-user-edit typecheck context. No new run, root `pnpm build` success, or deployment is claimed. Apply migration `0002_dazzling_may_parker.sql` before new writers; preserve dependency order. See [current behavior and exact validation commands](docs/sessions-and-evaluation.md#9-verification-and-source-map).
 
 **Repeatable validation:** with an explicit dedicated `TEST_DATABASE_URL`, run `node --import tsx --test "src/**/*.test.ts"` from `apps/web` (`node:test`, no `tsx` CLI IPC startup). Normal root entry points are `pnpm --filter web test`, `pnpm --filter web typecheck`, `pnpm lint`, and package build `pnpm --filter web build`. If the pnpm shim is unavailable, use pinned `pnpm@10.33.4` (e.g. `npm exec --yes --package=pnpm@10.33.4 -- pnpm --filter web build`, potentially requiring network when uncached), or the installed lockfile-resolved TypeScript/ESLint/Vite tools documented in the linked reference. Package fallbacks do not establish success of the root Turbo wrapper. No application tests/builds were rerun for this documentation-only update.
 
@@ -718,7 +739,7 @@ The domain core, server functions, baseline candidate UI/report, and selectable 
 - [x] Update intake/progress/report copy for the three free lengths; retain all-public-questions-up-front delivery and server-only answer keys, with no time or statistical confidence/comparability promises.
 - [x] Validate all lengths, omitted and invalid inputs, exact class quotas, uniqueness, active-pool shortfalls (no fallback), unchanged weighted scoring/equal pillar contributions, snapshot-based completion, client-safe delivery, and configuration/retry preservation.
 
-**Verification (2026-09-24):** 217 tests passed with an isolated temporary PostgreSQL 18 database, including all nine length/level combinations. Production build and repo-wide lint passed. Browser smoke tests completed Quick, Standard, and Deep against the seeded 144-question bank; checked keyboard selection, mobile light/LTR and dark/RTL layouts, final-question completion, report counts, and configuration preservation. No answer-key/seed markers were found in the built public JavaScript. Typecheck remains blocked by three unrelated errors in the existing shared `chart.tsx` edits (lines 154/158); this extension does not change that file.
+**Historical verification (2026-09-24, selectable lengths):** 217 tests passed with an isolated temporary PostgreSQL 18 database, including all nine length/level combinations. Production build and repo-wide lint passed. Browser smoke tests completed Quick, Standard, and Deep against the seeded 144-question bank; checked keyboard selection, mobile light/LTR and dark/RTL layouts, final-question completion, report counts, and configuration preservation. No answer-key/seed markers were found in the built public JavaScript. Typecheck at that time was blocked by unrelated shared `chart.tsx` edits; see the [main verification record](docs/session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria) for excluded-user-edit context.
 
 **Repeatable DB tests:** set `TEST_DATABASE_URL` to a dedicated PostgreSQL test database and use the commands above. Integration tests create/drop only their own unique schemas using temporary copies of real migrations; independent clients verify schema/backend identity for concurrency barriers. Without this explicit variable DB suites skip; configured failures fail, with no fallback to `DATABASE_URL`. To enable longer assessments in an existing deployment, apply the existing migrations and run `pnpm --filter web db:seed` against that environment if the bank is not already current. Lengths themselves need no migration; lifecycle snapshots require `0002`.
 
@@ -753,7 +774,7 @@ Build the screens, driven by `@xstate/react` `useMachine`. **Complete.**
 - [x] Question runner: prompt + `font-mono` code block, radio options, progress `N/Total` bar, per-question timer, `SELECT_OPTION`/`SUBMIT_ANSWER`; `FOCUS_LOSS` wired to `visibilitychange` in the orchestrator.
 - [x] Loading/error states from `creatingSession`/`*Failed` with `RETRY`/`RESTART` (`AssessmentFlow.tsx`).
 - [x] Repeated copy centralized in `components/assessment/copy.ts` (mirrors the server `MESSAGES` seam); RTL-safe logical classes; native radios in `fieldset/legend` for a11y.
-- **Baseline verification:** Quick/Standard/Deep browser completion was recorded with the selectable-length extension above. Lifecycle refresh/recovery, authoritative progress reconciliation, Resume/Delete/expiry screens, and saved reports remain Stage 3; current typecheck still has the three unrelated chart errors.
+- **Baseline verification:** Quick/Standard/Deep browser completion was recorded with the selectable-length extension above. Lifecycle refresh/recovery, authoritative progress reconciliation, Resume/Delete/expiry screens, and saved reports remain Stage 3; current validation scope is in the [main verification record](docs/session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria).
 
 ### Phase 3 — Report & skill radar
 

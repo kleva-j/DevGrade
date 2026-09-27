@@ -1,6 +1,6 @@
 # Assessment sessions and evaluation
 
-**Implementation reference — 2026-09-25, lifecycle Stages 1–2 implemented on `session-lifecycle/server`.**
+**Implementation reference — 2026-09-26, lifecycle Stages 1–2 implemented on `session-lifecycle/server`, including Phase A contract simplification.**
 
 [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This document describes current source, not a deployment. Stage 3 browser recovery and Stage 4 maintenance are **not implemented**. See the [delivery plan](session-lifecycle-plan.md) and [PRD](../prd.md).
 
@@ -77,7 +77,7 @@ The active pool is filtered by framework/level and ordered by ID. A random token
 
 Any class shortfall fails with `insufficient_questions` and no session insert: no substitutions, repeated IDs, or silent shortening. The source bank has six core and six advanced items per pillar/React level; a deployment still needs a sufficiently populated active bank.
 
-Creation saves the selected IDs and private content snapshot, sets `createdAt`, `startedAt`, and `lastActivityAt` from DB time, then returns `sessionId`, `sessionToken`, both deadlines, `totalQuestions`, and **all** `PublicQuestion` objects. No answer key or explanation is released.
+Creation saves the selected IDs and private content snapshot, sets `createdAt`, `startedAt`, and `lastActivityAt` from DB time, then returns flat `CreatedSession = SessionCredential & AssessmentView` in the success envelope. Credentials, `kind: "assessment"`, original configuration/effective status, creation time/deadlines, authoritative progress, **all** `PublicQuestion` objects, and initially empty `acceptedAnswers` are siblings, not a nested view. No answer key or explanation is released.
 
 ## 5. Durable content and evaluation
 
@@ -135,7 +135,7 @@ Completed state is considered before attempt expiry, so an already-awarded repor
 - For the same previously accepted option, acknowledges the **original** answer/duration with no answer, timing, status, or activity writes. A different valid retry duration does not replace the first one.
 - For a different option on an answered question, returns `conflict`; it never overwrites the accepted selection.
 
-Success returns `{ success: true, sessionComplete, acceptedAnswer, answeredCount, totalQuestions, nextQuestionId }`. Progress is derived by selected-ID set membership; `nextQuestionId` is the **first unanswered selected ID**, not an answer count used as an index. Question content is still delivered up front. Submission order is not enforced, though the UI is sequential. No answer correctness/explanation is returned here.
+Success returns `{ success: true, sessionComplete, acceptedAnswer, acceptedAnswers, answeredCount, totalQuestions, nextQuestionId }`. `acceptedAnswers` contains all accepted selections/durations in selected-question order, not submission order. Progress is derived by selected-ID set membership; `nextQuestionId` is the **first unanswered selected ID**, not an answer count used as an index. Question content is still delivered up front. Submission order is not enforced, though the UI is sequential. No answer correctness/explanation is returned here.
 
 `sessionComplete` means all selected IDs have accepted answers, not that a report was awarded. Normal expiry/completed checks precede duplicate acknowledgement: late answer retries cannot revive an expired attempt or modify a completed session.
 
@@ -143,7 +143,7 @@ Success returns `{ success: true, sessionComplete, acceptedAnswer, answeredCount
 
 First completion requires the accepted-ID set to match the selected set exactly, not merely the same count. Under the parent lock it computes the saved award, writes normalized results/pillar rows/report JSON, and marks the session completed atomically. Missing/extra/invalid accepted answers fail; no automatic partial report is generated.
 
-Repeated completion returns the already saved `reportSnapshot.result` without rescoring or touching activity. This also works after 24 hours if the report was committed earlier and normal access remains open. A legacy completed session instead returns `legacy_summary_available`, directing the caller to `getSession`; it is not rescored. The Stage 2 completion success payload remains the compatibility `AssessmentResult`, not the full `ReportView`.
+Completion returns the committed `ReportView` in `{ ok: true, data }`; retries return the persisted `ReportView` or successful `LegacySummaryView` directly, without rescoring, activity writes, or a follow-up `getSession` call. This also works after 24 hours if the award was committed earlier and normal access remains open. Full views include the saved report, both deadlines, and separate survey state; legacy views contain only persisted summaries, not invented historical content. Only the baseline browser adapter projects `reportSnapshot.result` to `AssessmentResult` and raises `legacy_summary_available` when it cannot render a successful legacy view.
 
 `submitSurvey` requires authenticated completed state and normal access. It upserts an integer 1–5 rating, leaving the award and session activity unchanged.
 
@@ -173,7 +173,7 @@ The former unlocked submit/completion races are fixed. This does not claim globa
 
 The existing XState flow remains configure → create → answer/submit → complete → report/survey, with retry states. Only `devgrade.clientId` persists. Session credentials, questions, current position, pending answers, and the report are in memory. A hard refresh/remount returns to intake; saved answers remain in PostgreSQL but the UI does not retrieve them. No saved-session adapter, Web Lock coordination, report history, resume/deletion UI, or lifecycle-specific expiry screen is implemented.
 
-The compatibility adapter unwraps the typed envelopes, projects creation back to ID/token/questions, and forwards only `sessionComplete` from answer success to the old machine. It does not yet consume deadlines, `acceptedAnswer`, or `nextQuestionId`. The machine still advances its local index; Stage 3 must reconcile authoritative progress for restoration/conflicts/multiple tabs and render saved report/pillar metadata.
+The compatibility adapter unwraps the typed envelopes, projects creation back to ID/token/questions, and forwards only `sessionComplete` from answer success to the old machine. It does not yet consume deadlines, `acceptedAnswer`, `acceptedAnswers`, or `nextQuestionId`. The machine still advances its local index; Stage 3 must reconcile authoritative progress for restoration/conflicts/multiple tabs and render saved report/pillar metadata.
 
 Answer retries keep their original pending payload; completion retries now receive the saved result. Lost creation responses before receiving credentials remain unrecoverable and can create another row on retry; request-key idempotency is deferred. Existing client-ID storage-access exceptions are not specially handled.
 
@@ -181,7 +181,7 @@ Timing remains baseline: the display counter and captured `Date.now()` elapsed d
 
 ## 9. Verification and source map
 
-**Primary-agent verification reported for Stage 2 (2026-09-25): 282 tests passed, 0 skipped**, against isolated PostgreSQL 18 with real migrations and independent-backend lock barriers. Package lint/build passed; typecheck has only **three pre-existing shared `chart.tsx` errors**. This records the primary agent's run, not a rerun by this documentation task, a successful root `pnpm build`, or a deployed migration/job.
+See the [main Stage 2 verification record](session-lifecycle-plan.md#7-verification-and-remaining-exit-criteria) for the historical pre-simplification and confirmed post-Phase A primary-agent runs, plus excluded-user-edit typecheck context. No tests/builds were rerun for this documentation task; the record does not establish root `pnpm build` success or a deployed migration/job.
 
 Tests use `node:test` via `tsx`, not Jest/Vitest. With a dedicated `TEST_DATABASE_URL` exported and a compatible Node runtime, run from `apps/web`:
 
@@ -207,7 +207,7 @@ node node_modules/eslint/bin/eslint.js
 node node_modules/vite/bin/vite.js build
 ```
 
-For package-level lint coverage, also run `node node_modules/eslint/bin/eslint.js` from `packages/ui`. These package-tool fallbacks do not validate the root Turbo wrapper. Keep typecheck's existing chart failures separate from test/lint/build results; do not describe the complete validation set as green.
+For package-level lint coverage, also run `node node_modules/eslint/bin/eslint.js` from `packages/ui`. These package-tool fallbacks do not validate the root Turbo wrapper. Report command-specific outcomes separately; retain the excluded-user-edit context in the linked verification record rather than attributing those diagnostics to the server changes.
 
 | Concern                                                                | Source                                                                                                        |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |

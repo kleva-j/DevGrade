@@ -1,6 +1,6 @@
 # Session lifecycle completion plan
 
-**Status — 2026-09-25:** Stages **1–2 implemented**; current layer `session-lifecycle/server`. Stage 3 browser recovery and Stage 4 maintenance/rollout are **not implemented**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This status does not claim merge, deployment, production migration, or cleanup activation.
+**Status — 2026-09-26:** Stages **1–2 implemented**, including Phase A contract simplification; current layer `session-lifecycle/server` ([PR #2](https://github.com/kleva-j/DevGrade/pull/2)). Stage 3 browser recovery and Stage 4 maintenance/rollout are **not implemented**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. This status does not claim merge, deployment, production migration, or cleanup activation.
 
 **Baseline:** free Quick 8 / Standard 16 / Deep 32 assessments, PostgreSQL, TanStack Start/Nitro, and XState. Product scope, scoring, and visual design remain unchanged. See [current behavior](sessions-and-evaluation.md) and the [PRD](../prd.md).
 
@@ -9,13 +9,13 @@
 > **30 minutes: effectively inactive. 24 hours from original creation: unfinished attempt expires. Seven days from original creation: normal access ends and cleanup eligibility starts. Daily deletion is planned, not active.**
 
 | Concern                  | Policy and current status                                                                                                                                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Inactivity               | Implemented: unfinished sessions are effectively `abandoned` at `now >= lastActivityAt + 30 minutes`; reads do not materialize the status. Inactivity does not end an otherwise eligible attempt.                                       |
 | Attempt lifetime         | Implemented: `attemptExpiresAt = createdAt + 24 hours`. No unfinished resume, new answer, answer retry, or first completion at/after the deadline. Leaving a tab open cannot bypass it.                                                 |
 | Normal access            | Implemented: `accessExpiresAt = createdAt + 7 × 24 hours` for every status. Reads/completion retries/surveys stop at this boundary, even if data remains stored.                                                                        |
 | Saved reports            | Implemented server retrieval: an already-awarded report remains readable until seven days from **session creation**, not completion. Browser saved-report recovery is pending.                                                          |
 | Starting another attempt | Implemented server gate: every supplied authenticated unfinished attempt younger than 24 hours blocks insertion. Stage 3 must collect all known browser credentials and offer Resume or confirmed Delete, never “Start another anyway.” |
-| Explicit deletion        | Implemented: authenticated parent-locked cascading deletion with `expectedState: "unfinished"                                                                                                                                           | "completed"`. Changed state returns a non-destructive outcome. Confirmation UI is pending. |
+| Explicit deletion        | Implemented: authenticated parent-locked cascading deletion with `expectedState: "unfinished" \| "completed"`. Changed state returns a non-destructive outcome. Confirmation UI is pending. |
 | Daily cleanup            | Stage 4: `0 3 * * *` UTC; bounded all-status deletion where `createdAt <= DB time − 7 days`, independent of browser traffic. No active scheduled cleanup or replacement inactivity worker exists yet.                                   |
 | Ownership/discovery      | Implemented per supplied ID/token pair, not by anonymous client-ID hash. No account/device-wide ownership or global single-attempt guarantee.                                                                                           |
 
@@ -25,7 +25,7 @@ All boundaries use elapsed UTC durations and authoritative server time. Neither 
 
 - **Unfinished, below 24 hours:** resume/answer/complete only with valid saved content; explicit delete is allowed. Effective abandonment still blocks new creation. Null-snapshot legacy attempts are delete-only while unexpired.
 - **Unfinished, 24 hours to below seven days:** metadata and delete only; no resume payload, late first completion, or automatic partial award. Does not block creation.
-- **Completed, below seven days:** saved report (or persisted legacy summary), survey, completion retry of an existing full award, or delete. Does not block creation.
+- **Completed, below seven days:** saved report (or persisted legacy summary), survey, completion retry returning the saved report/legacy summary, or delete. Does not block creation.
 - **Any status, at/after seven days:** normal access denied; discovery returns generic `unavailable`. Authenticated expected-state erasure remains possible while the row exists. Physical cleanup awaits Stage 4.
 
 `resumeSession` returns the appropriate completed/expired/legacy view without activity changes when resumption is unavailable; it does not revive the attempt. An all-answered unfinished session still must complete before 24 hours. Returning an existing award afterward is retrieval, not late scoring.
@@ -55,8 +55,9 @@ All eight TanStack Start server functions are POST with `Cache-Control: no-store
 - Creation authenticates/locks supplied known parents in deterministic ID order across all batches before child progress reads. It rechecks blockers under lock, not from a prior discovery response.
 - `getSession` and discovery run in short **read-only `REPEATABLE READ`** transactions. They return coherent multi-query snapshots without touching activity. An already-authorized read cannot be recalled after later deletion.
 - Same-option answer replay returns the original accepted answer/duration, without timing/status/activity writes; a different option conflicts. Eligibility checks precede replay, so retries cannot bypass attempt/access expiry or completed state.
-- Answer responses now return `acceptedAnswer`, `answeredCount`, `totalQuestions`, `nextQuestionId`, and `sessionComplete`. First unanswered ID is derived by selected-ID membership, never answer count as an index. Questions still arrive up front.
-- First completion requires the exact selected accepted-ID set and writes the award once. Repeated completion returns the saved result without rescoring or activity writes. A legacy completed session returns `legacy_summary_available` instead of inventing a report.
+- Creation returns flat `CreatedSession = SessionCredential & AssessmentView`: credentials plus authoritative metadata/progress, all safe questions, and initially empty `acceptedAnswers`, not a nested view.
+- Answer responses return `acceptedAnswer`, all `acceptedAnswers` in selected-question order, `answeredCount`, `totalQuestions`, `nextQuestionId`, and `sessionComplete`. First unanswered ID is derived by selected-ID membership, never answer count as an index. Questions still arrive up front.
+- First completion requires the exact selected accepted-ID set, writes the award once, and returns the committed `ReportView`. Repeated completion returns the persisted `ReportView` or successful `LegacySummaryView` directly, without rescoring, activity writes, or a follow-up read.
 - Unique constraints remain backstops, not a catch-and-continue strategy inside an aborted transaction. The former unlocked answer/completion races are fixed.
 
 Creation, eligible explicit resume, newly accepted answers, and first completion refresh activity. Read/discovery, duplicate acknowledgements, completion retries, surveys, and invalid requests do not. Daily maintenance must use the same parent-first discipline when implemented.
@@ -87,7 +88,7 @@ This cannot discover omitted or lost credentials. There is no list-by-client-ID 
 
 ## 4. Stage 3 — browser recovery and Resume/Delete UX (not implemented)
 
-Current browser changes are **compatibility-only**: unwrap typed envelopes into the old machine service interface. XState still advances locally and renders the in-memory result/questions. The adapter does not pass through lifecycle deadlines or authoritative answer progress. Only the anonymous client ID is stored; no session credential storage, recovery/history, Web Locks, or deletion UI exists.
+Current browser changes are **compatibility-only**: unwrap typed envelopes into the old machine service interface. Only this adapter projects `ReportView.reportSnapshot.result` to `AssessmentResult`; it raises `legacy_summary_available` for a successful legacy view the baseline machine cannot render. XState still advances locally and renders the in-memory result/questions. The adapter does not pass through lifecycle deadlines or authoritative answer progress. Only the anonymous client ID is stored; no session credential storage, recovery/history, Web Locks, or deletion UI exists.
 
 ### Required creation/recovery flow
 
@@ -154,7 +155,12 @@ Live-row `DELETE` is not immediate media erasure of MVCC tuples, WAL/PITR, repli
 
 ## 7. Verification and remaining exit criteria
 
-**Stage 2, reported by the primary agent on 2026-09-25:** **282 passing tests, 0 skipped**, against isolated PostgreSQL 18 with real migrations. Independent scoped connections assert backend PIDs and observable lock barriers. Package lint/build pass; typecheck has only **three existing unrelated shared `chart.tsx` errors**. This is not a new validation run by the documentation task, nor evidence that root `pnpm build` succeeded.
+**Main Stage 2 verification record — prior primary-agent runs, not rerun by this documentation task:**
+
+- **2026-09-25 — historical, pre-simplification:** **282 tests passed, 0 skipped**, against isolated PostgreSQL 18 with real migrations. Independent scoped connections assert backend PIDs and observable lock barriers. Package lint/build passed.
+- **2026-09-26 — post-Phase A server:** **284 tests passed, 0 skipped**, from the confirmed previous primary-agent run for PR #2; this supersedes the earlier test count.
+
+The separately reported **three shared `chart.tsx` typecheck errors** came from restoring excluded user edits, not PR #2 server changes. These records do not claim a new test/typecheck/lint/build run, successful root `pnpm build`, deployment, production migration, or cleanup activation.
 
 Implemented coverage includes exact temporal boundaries, strict credentials/safe envelopes, snapshot fidelity, all lengths, legacy variants, out-of-order authoritative progress, same/different-option replays, once-only completion, expected-state deletion/cascades, the complete bounded credential gate, parent-locked races, fresh time after lock waits, and coherent read snapshots during cascade deletion. The fixture is no longer limited to concurrency on one backend. Maintenance/browser tests below remain exit criteria, not claimed coverage.
 
@@ -190,7 +196,7 @@ node node_modules/eslint/bin/eslint.js
 node node_modules/vite/bin/vite.js build
 ```
 
-Also run the installed ESLint command from `packages/ui` for its lint coverage. Package-tool fallbacks do not establish success of the root Turbo wrapper; report command-specific outcomes and the existing chart errors separately. See the [current-behavior source map](sessions-and-evaluation.md#9-verification-and-source-map).
+Also run the installed ESLint command from `packages/ui` for its lint coverage. Package-tool fallbacks do not establish success of the root Turbo wrapper; report command-specific outcomes and excluded-user-edit diagnostics separately. See the [current-behavior source map](sessions-and-evaluation.md#9-verification-and-source-map).
 
 ## 8. Explicitly deferred and references
 
