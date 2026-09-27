@@ -1,6 +1,6 @@
 # Session lifecycle completion plan
 
-**Status — 2026-09-26:** Stages **1–3 delivered in source**, including Phase A server contract simplification ([PR #2](https://github.com/kleva-j/DevGrade/pull/2)); current layer `session-lifecycle/recovery`. Stage 3 browser recovery has reported independent validation; Stage 4 maintenance/rollout remains **pending**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. Source delivery is not a claim of merge, production deployment/migration, or cleanup activation.
+**Status — 2026-09-27:** Stages **1–3 delivered in source**, including Phase A server contracts ([PR #2](https://github.com/kleva-j/DevGrade/pull/2)) and Phase B direct-response recovery; current layer `session-lifecycle/recovery` ([PR #4](https://github.com/kleva-j/DevGrade/pull/4)). Prior validation and current focused fixes are scoped separately in §7; Stage 4 maintenance/rollout remains **pending**. [PR #1](https://github.com/kleva-j/DevGrade/pull/1) exists for the first lifecycle layer. Source delivery is not a claim of merge, production deployment/migration, or cleanup activation.
 
 **Baseline:** free Quick 8 / Standard 16 / Deep 32 assessments, PostgreSQL, TanStack Start/Nitro, and XState. Product scope, scoring, and visual design remain unchanged. See [current behavior](sessions-and-evaluation.md) and the [PRD](../prd.md).
 
@@ -94,10 +94,10 @@ Implemented on `session-lifecycle/recovery` in `machines/{sessionStorage,session
 
 1. Bootstrap scans all prefixed storage keys plus in-memory handles and discovers metadata, without creating or automatically resuming. The 1,000-handle bound fails closed; missing/duplicate discovery entries never authorize creation.
 2. Start scans/discovers the full list under a lock, independent of the requested framework/level/length. A server-confirmed unfinished attempt younger than 24 hours requires **Resume** or **Delete**; a legacy unrestorable blocker gets a delete-only explanation. Canceling the gate or confirmation cancels creation.
-3. Resume loads the **original server configuration** and first unanswered selected ID from accepted-answer membership, not the settings for a new attempt. Opening/reading is distinct from Resume. All-answered unfinished attempts need explicit Resume/active flow before completion; at/after 24 hours the expired view prevents late completion.
+3. Resume directly applies the returned **original server configuration** and first unanswered selected ID from accepted-answer membership, not the settings for a new attempt. Opening/reading is distinct from Resume. All-answered unfinished attempts need explicit Resume/active flow before completion; at/after 24 hours the expired view prevents late completion.
 4. Inline Delete confirmation focuses Cancel initially and supports Escape. It sends the expected state; `changed_state` preserves the handle, cancels automatic creation, and reads the new state/report. It never silently reconfirms a different destructive expectation.
 5. Confirmed deletion/unavailability clears only that matching handle; then the gate rescans before creating with the requested configuration. Discovery/deletion failures retain handles and offer Retry/Cancel; there is no Forget or Start-another-anyway bypass.
-6. After answer acknowledgements and typed conflict/completed/attempt-expired/legacy outcomes, the machine rereads `getSession` and reconciles authoritative accepted IDs. Completion success/retry also reads the saved award instead of rendering the transient completion result. Fresh open/resume clears unsubmitted choices; same-question background reconciliation preserves selection/timing, while in-process answer retries retain their exact pending payload.
+6. Successful create/resume apply the returned view, answer acknowledgements apply ordered accepted answers/progress, and completion applies the committed report/legacy view directly—no success-path `getSession`. Reads are reserved for opening/refreshing, conflict/changed-state reconciliation, and ambiguous completion recovery before retrying. Fresh open/resume clears unsubmitted choices; same-question reconciliation preserves selection/timing, while in-process answer retries retain their exact pending payload.
 
 The **`devgrade.session-lifecycle` Web Lock** covers scan/discovery/preflight/create/persist and related handle updates/deletion where `navigator.locks` is available. A per-instance queue also serializes local operations. No human decision holds the lock; subsequent creation reacquires and rescans. Without Web Locks, only local serialization is guaranteed. Another profile, cleared/omitted credentials, and a lost creation response remain limits, not global ownership enforcement.
 
@@ -107,8 +107,8 @@ The **`devgrade.session-lifecycle` Web Lock** covers scan/discovery/preflight/cr
 - Explicit projection excludes questions, answers, private grading data, reports, and serialized actors. Storage is injectable/SSR-safe; the recovery instance is per mounted flow. Same-origin scripts and shared-profile users can read tokens; no token-bearing links or account/cross-device recovery are introduced.
 - Invalid key/credential pairs, damaged versions/hints, and credential conflicts flag corruption. A valid credential in a damaged handle is retained for discovery, not discarded to hide a blocker. Missing/inaccessible disk state does not erase credentials already held in memory.
 - **Before creation:** blocked/unavailable, full, corrupt, or over-limit storage fails closed. A separate random `devgrade.storage-probe.<uuid>` key tests and verifies a 1,024-character write/removal without overwriting handles. Discovery/preflight failure cannot create a new row.
-- **After successful creation:** if handle persistence fails, keep the credential in memory, warn about recovery, and continue by reading that same session. Retrying the read never repeats creation. Refresh/close may lose that unsaved credential. A lost creation response before credentials arrive remains deferred, distinct from post-create storage failure.
-- Normal history keeps completed handles across new attempts and beyond the 24-hour cutoff. Server-confirmed `not_found`, `access_expired`, or discovery `unavailable` clears the matching handle; removal failure warns, while transient server/network failures preserve handles. At ≥7 days, normal access is denied and handles are removed after confirmation, but the DB row remains until explicit deletion or Stage 4 cleanup.
+- **After successful creation:** if handle persistence fails, keep the credential in memory, warn about recovery, and continue from the returned assessment view without another read or creation. Refresh/close may lose that unsaved credential. A lost creation response before credentials arrive remains deferred, distinct from post-create storage failure.
+- Normal history keeps completed handles across new attempts and beyond the 24-hour cutoff. Server-confirmed `not_found`, `access_expired`, or discovery `unavailable` clears the matching handle; removal failures warn, including immediately on entry to `unavailable`, while transient server/network failures preserve handles. At ≥7 days, normal access is denied and handles are removed after confirmation, but the DB row remains until explicit deletion or Stage 4 cleanup.
 
 ### Delivered history, reports, and timing
 
@@ -116,7 +116,7 @@ History is server-metadata-driven, normally newest-created first, with original 
 
 Visibility/online/storage events, manual refresh, and advisory deadline wakeups reconcile eligible screens; the gate refreshes on a bounded interval. The server remains the authority, not local deadlines. Automatic reads never grant Resume permission or refresh server activity. Browser cleanup cannot remotely erase unopened storage or copies of viewed reports.
 
-Display and submission use the same rounded, finite **0–3600-second** bound. Resume/new-question entry resets the timer; offline time between visits is not reconstructed. Hidden-tab and observed offline intervals pause timing; return excludes the paused duration. Same-question reconciliation preserves the timer, and retries reuse the accepted/pending duration rather than add network waiting. Timing/focus loss do not affect grading or extend server deadlines.
+Display and submission use the same rounded, finite **0–3600-second** bound. Resume/new-question entry resets the timer; offline time between visits is not reconstructed. Hidden-tab and observed offline intervals pause timing; timing resumes only when **visible and online**, excluding the pause. Reconnecting while hidden keeps it paused. Same-question reconciliation preserves the timer, and retries reuse the accepted/pending duration rather than add network waiting. Timing/focus loss do not affect grading or extend server deadlines.
 
 The `/` flow reuses existing components/tokens and keyboard/light/dark/RTL design conventions. No product scope, account, or pricing change is implied.
 
@@ -163,29 +163,28 @@ Live-row `DELETE` is not immediate media erasure of MVCC tuples, WAL/PITR, repli
 
 ## 7. Verification and remaining exit criteria
 
-**Main lifecycle verification record — prior reported runs, not rerun for this conflict resolution:**
+**Main lifecycle verification record — reported results scoped by branch/version; no tests run by this documentation task:**
 
 - **2026-09-25 — Stage 2 historical, pre-simplification:** **282 tests passed, 0 skipped**, against isolated PostgreSQL 18 with real migrations. Independent scoped connections assert backend PIDs and observable lock barriers. Package lint/build passed.
 - **2026-09-26 — Stage 2 post-Phase A server:** **284 tests passed, 0 skipped**, from the confirmed previous primary-agent run for PR #2; this supersedes the earlier Stage 2 test count.
-- **2026-09-25 — Stage 3 independent validation, as reported by the primary agent for the incoming recovery layer:** **339 tests passed, 0 skipped**, using disposable **PostgreSQL 18.1**, real migrations, and the **144-question seed**. Independent scoped connections/backend lock barriers remain covered. Direct web/UI lint passed; web build passed **per the implementation agent**. This is historical recovery validation, not validation of the restacked tree.
+- **2026-09-25 — Stage 3 historical, pre-A+B simplification:** **339 tests passed, 0 skipped**, using disposable **PostgreSQL 18.1**, real migrations, and the **144-question seed**, including independent-backend lock barriers. Direct web/UI lint passed; web build passed **per the implementation agent**. The earlier headed Chrome 153 run had **five scenarios / 55 named checks**, **197 no-store responses**, and **187 pre-completion responses** without answer-key markers. These figures describe the earlier implementation, not the simplified branch or current fixes.
+- **Previously recorded post-Phase A+B — original simplified branch:** **344 tests passed, 0 skipped**. Its browser/request observations are recorded below; neither this test run nor that browser run includes the current fixes.
+- **Current PR #4 fixes:** machine regressions failed before the fixes and **39/39 passed** afterward. The combined focused run passed **207 tests, zero failures/skips** with `TSX_DISABLE_CACHE=1 node --import tsx --test src/machines/*.test.ts src/server/sessionContracts.test.ts src/server/assessmentValidation.test.ts src/components/assessment/report.test.ts`. App typecheck (`--incremental false`) and scoped ESLint passed with unrelated edits shelved. No DB/browser rerun is claimed for these fixes.
 
-The separately reported **three shared `chart.tsx` typecheck errors** came from restoring excluded user edits, not PR #2 server changes. These records do not claim a new test/typecheck/lint/build run, successful root `pnpm build`, deployment, production migration, or cleanup activation.
+The separately reported **three shared `chart.tsx` typecheck errors** came from restoring excluded user edits, not PR #2 server changes. Only the explicitly scoped fix checks above are new relative to the earlier branch verification; this documentation task ran no tests, typecheck, lint, build, or browser checks. No successful root `pnpm build`, deployment, production migration, or cleanup activation is claimed.
 
-The root `pnpm lint` / version launcher failed on automatic switching to project-pinned **10.33.4** because of signature verification. Reported validation used pinned **pnpm 10.20** and direct checks instead; do not claim root lint/build success. These results were supplied by the primary/validation agents, not rerun by this documentation task, and do not establish production deployment.
+During the historical pre-simplification validation, the root `pnpm lint` / version launcher failed on automatic switching to project-pinned **10.33.4** because of signature verification. Reported validation used pinned **pnpm 10.20** and direct checks instead; do not claim root lint/build success. These results were supplied by the primary/validation agents, not rerun by this documentation task, and do not establish production deployment.
 
 Implemented automated coverage includes exact temporal boundaries, strict credentials/safe envelopes, snapshot fidelity, all lengths, legacy views, accepted-ID progression, replay/reconciliation, once-only completion, expected-state deletion/cascades, bounded credential discovery/gating, storage failures, timer bounds, and parent-locked independent-backend races/coherent reads. Maintenance tests below remain pending exit criteria.
 
-### Stage 3 browser verification — completed in the isolated environment
+### Stage 3 browser verification — recorded post-A+B run
 
-**Headed Chrome 153: five scenarios and 55 named checks**, per the independent validation agent:
+**Previously recorded on the original simplified branch, before the current fixes: five scenarios / 137 checks.** Request observations:
 
-- Quick/Standard/Deep **8/16/32** completed with reload, saved-report, and survey recovery.
-- Resume/Delete gate, cancel behavior, and server cascades verified. Two tabs in the **same browser context**, coordinated by Web Locks, produced **only one new row**; this is not a no-Web-Locks or global uniqueness claim.
-- Expired all-answered unfinished attempts could not complete late. At **age ≥7 days**, report access was denied and matching handles removed while DB rows remained, consistent with Stage 4 still pending.
-- **197 no-store responses** observed; **187 pre-completion responses** had no answer-key markers. Counts apply to exercised responses, not every possible execution.
-- Keyboard Delete confirmation and **320px mobile, dark, RTL** checks had no horizontal overflow; no console errors or HTTP 5xx were observed.
+- **62 ordinary answers:** submit only; **3 final answers:** submit plus complete; **5 starts:** discovery plus create. None added a success-path `getSession`.
+- **129 no-store responses**, with **120 pre-completion responses** checked for answer-key leakage.
 
-These checks establish the reported Stage 3 test scope, not exhaustive browser coverage or production/maintenance readiness.
+The earlier pre-simplification browser run above covered length/reload/report/survey recovery, Resume/Delete/cancel/cascades, same-context Web Lock coordination, expiry, and keyboard/mobile/dark/RTL behavior. Its counts are historical, not competing current totals. All observations are scoped to their recorded runs; no browser rerun for the current fixes or production/maintenance readiness is claimed.
 
 ### Stage 4 exit criteria
 
