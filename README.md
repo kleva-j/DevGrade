@@ -2,6 +2,11 @@
 
 This is a TanStack Start monorepo template with shadcn/ui.
 
+## Documentation
+
+- [Assessment sessions and evaluation](docs/sessions-and-evaluation.md) — creation,
+  lifecycle, expiration and retention status, retries, and weighted scoring.
+
 ## Adding components
 
 To add components to your app, run the following command at the root of your `web` app:

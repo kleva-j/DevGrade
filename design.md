@@ -265,7 +265,24 @@ Domain-specific guidance for the candidate flow (PRD §4).
 enabled, Vue/Angular shown as disabled "coming soon". Offer **Quick (8, default),
 Standard (16), Deep (32)**, all free. Lock configuration once started and preserve
 it through retries. Primary CTA to start; no time estimates or statistical
-confidence/comparability claims.
+confidence/comparability claims. Check saved assessments silently behind intake;
+show the saved-assessment section only for unfinished entries, never completed
+assessments. Hide the section and its refresh control when none are unfinished
+(unless a failure needs retry). Do not replace intake
+with a checking spinner, show an empty-history placeholder, or steal focus on
+background refresh. Keep genuine discovery failures inline and retryable.
+
+**Unfinished assessments:** use compact `Card size="sm"` rows with actions beside
+the summary, not in a separate footer. Use Phosphor icons for status, saved-answer
+counts, deadlines, and secondary actions. Icon-only buttons need accessible names
+and hover/focus tooltips; keep Resume green and show its text when space allows.
+Keep the attempt date/time visible and full deadlines in View details. Let
+metadata wrap below the title on narrow screens; never clip content or controls.
+
+**Session deadlines:** use an inline, wrapping row of icon, short label, and date/time
+pairs. Keep Resume and Report distinguishable without hover; expose each full
+label and timestamp (including timezone) to assistive technology and in hover/focus
+tooltips. These are read-only metadata, not action buttons.
 
 **Question runner:**
 
