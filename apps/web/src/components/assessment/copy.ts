@@ -44,13 +44,14 @@ export const UI = {
     finish: "See results",
   },
   recovery: {
-    heading: "Saved in this browser",
-    checking: "Checking saved assessments…",
+    heading: "Unfinished assessments",
+    discoveryFailed:
+      "Saved assessments could not be loaded. Check your connection and try again. Starting an assessment will check again before creating one.",
     restoring: "Opening your saved assessment…",
     resuming: "Resuming your assessment…",
     deleting: "Deleting this assessment…",
     reconciling: "Checking accepted answers and session status…",
-    empty: "No accessible saved assessments in this browser.",
+
     privacy:
       "Recovery keys are saved in this browser, not an account. Anyone using this browser profile, and scripts on this site, can access them. Clearing browser data loses recovery; other browsers cannot recover these assessments.",
     coordination:
@@ -62,12 +63,14 @@ export const UI = {
       "No unfinished assessment is blocking creation. Check again and start when you are ready.",
     resume: "Resume",
     open: "View details",
-    report: "Open saved report",
+
     remove: "Delete",
     cancel: "Cancel",
     history: "Back to saved assessments",
     refresh: "Check again",
     continue: "Check again and start",
+    attemptDeadline: "Attempt deadline",
+    report: "Report",
     resumeUntil: "Resume until",
     reportUntil: "Report available until",
     accessNote:
@@ -76,6 +79,8 @@ export const UI = {
       `${framework} · ${level} · ${count} questions`,
     progress: (answered: number, total: number) =>
       `${answered} of ${total} answers saved`,
+    compactProgress: (answered: number, total: number) =>
+      `${answered}/${total}`,
     unfinished: "Unfinished",
     inactive: "Inactive — can resume",
     savedReport: "Completed",

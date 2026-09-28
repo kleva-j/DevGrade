@@ -90,11 +90,38 @@ test("legacy summary explicitly omits reconstructed question review and current 
   assert.ok(!html.includes("Saved prompt"));
   assert.ok(!html.includes("Saved guidance"));
 });
-test("attempt and report-access deadlines have distinct semantic labels", () => {
+test("compact deadlines retain distinct labels, exact timestamps, and accessible full dates", () => {
+  const deadlines = makeSession().report;
   const html = renderToStaticMarkup(
-    createElement(SessionDeadlinesDisplay, { deadlines: makeSession().report }),
+    createElement(SessionDeadlinesDisplay, { deadlines }),
   );
-  assert.ok(html.includes(UI.recovery.resumeUntil));
-  assert.ok(html.includes(UI.recovery.reportUntil));
+  assert.equal((html.match(/<dt /g) ?? []).length, 2);
+  assert.equal((html.match(/<dd>/g) ?? []).length, 2);
   assert.equal((html.match(/<time /g) ?? []).length, 2);
+  assert.equal((html.match(/<svg /g) ?? []).length, 2);
+  assert.ok(!html.includes("<button"));
+  for (const { label, shortLabel, expiresAt } of [
+    {
+      label: UI.recovery.resumeUntil,
+      shortLabel: UI.recovery.resume,
+      expiresAt: deadlines.attemptExpiresAt,
+    },
+    {
+      label: UI.recovery.reportUntil,
+      shortLabel: UI.recovery.report,
+      expiresAt: deadlines.accessExpiresAt,
+    },
+  ]) {
+    const date = new Date(expiresAt);
+    const fullDate = date.toLocaleString(undefined, {
+      dateStyle: "full",
+      timeStyle: "long",
+    });
+    assert.ok(html.includes(`>${shortLabel}</span>`));
+    assert.ok(html.includes(`>${label}</span>`));
+    assert.ok(html.includes(`dateTime="${expiresAt}"`));
+    assert.ok(html.includes(`aria-label="${label}: ${fullDate}"`));
+  }
+  assert.equal((html.match(/tabindex="0"/gi) ?? []).length, 2);
+  assert.equal((html.match(/dir="auto"/g) ?? []).length, 2);
 });

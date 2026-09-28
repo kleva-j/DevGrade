@@ -1,31 +1,34 @@
-import { useMachine } from "@xstate/react";
-import { useEffect, useRef, useState } from "react";
-
-import type { AssessmentConfiguration } from "@/domain/types";
-import type { DeleteSessionInput } from "@/domain/sessionContracts";
 import type { AssessmentContext } from "@/machines/assessmentMachine";
+import type { DeleteSessionInput } from "@/domain/sessionContracts";
+import type { AssessmentConfiguration } from "@/domain/types";
 import type { StorageIssue } from "@/machines/sessionStorage";
+
+import { useEffect, useRef, useState } from "react";
+import { useMachine } from "@xstate/react";
+
+import { createBrowserRecovery } from "@/machines/assessmentServices";
+import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
+import { Spinner } from "@workspace/ui/components/spinner";
+import { STORAGE_ISSUE } from "@/machines/sessionStorage";
+import { Button } from "@workspace/ui/components/button";
+
 import {
   DELETE_EXPECTATION,
   DELETE_OUTCOME,
   SESSION_VIEW,
 } from "@/domain/constants";
-import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import {
-  assessmentMachine,
-  advisoryRefreshDelay,
   attachAssessmentBrowserEvents,
-  firstUnanswered,
+  advisoryRefreshDelay,
   deletionExpectation,
+  assessmentMachine,
+  firstUnanswered,
 } from "@/machines/assessmentMachine";
-import { createBrowserRecovery } from "@/machines/assessmentServices";
-import { STORAGE_ISSUE } from "@/machines/sessionStorage";
 import {
-  Alert,
   AlertDescription,
   AlertTitle,
+  Alert,
 } from "@workspace/ui/components/alert";
-import { Button } from "@workspace/ui/components/button";
 import {
   Card,
   CardContent,
@@ -34,13 +37,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card";
-import { Spinner } from "@workspace/ui/components/spinner";
-import { DeleteConfirmation } from "./DeleteConfirmation";
+
 import {
   SessionDeadlinesDisplay,
+  isUnfinishedSession,
   SessionHistory,
   sessionLabel,
 } from "./SessionHistory";
+
+import { DeleteConfirmation } from "./DeleteConfirmation";
 import { SatisfactionSurvey } from "./SatisfactionSurvey";
 import { QuestionRunner } from "./QuestionRunner";
 import { LegacySummary } from "./LegacySummary";
@@ -108,9 +113,7 @@ function errorCopy(error: AssessmentContext["error"]) {
   return (error && errorMessages[error]) || UI.recovery.requestFailed;
 }
 const loadingMessages: Record<string, string> = {
-  bootstrap: UI.recovery.checking,
-  checking: UI.recovery.checking,
-  creating: UI.recovery.checking,
+  creating: UI.status.creating,
   restoring: UI.recovery.restoring,
   resuming: UI.recovery.resuming,
   deleting: UI.recovery.deleting,
@@ -141,6 +144,9 @@ export function AssessmentFlow() {
   const question =
     view?.kind === SESSION_VIEW.ASSESSMENT ? firstUnanswered(view) : null;
   const choosing = state.matches({ creation: "ready" });
+  const showingIntake = state.matches("bootstrap") || state.matches("history");
+  const showingGate = choosing || state.matches({ creation: "checking" });
+  const focusPhase = showingIntake ? "intake" : showingGate ? "gate" : phase;
   const home = () => send({ type: "HISTORY" });
   const cancel = () => send({ type: "CANCEL" });
   const refreshHistory = () => send({ type: "REFRESH" });
@@ -178,11 +184,12 @@ export function AssessmentFlow() {
   }, [view, context.history, phase, choosing, send]);
 
   useEffect(() => {
-    if (phase === "confirmDelete") return;
+    // Background discovery must not move focus away from intake or gate controls.
+    if (focusPhase === "confirmDelete") return;
     const heading = screen.current?.querySelector<HTMLElement>("h1, h2");
     heading?.setAttribute("tabindex", "-1");
     heading?.focus({ preventScroll: true });
-  }, [phase, question?.id, choosing]);
+  }, [focusPhase, question?.id]);
 
   const history = (
     <SessionHistory
@@ -197,6 +204,28 @@ export function AssessmentFlow() {
     send({ type: "START" });
   }
   function renderScreen() {
+    if (showingIntake)
+      return (
+        <>
+          <Intake
+            initialConfiguration={context.requestedConfiguration}
+            onStart={onStart}
+          />
+          {state.matches({ history: "checkFailed" }) ? (
+            <Alert>
+              <AlertDescription>{UI.recovery.discoveryFailed}</AlertDescription>
+            </Alert>
+          ) : null}
+          {history}
+          {context.history.some(isUnfinishedSession) ||
+          context.storageIssue ||
+          context.error ? (
+            <Button variant="outline" onClick={refreshHistory}>
+              {UI.recovery.refresh}
+            </Button>
+          ) : null}
+        </>
+      );
     if (phase && loadingMessages[phase])
       return (
         <>
@@ -208,20 +237,7 @@ export function AssessmentFlow() {
           ) : null}
         </>
       );
-    if (state.matches({ history: "ready" }))
-      return (
-        <>
-          <Intake
-            initialConfiguration={context.requestedConfiguration}
-            onStart={onStart}
-          />
-          {history}
-          <Button variant="outline" onClick={refreshHistory}>
-            {UI.recovery.refresh}
-          </Button>
-        </>
-      );
-    if (state.matches({ creation: "ready" }))
+    if (showingGate)
       return (
         <>
           <Card>
@@ -246,7 +262,7 @@ export function AssessmentFlow() {
               </Button>
               {!context.history.some((entry) => entry.blocksCreation) ? (
                 <Button
-                  disabled={context.storageIssue !== null}
+                  disabled={!choosing || context.storageIssue !== null}
                   onClick={() => send({ type: "START" })}
                 >
                   {UI.recovery.continue}
@@ -423,7 +439,7 @@ export function AssessmentFlow() {
   }
   return (
     <main className="flex min-h-svh justify-center bg-background p-4 text-foreground sm:p-6">
-      <div ref={screen} className="flex w-full max-w-2xl flex-col gap-6 py-6">
+      <div ref={screen} className="flex w-full max-w-lg flex-col gap-6 py-6">
         {context.storageIssue ? (
           <Alert>
             <AlertTitle>{UI.recovery.warningTitle}</AlertTitle>
@@ -439,11 +455,6 @@ export function AssessmentFlow() {
           </Alert>
         ) : null}
         {renderScreen()}
-        <footer className="flex flex-col gap-2 text-sm text-muted-foreground">
-          <p>{UI.recovery.accessNote}</p>
-          <p>{UI.recovery.privacy}</p>
-          <p>{UI.recovery.coordination}</p>
-        </footer>
       </div>
     </main>
   );
