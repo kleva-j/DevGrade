@@ -94,7 +94,6 @@ export const CONTENT_SOURCE = {
   LYDIAHALLIE_JS: "lydiahallie/javascript-questions",
 } as const;
 export const CONTENT_SOURCES = values(CONTENT_SOURCE);
-export type ContentSource = (typeof CONTENT_SOURCES)[number];
 
 export const PROFICIENCY = {
   PROFICIENT: "proficient",

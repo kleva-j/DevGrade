@@ -22,7 +22,6 @@ import {
  */
 export const UI = {
   appName: "DevGrade",
-  tagline: "Anonymous React skill assessment",
   intake: {
     heading: "Assess your React skills",
     subheading: (count: AssessmentLength) =>
@@ -138,7 +137,6 @@ export const UI = {
     reviewHeading: "Question review",
     correct: "Correct",
     incorrect: "Incorrect",
-    restart: "Take it again",
   },
   survey: {
     heading: "How helpful was this assessment?",
@@ -156,7 +154,6 @@ export const UI = {
     scoring: "Scoring your answers…",
     errorTitle: "Something went wrong",
     retry: "Try again",
-    restart: "Back to setup",
   },
 } as const;
 

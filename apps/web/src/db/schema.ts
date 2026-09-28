@@ -212,4 +212,3 @@ export const sessionSurveys = pgTable("session_surveys", {
 export type QuestionRow = typeof questions.$inferSelect;
 export type NewQuestion = typeof questions.$inferInsert;
 export type TestSessionRow = typeof testSessions.$inferSelect;
-export type SessionAnswerRow = typeof sessionAnswers.$inferSelect;

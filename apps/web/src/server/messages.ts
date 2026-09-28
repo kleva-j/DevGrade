@@ -6,25 +6,19 @@
  * interpolation lives here rather than at the throw site.
  */
 export const MESSAGES = {
-  invalidSessionConfiguration:
-    "Invalid framework, level, assessment length, or client id.",
   frameworkUnavailable: (framework: string, supported: readonly string[]) =>
     `${framework} is not available yet. The MVP supports: ${supported.join(", ")}.`,
   rateLimited: (maxPerHour: number) =>
     `Rate limit reached (${maxPerHour} sessions/hour). Try again later.`,
   insufficientQuestions:
     "Not enough active questions to build a balanced assessment for this selection.",
-  invalidAnswerPayload: "Invalid answer payload.",
   questionNotInSession: "Question is not part of this session.",
-  questionNotFound: "Question not found.",
   optionOutOfRange: "Selected option is out of range.",
   duplicateAnswer: "This question was already answered.",
-  invalidCompletionPayload: "Invalid completion payload.",
   incompleteAssessment:
     "All questions must be answered before completing the assessment.",
   sessionNotFound: "Session not found.",
   sessionAlreadyComplete: "This assessment is already complete.",
-  invalidSurveyPayload: "Invalid survey response.",
   surveyBeforeComplete: "You can rate the assessment after completing it.",
   rateLimitRetry: "Rate limit reached. Try again later.",
   invalidRequest: "Invalid assessment request.",
