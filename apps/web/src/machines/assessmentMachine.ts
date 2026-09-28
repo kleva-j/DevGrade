@@ -1,29 +1,32 @@
-import { assign, fromPromise, setup } from "xstate";
+import type { AnswerInput, AssessmentConfiguration } from "@/domain/types";
+import type { ErrorCode } from "@/server/errors";
 import type { DoneActorEvent } from "xstate";
 
-import type { AnswerInput, AssessmentConfiguration } from "@/domain/types";
 import type {
-  AssessmentView,
   DeleteSessionInput,
   SessionMetadata,
+  AssessmentView,
   SessionView,
 } from "@/domain/sessionContracts";
-import type { ErrorCode } from "@/server/errors";
+
 import type { DiscoveryCheck, SessionRecovery } from "./sessionRecovery";
 import type { StorageIssue } from "./sessionStorage";
-import { SESSION_STORAGE_PREFIX } from "./sessionStorage";
+
+import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
+import { assign, fromPromise, setup } from "xstate";
 
 import {
   DELETE_EXPECTATION,
+  SURVEY_RATING_MAX,
+  SURVEY_RATING_MIN,
   DELETE_OUTCOME,
   SESSION_STATUS,
   SESSION_VIEW,
-  SURVEY_RATING_MAX,
-  SURVEY_RATING_MIN,
 } from "@/domain/constants";
-import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
-import { AssessmentClientError } from "./createSessionAdapter";
+
 import { isUnavailableError, needsReconciliation } from "./sessionRecovery";
+import { AssessmentClientError } from "./createSessionAdapter";
+import { SESSION_STORAGE_PREFIX } from "./sessionStorage";
 
 export interface AssessmentContext {
   recovery: SessionRecovery;
@@ -310,6 +313,21 @@ const checking = machineSetup.createStateConfig({
   },
 });
 
+// Intake stays interactive while passive history discovery is pending or failed.
+const intake = machineSetup.createStateConfig({
+  on: {
+    CONFIGURE: {
+      actions: assign({
+        requestedConfiguration: ({ event }) => ({ ...event.configuration }),
+      }),
+    },
+    START: {
+      guard: ({ context }) => context.requestedConfiguration !== null,
+      target: "#assessment.creation",
+    },
+  },
+});
+
 export const assessmentMachine = machineSetup.createMachine({
   id: "assessment",
   context: ({ input }) => ({
@@ -343,28 +361,14 @@ export const assessmentMachine = machineSetup.createMachine({
     },
   },
   states: {
-    bootstrap: { on: { BOOTSTRAP: "history" } },
+    bootstrap: { on: { ...intake.on, BOOTSTRAP: "history" } },
     history: {
+      ...intake,
       initial: "checking",
       states: {
         checking,
-        checkFailed: { on: { RETRY: "checking" } },
-        ready: {
-          on: {
-            CONFIGURE: {
-              actions: assign({
-                requestedConfiguration: ({ event }) => ({
-                  ...event.configuration,
-                }),
-              }),
-            },
-            START: {
-              guard: ({ context }) => context.requestedConfiguration !== null,
-              target: "#assessment.creation",
-            },
-            REFRESH: "checking",
-          },
-        },
+        checkFailed: { on: { RETRY: "checking", REFRESH: "checking" } },
+        ready: { on: { REFRESH: "checking" } },
       },
     },
     creation: {

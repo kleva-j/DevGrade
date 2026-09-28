@@ -47,6 +47,14 @@ function until(actor: Actor, state: State) {
     timeout: 2000,
   });
 }
+function deferred(t: TestContext) {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  t.after(() => resolve());
+  return { promise, resolve };
+}
 function fixture(t: TestContext, initial: TestSession[] = []) {
   const port = new MemoryStorage();
   const storage = createSessionStorage(() => port);
@@ -112,15 +120,290 @@ function fixture(t: TestContext, initial: TestSession[] = []) {
   };
 }
 
-test("SSR/bootstrap has no storage/network side effects until mounted BOOTSTRAP event", async (t) => {
+test("SSR/bootstrap and CONFIGURE have no storage/network effects until BOOTSTRAP or explicit Start", async (t) => {
   const h = fixture(t);
+  const scan = t.mock.method(h.storage, "scan");
+  h.actor.send({ type: "START" });
+  h.actor.send({ type: "CONFIGURE", configuration });
+  h.actor.send({ type: "REFRESH" });
   await Promise.resolve();
   assert.ok(h.actor.getSnapshot().matches("bootstrap"));
+  assert.deepEqual(
+    h.actor.getSnapshot().context.requestedConfiguration,
+    configuration,
+  );
+  assert.equal(scan.mock.callCount(), 0);
   assert.equal(h.server.calls.discover, 0);
+  assert.equal(h.server.calls.create, 0);
   assert.equal(h.port.writes.length, 0);
   await h.boot();
+  assert.equal(scan.mock.callCount(), 1);
   assert.equal(h.server.calls.discover, 1);
+  assert.equal(h.server.calls.create, 0);
+  assert.equal(h.server.calls.resume, 0);
 });
+
+test(
+  "explicit Start before BOOTSTRAP waits for discovery and ignores a late BOOTSTRAP",
+  { timeout: 3000 },
+  async (t) => {
+    const h = fixture(t);
+    const entered = deferred(t);
+    const response = deferred(t);
+    const discover = h.server.api.discoverSessions;
+    t.mock.method(
+      h.server.api,
+      "discoverSessions",
+      async (known: Parameters<typeof discover>[0]) => {
+        entered.resolve();
+        await response.promise;
+        return discover(known);
+      },
+    );
+    const requested = { ...configuration, targetLevel: DIFFICULTY.SENIOR };
+    h.start(requested);
+    assert.ok(h.actor.getSnapshot().matches({ creation: "creating" }));
+    await entered.promise;
+    h.actor.send({ type: "BOOTSTRAP" });
+    assert.ok(h.actor.getSnapshot().matches({ creation: "creating" }));
+    assert.equal(h.server.calls.create, 0);
+    response.resolve();
+    await until(h.actor, { attempting: "answering" });
+    assert.deepEqual(h.current().configuration, requested);
+    assert.equal(h.server.calls.discover, 1);
+    assert.equal(h.server.calls.create, 1);
+    assert.equal(h.server.calls.resume, 0);
+    h.actor.send({ type: "CONFIGURE", configuration });
+    assert.deepEqual(
+      h.actor.getSnapshot().context.requestedConfiguration,
+      requested,
+    );
+    assert.deepEqual(h.current().configuration, requested);
+  },
+);
+
+for (const entry of ["BOOTSTRAP", "REFRESH"] as const)
+  for (const blocksCreation of [false, true])
+    test(
+      `${entry}: Start supersedes deferred passive discovery and ${blocksCreation ? "reveals a fresh blocker" : "creates only after a fresh full check"}`,
+      { timeout: 3000 },
+      async (t) => {
+        const saved = makeSession();
+        saved.completed = true;
+        const h = fixture(t, [saved]);
+        if (entry === "REFRESH") await h.boot();
+        const previousHistory = h.actor.getSnapshot().context.history;
+        const passiveEntered = deferred(t);
+        const passiveResponse = deferred(t);
+        const activeEntered = deferred(t);
+        const activeResponse = deferred(t);
+        const check = t.mock.method(h.recovery, "check");
+        const scan = t.mock.method(h.storage, "scan");
+        const save = t.mock.method(h.storage, "save");
+        const create = t.mock.method(h.server.api, "createSession");
+        const discover = h.server.api.discoverSessions;
+        const discovery = t.mock.method(
+          h.server.api,
+          "discoverSessions",
+          async (known: Parameters<typeof discover>[0]) => {
+            const result = await discover(known);
+            if (discovery.mock.callCount() === 1) {
+              passiveEntered.resolve();
+              await passiveResponse.promise;
+            } else {
+              activeEntered.resolve();
+              await activeResponse.promise;
+            }
+            return result;
+          },
+        );
+        h.actor.send({ type: entry });
+        await passiveEntered.promise;
+        assert.ok(h.actor.getSnapshot().matches({ history: "checking" }));
+        const passiveSignal = check.mock.calls[0]!.arguments[1];
+        assert.ok(passiveSignal);
+        assert.equal(passiveSignal.aborted, false);
+        assert.equal(h.server.calls.create, 0);
+        assert.equal(h.server.calls.resume, 0);
+
+        // A different tab saves a handle after the passive scan; Start must rescan.
+        const added = makeSession();
+        added.completed = !blocksCreation;
+        h.server.sessions.set(added.credential.sessionId, added);
+        h.storage.save(added.credential);
+        const savesBeforeStart = save.mock.callCount();
+        const requested = { ...configuration, targetLevel: DIFFICULTY.SENIOR };
+        h.start(requested);
+        assert.ok(h.actor.getSnapshot().matches({ creation: "creating" }));
+        assert.equal(passiveSignal.aborted, true);
+        assert.deepEqual(check.mock.calls[1]!.arguments[0], requested);
+        assert.equal(check.mock.calls[1]!.arguments[1]?.aborted, false);
+        assert.equal(discovery.mock.callCount(), 1);
+        assert.equal(h.server.calls.create, 0);
+        passiveResponse.resolve();
+        await activeEntered.promise;
+        assert.ok(h.actor.getSnapshot().matches({ creation: "creating" }));
+        assert.deepEqual(
+          h.actor.getSnapshot().context.history,
+          previousHistory,
+        );
+        assert.equal(save.mock.callCount(), savesBeforeStart);
+        assert.equal(scan.mock.callCount(), 2);
+        assert.deepEqual(discovery.mock.calls[1]!.arguments[0], [
+          saved.credential,
+          added.credential,
+        ]);
+        assert.equal(h.server.calls.create, 0);
+        activeResponse.resolve();
+        await until(
+          h.actor,
+          blocksCreation ? { creation: "ready" } : { attempting: "answering" },
+        );
+        assert.deepEqual(h.actor.getSnapshot().context.history, [
+          h.server.metadata(saved),
+          h.server.metadata(added),
+        ]);
+        assert.equal(h.server.calls.create, blocksCreation ? 0 : 1);
+        assert.equal(h.server.calls.resume, 0);
+        assert.equal(h.server.calls.get, 0);
+        if (blocksCreation) {
+          assert.equal(h.actor.getSnapshot().context.view, null);
+        } else {
+          assert.deepEqual(create.mock.calls[0]!.arguments, [
+            requested,
+            [saved.credential, added.credential],
+          ]);
+          assert.deepEqual(h.current().configuration, requested);
+        }
+      },
+    );
+
+test(
+  "bootstrap Start preserves the server gate when a blocker changes after discovery",
+  { timeout: 3000 },
+  async (t) => {
+    const session = makeSession();
+    session.completed = true;
+    const h = fixture(t, [session]);
+    const discover = h.server.api.discoverSessions;
+    t.mock.method(
+      h.server.api,
+      "discoverSessions",
+      async (known: Parameters<typeof discover>[0]) => {
+        const result = await discover(known);
+        session.completed = false;
+        return result;
+      },
+    );
+    const create = t.mock.method(h.server.api, "createSession");
+    h.start();
+    await until(h.actor, { creation: "ready" });
+    assert.deepEqual(create.mock.calls[0]!.arguments, [
+      configuration,
+      [session.credential],
+    ]);
+    assert.equal(h.server.sessions.size, 1);
+    assert.deepEqual(h.actor.getSnapshot().context.history, [
+      h.server.metadata(session),
+    ]);
+    assert.equal(h.actor.getSnapshot().context.view, null);
+    assert.equal(h.server.calls.resume, 0);
+  },
+);
+
+for (const blocksCreation of [false, true])
+  test(
+    `failed history discovery then explicit Start rechecks and ${blocksCreation ? "keeps the blocker" : "creates"}`,
+    { timeout: 3000 },
+    async (t) => {
+      const session = makeSession();
+      session.completed = !blocksCreation;
+      const h = fixture(t, [session]);
+      const discover = h.server.api.discoverSessions;
+      const discovery = t.mock.method(
+        h.server.api,
+        "discoverSessions",
+        async () => {
+          throw new Error("offline");
+        },
+      );
+      h.actor.send({ type: "BOOTSTRAP" });
+      await until(h.actor, { history: "checkFailed" });
+      assert.equal(
+        h.actor.getSnapshot().context.error,
+        CLIENT_ERROR_CODE.REQUEST_FAILED,
+      );
+      assert.equal(h.server.calls.create, 0);
+      const entered = deferred(t);
+      const response = deferred(t);
+      discovery.mock.mockImplementation(async (known) => {
+        entered.resolve();
+        await response.promise;
+        return discover(known);
+      });
+      const requested = { ...configuration, targetLevel: DIFFICULTY.SENIOR };
+      h.start(requested);
+      assert.ok(h.actor.getSnapshot().matches({ creation: "creating" }));
+      assert.equal(h.actor.getSnapshot().context.error, null);
+      await entered.promise;
+      assert.equal(h.server.calls.create, 0);
+      assert.deepEqual(discovery.mock.calls[1]!.arguments[0], [
+        session.credential,
+      ]);
+      response.resolve();
+      await until(
+        h.actor,
+        blocksCreation ? { creation: "ready" } : { attempting: "answering" },
+      );
+      assert.equal(discovery.mock.callCount(), 2);
+      assert.equal(h.server.calls.create, blocksCreation ? 0 : 1);
+      assert.equal(h.server.calls.resume, 0);
+      assert.deepEqual(
+        h.actor.getSnapshot().context.requestedConfiguration,
+        requested,
+      );
+      assert.deepEqual(h.actor.getSnapshot().context.history, [
+        h.server.metadata(session),
+      ]);
+      if (!blocksCreation)
+        assert.deepEqual(h.current().configuration, requested);
+    },
+  );
+
+test(
+  "REFRESH recovers failed history discovery without auto-resume or auto-create",
+  { timeout: 3000 },
+  async (t) => {
+    const session = makeSession();
+    const h = fixture(t, [session]);
+    const discover = h.server.api.discoverSessions;
+    const discovery = t.mock.method(
+      h.server.api,
+      "discoverSessions",
+      async () => {
+        throw new Error("offline");
+      },
+    );
+    h.actor.send({ type: "BOOTSTRAP" });
+    await until(h.actor, { history: "checkFailed" });
+    h.actor.send({ type: "CONFIGURE", configuration });
+    assert.deepEqual(
+      h.actor.getSnapshot().context.requestedConfiguration,
+      configuration,
+    );
+    discovery.mock.mockImplementation(discover);
+    h.actor.send({ type: "REFRESH" });
+    await until(h.actor, { history: "ready" });
+    assert.equal(h.actor.getSnapshot().context.error, null);
+    assert.deepEqual(h.actor.getSnapshot().context.history, [
+      h.server.metadata(session),
+    ]);
+    assert.equal(h.actor.getSnapshot().context.view, null);
+    assert.equal(h.server.calls.create, 0);
+    assert.equal(h.server.calls.resume, 0);
+    assert.equal(discovery.mock.callCount(), 2);
+  },
+);
 for (const questionCount of ASSESSMENT_LENGTHS)
   test(`${questionCount}: refresh/reopen restores original config and first unanswered, without auto-resume`, async (t) => {
     const session = makeSession({
