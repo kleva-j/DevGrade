@@ -64,7 +64,7 @@ export function Report({ snapshot, survey, onRestart }: ReportProps) {
       </header>
 
       {/* Overall + radar */}
-      <Card className="mt-6 [--card-spacing:--spacing(8)]">
+      <Card className="mt-6 [--card-spacing:--spacing(4)]">
         <CardContent className="grid gap-6 sm:grid-cols-2 sm:items-center">
           <div className="flex flex-col items-center gap-2">
             <span className="text-sm text-muted-foreground">
@@ -83,7 +83,7 @@ export function Report({ snapshot, survey, onRestart }: ReportProps) {
       </Card>
 
       {/* Pillar breakdown */}
-      <Card className="mt-6 [--card-spacing:--spacing(8)]">
+      <Card className="mt-6 [--card-spacing:--spacing(4)]">
         <CardHeader>
           <CardTitle className="text-lg font-bold">
             {UI.report.pillarsHeading}
@@ -118,7 +118,7 @@ export function Report({ snapshot, survey, onRestart }: ReportProps) {
       </Card>
 
       {/* Focus areas */}
-      <Card className="mt-6 [--card-spacing:--spacing(8)]">
+      <Card className="mt-6 [--card-spacing:--spacing(4)]">
         <CardHeader>
           <CardTitle className="text-lg font-bold">
             {UI.report.gapsHeading}
@@ -144,7 +144,7 @@ export function Report({ snapshot, survey, onRestart }: ReportProps) {
       </Card>
 
       {/* Question review */}
-      <Card className="mt-6 [--card-spacing:--spacing(8)]">
+      <Card className="mt-6 [--card-spacing:--spacing(4)]">
         <CardHeader>
           <CardTitle className="text-lg font-bold">
             {UI.report.reviewHeading}
