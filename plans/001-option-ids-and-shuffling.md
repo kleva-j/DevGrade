@@ -1,6 +1,6 @@
 # Stable option IDs and option shuffling
 
-**Status:** Stage 1 committed on `feat/option-ids-stage-1`; the committed baseline had local tests/lint and all 29 named PostgreSQL cases verified across separate runs. PR #6 review fixes are included; formatting, typecheck, and scoped lint passed, while regression-test execution remains pending (see below). Deployment is not verified. Stage 2 not started.
+**Status:** Stage 1 committed on `feat/option-ids-stage-1`; the committed baseline had local tests/lint and all 29 named PostgreSQL cases verified across separate runs. PR #6 review fixes are included; formatting, typecheck, scoped lint, and targeted client/recovery tests passed. Other review-fix regressions, including PostgreSQL execution, remain pending (see below). Deployment is not verified. Stage 2 not started.
 
 **Baseline:** `e648339`, 2026-09-28, plus the question-bank rebalance, balance test, and PRD update present when work began. Preserve those changes.
 
@@ -96,7 +96,14 @@ Paths below are relative to `apps/web/src/` unless stated otherwise:
 - Map malformed options and missing correct-option membership in active bank rows to `insufficient_questions` before insertion. Fail closed rather than silently dropping rows; repair or retire bad content. Unexpected exceptions are not reclassified.
 - Added boundary and safe-error regressions; expanded the existing V2 PostgreSQL case to cover completed legacy report/summary retrieval, wrong tokens, further submissions, expiry, and no mutations. Added one PostgreSQL case for malformed active rows and recovery after retirement.
 - Refreshed editor diagnostics reported no errors or warnings; an independent read-only review found no concrete issues. Before publication, Prettier ran on all 13 changed TypeScript files, `pnpm --filter web typecheck` passed, and scoped ESLint passed after fixing an import separator and a redundant test condition. The scoped Git whitespace check also passed. These checks do not replace test execution.
-- **Regression tests pending:** the initial single-test probe timed out after 20 seconds without results. No retry, full-suite run, or PostgreSQL run was attempted for these fixes. The earlier 29-case result above applies to the committed baseline, not these changes. The additional case brings the PostgreSQL suite to 30 named cases.
+- **At publication of the first three review fixes:** the initial single-test probe timed out after 20 seconds without results. No retry, full-suite run, or PostgreSQL run was attempted then. The earlier 29-case result above applies to the committed baseline, not those fixes. The additional case brings the PostgreSQL suite to 30 named cases.
+
+## Reload-safety review follow-up
+
+- App-triggered reload performs a synchronous, read-only storage check instead of trusting cached warnings. Every retained in-memory credential must have a matching readable stored handle; missing/corrupt/conflicting/unreadable persistence prevents navigation.
+- The guard neither recreates cleared handles nor contacts the server. Failure updates the existing XState storage warning and hides Refresh, without adding states or discarding credentials. It cannot prevent external storage removal after the point-in-time check.
+- The focused regression reproduced the stale-warning bug before the guard was implemented. All **9 new reload tests passed** in 326 ms; the broader affected `sessionRecovery`, `assessmentMachine`, and `assessmentContract` files then passed **133 tests, zero failures/cancellations/skips**, in 595 ms. Both runs had a 10-second command limit.
+- App typecheck and scoped ESLint passed; the five changed TypeScript files were formatted. Validation did not include the full suite, browser automation, PostgreSQL tests, or a migration. The prior server/database review-fix validation gap remains.
 
 ## Boundaries and rollout safety
 
