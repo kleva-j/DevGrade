@@ -544,6 +544,33 @@ test("V2 reordered noncontiguous IDs grade identically to V1 with ordered string
   );
 });
 
+test("V2 reader and Stage 1 writer accept the PostgreSQL maximum ID for correct options and distractors", () => {
+  for (const index of [0, 1, 2, 3]) {
+    const f = v2Fixture();
+    const question = f.questions[0]!;
+    const option = question.options[index]!;
+    if (option.id === question.correctOptionId) {
+      question.correctOptionId = 2_147_483_647;
+    }
+    option.id = 2_147_483_647;
+    f.answers[0]!.selectedOptionId = 2_147_483_647;
+
+    const parsed = parseQuestionSnapshot(f.snapshot, f.ids, configuration);
+    assert.deepEqual(parsed.questions[0], question);
+    const v1 = createQuestionSnapshot(
+      f.ids,
+      f.questions,
+      f.pillars,
+      configuration,
+    );
+    assert.equal(v1.questions[0]!.correctAnswer, 1);
+    assert.equal(
+      reportFrom(f).result.questionResults[0]!.isCorrect,
+      index === 1,
+    );
+  }
+});
+
 test("V2 parsing and public projections detach option objects and strip both private key names", () => {
   const f = v2Fixture();
   const before = structuredClone(f.snapshot);
@@ -586,9 +613,21 @@ test("V2 reader and Stage 1 writer reject invalid new-content option identities 
         i ? option : { ...option, text },
       ),
     })),
-    ...[-1, 0.5, NaN, Infinity, 1, 999].map((correctOptionId) => ({
+    ...[-1, 0.5, NaN, Infinity, 1, 999, 2_147_483_648].map(
+      (correctOptionId) => ({
+        ...original,
+        correctOptionId,
+      }),
+    ),
+    ...original.options.map((option, index) => ({
       ...original,
-      correctOptionId,
+      options: original.options.map((choice, i) =>
+        i === index ? { ...choice, id: 2_147_483_648 } : choice,
+      ),
+      correctOptionId:
+        option.id === original.correctOptionId
+          ? 2_147_483_648
+          : original.correctOptionId,
     })),
   ];
   for (const question of invalidQuestions) {
@@ -635,6 +674,7 @@ test("V2 completion validates selected ID membership in each saved question, not
     1,
     4,
     999,
+    2_147_483_648,
     f.questions[1]!.correctOptionId,
   ]) {
     assert.throws(

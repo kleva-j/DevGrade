@@ -2,13 +2,15 @@ import { z } from "zod";
 
 import type { QuestionOption } from "./types";
 
-import { QUESTION_OPTION_COUNT } from "./constants";
+import { OPTION_ID_MAX, QUESTION_OPTION_COUNT } from "./constants";
+
+export const optionIdSchema = z.number().int().nonnegative().max(OPTION_ID_MAX);
 
 /** New bank content and V2 snapshots only; frozen V1 has its own legacy rules. */
 export const questionOptionsSchema = z
   .array(
     z.object({
-      id: z.number().int().nonnegative(),
+      id: optionIdSchema,
       text: z.string().refine((text) => text.trim().length > 0),
     }),
   )

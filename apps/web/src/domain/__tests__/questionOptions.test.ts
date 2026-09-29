@@ -38,6 +38,16 @@ test("bank bridge preserves explicit IDs, order, and text while deeply detaching
   assert.equal(source[0]!.text, "First");
 });
 
+test("bank bridge enforces PostgreSQL integer bounds on every option ID", () => {
+  for (const index of [0, 1, 2, 3]) {
+    const source = options();
+    source[index]!.id = 2_147_483_647;
+    assert.deepEqual(normalizeQuestionOptions(source), source);
+    source[index]!.id = 2_147_483_648;
+    assert.throws(() => normalizeQuestionOptions(source), z.ZodError);
+  }
+});
+
 test("bank bridge rejects malformed, mixed, and invalid four-option content", () => {
   const invalid = [
     null,

@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 import { SESSION_VIEW } from "@/domain/constants";
+import { optionIdSchema } from "@/domain/questionOptions";
 
-const optionId = z.number().int().nonnegative();
 const answer = z
   .object({
     questionId: z.string().min(1),
-    selectedOptionId: optionId,
+    selectedOptionId: optionIdSchema,
     selectedAnswer: z.never().optional(),
   })
   .refine((value) => !Object.hasOwn(value, "selectedAnswer"));
@@ -22,7 +22,7 @@ const answers = z
 const question = z.object({
   id: z.string().min(1),
   options: z
-    .array(z.object({ id: optionId, text: z.string() }))
+    .array(z.object({ id: optionIdSchema, text: z.string() }))
     .min(2)
     .refine(
       (options) => new Set(options.map(({ id }) => id)).size === options.length,

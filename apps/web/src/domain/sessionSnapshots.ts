@@ -15,7 +15,7 @@ import {
   FRAMEWORKS,
 } from "./constants";
 import { scoreAssessmentV1 } from "./scoring";
-import { questionOptionsSchema } from "./questionOptions";
+import { optionIdSchema, questionOptionsSchema } from "./questionOptions";
 import { toReportQuestion } from "./types";
 
 type SnapshotErrorCode =
@@ -55,7 +55,7 @@ const snapshotQuestionV1Schema = snapshotQuestionBaseSchema
 const snapshotQuestionV2Schema = snapshotQuestionBaseSchema
   .extend({
     options: questionOptionsSchema,
-    correctOptionId: z.number().int().nonnegative(),
+    correctOptionId: optionIdSchema,
   })
   .refine((q) => q.options.some(({ id }) => id === q.correctOptionId));
 

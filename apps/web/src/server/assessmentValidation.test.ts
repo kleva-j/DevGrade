@@ -151,6 +151,25 @@ test("wire answers require exactly one nonnegative integer field; service accept
     );
 });
 
+test("canonical answer submissions enforce PostgreSQL integer bounds", () => {
+  const base = {
+    sessionId: randomUUID(),
+    sessionToken: "a".repeat(64),
+    questionId: "q",
+    timeSpentSeconds: 2,
+  };
+  for (const schema of [submitAnswerInput, submitAnswerWireInput]) {
+    for (const selectedOptionId of [0, 7, 42, 2_147_483_647]) {
+      const input = { ...base, selectedOptionId };
+      assert.deepEqual(schema.parse(input), input);
+    }
+    assert.equal(
+      schema.safeParse({ ...base, selectedOptionId: 2_147_483_648 }).success,
+      false,
+    );
+  }
+});
+
 describe("createSessionInput anonymous client id", () => {
   for (const rawClientId of [undefined, null, "", 123, false]) {
     test(`rejects rawClientId ${String(rawClientId)}`, () => {

@@ -16,6 +16,7 @@ import {
   sessionIdSchema,
   sessionTokenSchema,
 } from "@/domain/sessionContracts";
+import { optionIdSchema } from "@/domain/questionOptions";
 import { AssessmentError, ERROR_CODE } from "./errors";
 import { MESSAGES } from "./messages";
 
@@ -51,7 +52,7 @@ export const createSessionInput = createSessionSchema.extend({
 export const submitAnswerSchema = z.object({
   sessionToken: sessionTokenSchema,
   questionId: z.string().min(1).max(50),
-  selectedOptionId: z.number().int().nonnegative(),
+  selectedOptionId: optionIdSchema,
   selectedAnswer: z.never().optional(),
   timeSpentSeconds: z.number().int().min(0).max(3600),
 });

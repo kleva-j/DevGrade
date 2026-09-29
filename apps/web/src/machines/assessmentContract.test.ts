@@ -200,6 +200,7 @@ test("marked responses reject malformed option IDs and accepted answers without 
       [{ id: "1", text: "A" }, ...first.options.slice(1)],
       [{ id: -1, text: "A" }, ...first.options.slice(1)],
       [{ id: 0.5, text: "A" }, ...first.options.slice(1)],
+      [{ id: 2_147_483_648, text: "A" }, ...first.options.slice(1)],
       [{ id: 1, text: "A" }, ...first.options.slice(1)],
     ].map((options) =>
       optionIdsResponse({
@@ -233,6 +234,7 @@ test("marked responses reject malformed option IDs and accepted answers without 
   for (const invalid of [
     { ...answer, selectedOptionId: "1" },
     { ...answer, selectedOptionId: -1 },
+    { ...answer, selectedOptionId: 2_147_483_648 },
     { ...answer, selectedAnswer: 1 },
   ]) {
     t.mock.method(endpoints, "submitAnswer", async () => ({
@@ -250,6 +252,46 @@ test("marked responses reject malformed option IDs and accepted answers without 
     await assert.rejects(
       api.submitAnswer({ ...session.credential, answer }),
       isClientUpdateRequired,
+    );
+  }
+});
+
+test("wire decoding enforces PostgreSQL integer bounds on option IDs and accepted answers", () => {
+  for (const [id, valid] of [
+    [2_147_483_647, true],
+    [2_147_483_648, false],
+  ] as const) {
+    const answer = { questionId: "question-0", selectedOptionId: id };
+    const view = {
+      kind: SESSION_VIEW.ASSESSMENT,
+      questions: [
+        {
+          id: answer.questionId,
+          options: [7, 0, id, 42].map((optionId) => ({
+            id: optionId,
+            text: String(optionId),
+          })),
+        },
+      ],
+      acceptedAnswers: [answer],
+    };
+    for (const schema of [assessmentResponseSchema, sessionResponseSchema]) {
+      assert.equal(schema.safeParse(view).success, valid);
+      assert.equal(
+        schema.safeParse({
+          ...view,
+          acceptedAnswers: [{ ...answer, selectedOptionId: 7 }],
+        }).success,
+        valid,
+        "unselected distractor IDs must also fit PostgreSQL integer storage",
+      );
+    }
+    assert.equal(
+      acceptedAnswerResponseSchema.safeParse({
+        acceptedAnswer: answer,
+        acceptedAnswers: [answer],
+      }).success,
+      valid,
     );
   }
 });
@@ -360,21 +402,23 @@ test("option-ID compatibility rejects duplicate/missing memberships and mixed an
 
 test("non-contiguous canonical IDs survive transport reads and answer acceptance", async () => {
   const session = makeSession();
-  session.assessment.questions[0]!.options = [42, 7, 99, 100].map((id) => ({
-    id,
-    text: String(id),
-  }));
+  session.assessment.questions[0]!.options = [42, 7, 2_147_483_647, 100].map(
+    (id) => ({
+      id,
+      text: String(id),
+    }),
+  );
   const server = fakeServer([session]);
   const api = createAssessmentApi(fakeEndpoints(server.api), () => "client");
   const resumed = await api.resumeSession(session.credential);
   assert.ok(resumed.kind === SESSION_VIEW.ASSESSMENT);
   assert.deepEqual(
     resumed.questions[0]?.options.map(({ id }) => id),
-    [42, 7, 99, 100],
+    [42, 7, 2_147_483_647, 100],
   );
   const answer = {
     questionId: "question-0",
-    selectedOptionId: 99,
+    selectedOptionId: 2_147_483_647,
     timeSpentSeconds: 8,
   };
   const accepted = await api.submitAnswer({ ...session.credential, answer });
