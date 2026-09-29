@@ -1,6 +1,6 @@
 # Stable option IDs and option shuffling
 
-**Status:** Stage 1 committed on `feat/option-ids-stage-1`; local tests/lint passed and all 29 named PostgreSQL cases verified across separate runs. Deployment is not verified. Stage 2 not started.
+**Status:** Stage 1 committed on `feat/option-ids-stage-1`; the committed baseline had local tests/lint and all 29 named PostgreSQL cases verified across separate runs. PR #6 review fixes are included; formatting, typecheck, and scoped lint passed, while regression-test execution remains pending (see below). Deployment is not verified. Stage 2 not started.
 
 **Baseline:** `e648339`, 2026-09-28, plus the question-bank rebalance, balance test, and PRD update present when work began. Preserve those changes.
 
@@ -23,7 +23,7 @@ interface QuestionOption {
 - Application names: `correctOptionId` and `selectedOptionId`.
 - Keep physical columns `correct_answer` and `selected_answer`; map the clearer application names through Drizzle. No extra answer columns or options table.
 - Assign existing options IDs from their original zero-based positions **once**. Persist IDs explicitly in seed content; never regenerate them from a shuffled/reordered array.
-- Validate four options for new MVP content, unique nonnegative integer IDs, nonblank text, and membership of the correct/selected ID. Membership is not an array-bounds check.
+- Validate four options for new MVP content, unique integer IDs in 0–2,147,483,647 (the nonnegative PostgreSQL `integer` range), nonblank text, and membership of the correct/selected ID. Membership is not an array-bounds check.
 - IDs are scoped to their question and session snapshot, not globally unique or presentation labels. Test non-contiguous IDs to expose accidental index assumptions.
 
 ## Stage 1 — Prepare compatible readers and clients
@@ -88,6 +88,15 @@ Paths below are relative to `apps/web/src/` unless stated otherwise:
 - **Coverage complete: all 29 named PostgreSQL cases passed across the isolated runs and two manual batches.** This is not a claim that one combined or concurrent PostgreSQL-enabled full-suite invocation passed, nor that the earlier terminal stalls were diagnosed. The manual shared-cluster shutdown is a separate cleanup step; test summaries alone do not confirm it.
 - User-confirmed commits: `d9d5381` (question-bank answer-position rebalance) and `3a063ac` (Stage 1 option-ID compatibility).
 - Stage 1 adds no migration, bank-format conversion, or option shuffling. Deployment remains unverified; deploy the compatibility readers everywhere before Stage 2 conversion or V2 writes.
+
+## PR #6 review follow-up
+
+- Bound every canonical bank/snapshot option ID—including distractors—and canonical answer/wire IDs to PostgreSQL `integer`. Frozen V1 snapshot count/text rules remain unchanged.
+- Allow legacy get/resume of completed V2 sessions: they return unchanged V1 reports or persisted summaries, without activity writes. Authentication, seven-day access expiry, unfinished V2 rejection, and rejection of further completed-session answers remain enforced.
+- Map malformed options and missing correct-option membership in active bank rows to `insufficient_questions` before insertion. Fail closed rather than silently dropping rows; repair or retire bad content. Unexpected exceptions are not reclassified.
+- Added boundary and safe-error regressions; expanded the existing V2 PostgreSQL case to cover completed legacy report/summary retrieval, wrong tokens, further submissions, expiry, and no mutations. Added one PostgreSQL case for malformed active rows and recovery after retirement.
+- Refreshed editor diagnostics reported no errors or warnings; an independent read-only review found no concrete issues. Before publication, Prettier ran on all 13 changed TypeScript files, `pnpm --filter web typecheck` passed, and scoped ESLint passed after fixing an import separator and a redundant test condition. The scoped Git whitespace check also passed. These checks do not replace test execution.
+- **Regression tests pending:** the initial single-test probe timed out after 20 seconds without results. No retry, full-suite run, or PostgreSQL run was attempted for these fixes. The earlier 29-case result above applies to the committed baseline, not these changes. The additional case brings the PostgreSQL suite to 30 named cases.
 
 ## Boundaries and rollout safety
 
