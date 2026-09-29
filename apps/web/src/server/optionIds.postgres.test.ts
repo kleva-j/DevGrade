@@ -16,7 +16,9 @@ import {
 } from "@/db/schema";
 import {
   ASSESSMENT_CONTRACT,
+  OPTION_ID_MAX,
   QUESTION_SNAPSHOT_FORMAT,
+  SESSION_RETENTION_DAYS,
   SESSION_STATUS,
   SESSION_VIEW,
 } from "@/domain/constants";
@@ -83,12 +85,10 @@ test(
   options,
   async (t) => {
     const { db, service, handlers } = await setup(t);
-    await db
-      .update(questions)
-      .set({
-        options: sql`${JSON.stringify(bankOptions)}::jsonb`,
-        correctAnswer: 100,
-      });
+    await db.update(questions).set({
+      options: sql`${JSON.stringify(bankOptions)}::jsonb`,
+      correctAnswer: 100,
+    });
     for (const assessmentContract of [
       undefined,
       ASSESSMENT_CONTRACT.OPTION_IDS,
@@ -332,6 +332,126 @@ test(
       await service.completeSession(row.id, credential),
       completed,
     );
+    for (const kind of [SESSION_VIEW.REPORT, SESSION_VIEW.LEGACY_SUMMARY]) {
+      if (kind === SESSION_VIEW.LEGACY_SUMMARY)
+        await db
+          .update(sessionResults)
+          .set({ reportSnapshot: null })
+          .where(eq(sessionResults.sessionId, row.id));
+      const beforeReads = await storedState(db);
+      for (const handler of [handlers.getSession, handlers.resumeSession]) {
+        const legacy = await handler(credential);
+        assert.ok(legacy.ok);
+        assert.equal(legacy.data.assessmentContract, undefined);
+        assert.equal(legacy.data.kind, kind);
+        if (legacy.data.kind === SESSION_VIEW.REPORT)
+          assert.deepEqual(legacy.data, completed);
+        else {
+          assert.equal(legacy.data.summary.totalScore, 100);
+          assert.deepEqual(
+            legacy.data.summary.categoryScores,
+            completed.reportSnapshot.result.categoryScores,
+          );
+        }
+        assert.deepEqual(
+          await handler({ ...credential, sessionToken: "b".repeat(64) }),
+          {
+            ok: false,
+            error: {
+              code: ERROR_CODE.NOT_FOUND,
+              message: MESSAGES.sessionNotFound,
+            },
+          },
+        );
+      }
+      assert.deepEqual(
+        await handlers.submitAnswer({
+          ...credential,
+          questionId: firstId,
+          selectedAnswer: 2,
+          timeSpentSeconds: 1,
+        }),
+        {
+          ok: false,
+          error: {
+            code: ERROR_CODE.SESSION_COMPLETED,
+            message: MESSAGES.sessionAlreadyComplete,
+          },
+        },
+      );
+      assert.deepEqual(await storedState(db), beforeReads);
+    }
+    await db
+      .update(testSessions)
+      .set({
+        createdAt: sql`clock_timestamp() - ${SESSION_RETENTION_DAYS} * interval '1 day'`,
+      })
+      .where(eq(testSessions.id, row.id));
+    const expired = await storedState(db);
+    for (const handler of [handlers.getSession, handlers.resumeSession])
+      assert.deepEqual(await handler(credential), {
+        ok: false,
+        error: {
+          code: ERROR_CODE.ACCESS_EXPIRED,
+          message: MESSAGES.accessExpired,
+        },
+      });
+    assert.deepEqual(await storedState(db), expired);
+  },
+);
+
+test(
+  "malformed active bank content fails closed before session creation",
+  options,
+  async (t) => {
+    const { db, handlers } = await setup(t);
+    const extra = { ...bankRows()[0]!, id: "invalid-extra" };
+    await db.insert(questions).values(extra);
+    for (const invalid of [
+      { options: ["Only one option"], correctAnswer: 0 },
+      { options: ["A", "B", "C", " "], correctAnswer: 0 },
+      { options: bankOptions, correctAnswer: 99 },
+      {
+        options: bankOptions.map((option, index) =>
+          index === 0 ? { ...option, id: OPTION_ID_MAX + 1 } : option,
+        ),
+        correctAnswer: 100,
+      },
+    ]) {
+      await db
+        .update(questions)
+        .set({
+          options: sql`${JSON.stringify(invalid.options)}::jsonb`,
+          correctAnswer: invalid.correctAnswer,
+        })
+        .where(eq(questions.id, extra.id));
+      const before = await storedState(db);
+      assert.deepEqual(
+        await handlers.createSession({
+          ...configuration,
+          rawClientId: randomUUID(),
+        }),
+        {
+          ok: false,
+          error: {
+            code: ERROR_CODE.INSUFFICIENT_QUESTIONS,
+            message: MESSAGES.insufficientQuestions,
+          },
+        },
+      );
+      assert.deepEqual(await storedState(db), before);
+    }
+    // Retiring the malformed extra restores creation from the eight valid rows.
+    await db
+      .update(questions)
+      .set({ isActive: false })
+      .where(eq(questions.id, extra.id));
+    const created = await handlers.createSession({
+      ...configuration,
+      rawClientId: randomUUID(),
+    });
+    assert.ok(created.ok);
+    assert.equal(created.data.questions.length, bankRows().length);
   },
 );
 

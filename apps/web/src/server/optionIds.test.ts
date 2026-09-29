@@ -15,13 +15,23 @@ import * as schema from "@/db/schema";
 import {
   ASSESSMENT_CONTRACT,
   QUESTION_SNAPSHOT_FORMAT,
+  SESSION_RETENTION_DAYS,
+  SESSION_STATUS,
   SESSION_VIEW,
 } from "@/domain/constants";
 import { parseQuestionSnapshot } from "@/domain/sessionSnapshots";
 import { toPublicQuestion } from "@/domain/types";
 import { createAssessmentHandlers } from "./assessmentHandlers";
 import { createAssessmentService, rowToQuestion } from "./assessmentService";
-import { metadata, progress, requireCompatibleSnapshot } from "./sessionAccess";
+import {
+  lifecycle,
+  metadata,
+  progress,
+  requireAccess,
+  requireCompatibleSession,
+  requireCompatibleSnapshot,
+  requireUnfinished,
+} from "./sessionAccess";
 import { AssessmentError, ERROR_CODE, assessmentEnvelope } from "./errors";
 import { MESSAGES } from "./messages";
 import {
@@ -76,8 +86,9 @@ test("bank bridge normalizes strings and preserves object IDs; raw V1 rebases to
   );
   assert.equal(parsed.questions[0]!.correctOptionId, 2);
   for (const correctAnswer of [-1, 1.5, 4, 99])
-    assert.throws(() =>
-      rowToQuestion({ ...row, options: bankOptions, correctAnswer }),
+    assert.throws(
+      () => rowToQuestion({ ...row, options: bankOptions, correctAnswer }),
+      isError(ERROR_CODE.INSUFFICIENT_QUESTIONS),
     );
   for (const options of [
     ["A", "B", "C"],
@@ -86,7 +97,58 @@ test("bank bridge normalizes strings and preserves object IDs; raw V1 rebases to
     [...bankOptions.slice(1), { id: -1, text: "Bad" }],
     [...bankOptions.slice(1), "Mixed"],
   ])
-    assert.throws(() => rowToQuestion({ ...row, options }));
+    assert.throws(
+      () => rowToQuestion({ ...row, options }),
+      isError(ERROR_CODE.INSUFFICIENT_QUESTIONS),
+    );
+});
+
+test("malformed bank content returns a safe availability failure, not an internal error", async () => {
+  const row = bankRows()[0]!;
+  for (const invalid of [
+    { ...row, options: ["Private invalid content"] },
+    { ...row, correctAnswer: 99 },
+  ]) {
+    assert.deepEqual(
+      await assessmentEnvelope(async () => rowToQuestion(invalid)),
+      {
+        ok: false,
+        error: {
+          code: ERROR_CODE.INSUFFICIENT_QUESTIONS,
+          message: MESSAGES.insufficientQuestions,
+        },
+      },
+    );
+  }
+  const unexpected = new Error("Unexpected bank access failure");
+  assert.throws(
+    () =>
+      rowToQuestion({
+        ...row,
+        get options(): unknown {
+          throw unexpected;
+        },
+      }),
+    (error) => error === unexpected,
+  );
+});
+
+test("completed V2 sessions bypass only the format gate, not answer or retention guards", () => {
+  const row = sessionRow(snapshotV2());
+  row.status = SESSION_STATUS.COMPLETED;
+  row.completedAt = row.createdAt;
+  assert.doesNotThrow(() => requireCompatibleSession(row, true));
+  assert.throws(
+    () => requireUnfinished(row, lifecycle(row, row.createdAt)),
+    isError(ERROR_CODE.SESSION_COMPLETED),
+  );
+  const expiresAt = new Date(
+    row.createdAt.getTime() + SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  );
+  assert.throws(
+    () => requireAccess(lifecycle(row, expiresAt)),
+    isError(ERROR_CODE.ACCESS_EXPIRED),
+  );
 });
 
 test("future snapshot writers fail closed for legacy creation; canonical callers can use V2", () => {

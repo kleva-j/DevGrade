@@ -159,7 +159,11 @@ export function requireCompatibleSession(
   session: TestSessionRow,
   legacyClient: boolean,
 ) {
-  if (session.questionSnapshot !== null)
+  // Completed views use V1 reports or persisted summaries, not private options.
+  if (
+    session.status !== SESSION_STATUS.COMPLETED &&
+    session.questionSnapshot !== null
+  )
     requireCompatibleSnapshot(session.questionSnapshot.version, legacyClient);
 }
 

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
+import { ZodError } from "zod";
 
 import type { AnswerInput, Question } from "@/domain/types";
 import type { AssessmentClient } from "./sessionAccess";
@@ -94,11 +95,23 @@ export {
 export function rowToQuestion(
   row: Omit<QuestionRow, "options"> & { options: unknown },
 ): Question {
-  const options = normalizeQuestionOptions(row.options);
+  let options: Question["options"];
+  try {
+    options = normalizeQuestionOptions(row.options);
+  } catch (error) {
+    if (!(error instanceof ZodError)) throw error;
+    throw new AssessmentError(
+      ERROR_CODE.INSUFFICIENT_QUESTIONS,
+      MESSAGES.insufficientQuestions,
+    );
+  }
   // The legacy column holds an index for string banks and an ID for object banks.
   const correctOptionId = row.correctAnswer;
   if (!options.some((option) => option.id === correctOptionId))
-    throw new SnapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS);
+    throw new AssessmentError(
+      ERROR_CODE.INSUFFICIENT_QUESTIONS,
+      MESSAGES.insufficientQuestions,
+    );
   return {
     id: row.id,
     framework: row.framework,
