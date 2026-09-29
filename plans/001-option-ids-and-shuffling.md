@@ -1,6 +1,6 @@
 # Stable option IDs and option shuffling
 
-**Status:** Stage 1 implemented on `feat/option-ids-stage-1`; local tests/lint passed, 21 of 29 named PostgreSQL cases verified, eight still pending. Not deployed. Stage 2 not started.
+**Status:** Stage 1 committed on `feat/option-ids-stage-1`; local tests/lint passed and all 29 named PostgreSQL cases verified across separate runs. Deployment is not verified. Stage 2 not started.
 
 **Baseline:** `e648339`, 2026-09-28, plus the question-bank rebalance, balance test, and PRD update present when work began. Preserve those changes.
 
@@ -81,9 +81,13 @@ Paths below are relative to `apps/web/src/` unless stated otherwise:
 - `pnpm lint`: passed.
 - Stage 1-only `pnpm --filter web typecheck`: the three pre-existing chart errors noted above; no new errors. The separately prepared chart fix is outside this stage.
 - Independent integration review findings were fixed and rechecked, including memory-only credential protection and retry behavior.
-- Subsequent verification against disposable, loopback-only PostgreSQL 18.1: **21 of 29 named database cases passed**, with zero failures or skips in completed runs. These cover question counts, snapshots, all three option-ID compatibility cases, lifecycle behavior, and the first five maintenance cases. Eight maintenance cases remain unverified after interrupted execution; a complete PostgreSQL-enabled suite run has not been verified. Every completed isolated run confirmed database shutdown, and Aiven was not accessed. Database verification remains a deployment gate.
-- Remaining cases: statement-timeout rollback; backlog-check timeouts; completion versus retention deletion; missed-cleanup access enforcement; and idle-sweep coordination with resume/answer in both orderings.
-- No migration, bank conversion, shuffling, deployment, or push was performed for Stage 1.
+- Agent-observed verification against disposable, loopback-only PostgreSQL 18.1: **21 named database cases passed**, with zero failures or skips in completed runs. These cover question counts, snapshots, all three option-ID compatibility cases, lifecycle behavior, and the first five maintenance cases. Every completed isolated run confirmed database shutdown, and Aiven was not accessed.
+- User-reported completion of the remaining eight cases using the manual commands for one shared disposable database:
+  - Batch A: statement-timeout rollback, backlog-check timeouts, completion versus retention deletion, and missed-cleanup access enforcement — **4 passed, 0 failed, 0 cancelled, 0 skipped**, 2680.451959 ms.
+  - Batch B: idle-sweep coordination with resume/answer in both orderings — **4 passed, 0 failed, 0 cancelled, 0 skipped**, 1255.641667 ms.
+- **Coverage complete: all 29 named PostgreSQL cases passed across the isolated runs and two manual batches.** This is not a claim that one combined or concurrent PostgreSQL-enabled full-suite invocation passed, nor that the earlier terminal stalls were diagnosed. The manual shared-cluster shutdown is a separate cleanup step; test summaries alone do not confirm it.
+- User-confirmed commits: `d9d5381` (question-bank answer-position rebalance) and `3a063ac` (Stage 1 option-ID compatibility).
+- Stage 1 adds no migration, bank-format conversion, or option shuffling. Deployment remains unverified; deploy the compatibility readers everywhere before Stage 2 conversion or V2 writes.
 
 ## Boundaries and rollout safety
 
