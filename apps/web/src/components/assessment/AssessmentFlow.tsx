@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMachine } from "@xstate/react";
 
 import { createBrowserRecovery } from "@/machines/assessmentServices";
+import { isClientUpdateRequired } from "@/machines/createSessionAdapter";
 import { CLIENT_ERROR_CODE, ERROR_CODE } from "@/server/errors";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { STORAGE_ISSUE } from "@/machines/sessionStorage";
@@ -69,15 +70,23 @@ function LoadingPanel({ message }: LoadingPanelProps) {
 }
 interface ErrorPanelProps {
   message: string;
+  title?: string;
+  retryLabel?: string;
   onRetry?: () => void;
   onCancel: () => void;
 }
-function ErrorPanel({ message, onRetry, onCancel }: ErrorPanelProps) {
+function ErrorPanel({
+  message,
+  title = UI.status.errorTitle,
+  retryLabel = UI.status.retry,
+  onRetry,
+  onCancel,
+}: ErrorPanelProps) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>
-          <h1 className="font-heading">{UI.status.errorTitle}</h1>
+          <h1 className="font-heading">{title}</h1>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -89,7 +98,7 @@ function ErrorPanel({ message, onRetry, onCancel }: ErrorPanelProps) {
         <Button variant="outline" onClick={onCancel}>
           {UI.recovery.cancel}
         </Button>
-        {onRetry ? <Button onClick={onRetry}>{UI.status.retry}</Button> : null}
+        {onRetry ? <Button onClick={onRetry}>{retryLabel}</Button> : null}
       </CardFooter>
     </Card>
   );
@@ -204,6 +213,22 @@ export function AssessmentFlow() {
     send({ type: "START" });
   }
   function renderScreen() {
+    if (isClientUpdateRequired(context.error))
+      return (
+        <ErrorPanel
+          title={UI.status.updateTitle}
+          message={
+            context.storageIssue
+              ? UI.recovery.clientUpdateStorageRequired
+              : UI.recovery.clientUpdateRequired
+          }
+          retryLabel={UI.status.reload}
+          onRetry={
+            context.storageIssue ? undefined : () => window.location.reload()
+          }
+          onCancel={cancel}
+        />
+      );
     if (showingIntake)
       return (
         <>
@@ -374,11 +399,11 @@ export function AssessmentFlow() {
             answeredCount={view.answeredCount}
             questionStartedAt={context.questionStartedAt}
             timerPausedAt={context.timerPausedAt}
-            selectedOption={context.selectedOption}
+            selectedOptionId={context.selectedOptionId}
             submitting={phase === "submittingAnswer"}
             isLast={view.answeredCount === view.totalQuestions - 1}
             error={phase === "answerFailed" ? errorCopy(context.error) : null}
-            onSelect={(option) => send({ type: "SELECT_OPTION", option })}
+            onSelect={(optionId) => send({ type: "SELECT_OPTION", optionId })}
             onSubmit={() => send({ type: "SUBMIT_ANSWER" })}
             onRetry={() => send({ type: "RETRY" })}
           />

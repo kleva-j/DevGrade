@@ -397,14 +397,18 @@ Existing-session inputs require `sessionId` (canonical 36-character UUID, normal
 
 | Function | Input fields | Success `data` |
 | --- | --- | --- |
-| `createSessionFn` | `framework`, `targetLevel`, optional `questionCount`, `rawClientId`, optional `knownCredentials` | Flat `CreatedSession` |
-| `submitAnswerFn` | ID/token, `questionId`, `selectedAnswer`, `timeSpentSeconds` | `AcceptedAnswerResult` |
+| `createSessionFn` | `framework`, `targetLevel`, optional `questionCount`, `rawClientId`, optional `knownCredentials`, optional `assessmentContract` | Flat `CreatedSession` |
+| `submitAnswerFn` | ID/token, `questionId`, `selectedOptionId` (legacy: `selectedAnswer`), `timeSpentSeconds` | `AcceptedAnswerResult` |
 | `completeSessionFn` | ID/token | `ReportView` or `LegacySummaryView` |
 | `submitSurveyFn` | ID/token, `rating` | `{ success: true }` |
 | `discoverSessionsFn` | `credentials` | `{ sessions }`: `available` metadata or generic `not_found` (`SESSION_DISCOVERY.UNAVAILABLE`) plus supplied ID |
-| `getSessionFn` | ID/token | `SessionView`, read-only |
-| `resumeSessionFn` | ID/token | `SessionView`; reactivate only an eligible unfinished attempt |
+| `getSessionFn` | ID/token, optional `assessmentContract` | `SessionView`, read-only |
+| `resumeSessionFn` | ID/token, optional `assessmentContract` | `SessionView`; reactivate only an eligible unfinished attempt |
 | `deleteSessionFn` | ID/token, `expectedState` | `deleted` or `changed_state` with `currentState` |
+
+**Option-ID compatibility (Stage 1):** the current client sends `assessmentContract: "option_ids_v1"` on creation/get/resume. These responses and ID-based answer acknowledgements echo the marker; public options are `{ id: number, text: string }`, with unique IDs scoped to the saved question. New submissions use `selectedOptionId`. Requests without the marker retain V1 string options and legacy `selectedAnswer` payloads; submitting both answer fields is invalid. Positional clients cannot access V2 question content or submit V2 answers (`client_update_required`, without activity/answer writes). New clients show a refresh action rather than repeatedly retry that error, preserving recovery credentials and warning instead of offering reload when storage is unsafe.
+
+Bank rows and new private snapshots **remain V1 and unshuffled in Stage 1**. Readers normalize saved V1 indices into IDs and also understand V2 option objects. The compatibility writer maps a bank's correct ID back to its saved position when writing V1; all responses and scoring use the saved snapshot. Report snapshots remain V1 with ordered string options and unchanged weighted-v1 scoring. Stage 2 bank conversion and one-time option shuffling are not enabled; see [implementation plan](plans/001-option-ids-and-shuffling.md).
 
 Creation accepts exact numeric **8/16/32**, missing → 8, without coercion. `rawClientId` has length 1–1024 and is stored only as a rate-limit hash. Known/discovery lists have a **1,000-entry maximum**, processed in **100-entry batches**, never truncated. Creation locks all authenticated known parents in deterministic order before child reads/fresh-time gating; it rejects unfinished attempts below 24 hours irrespective of settings/inactivity/restorability (§4.5), rather than trusting earlier discovery. There is no global ownership lookup.
 
@@ -421,19 +425,20 @@ interface AcceptedAnswerResult extends SessionProgress {
 }
 ```
 
-`CreatedSession` is **flat**, not `{ assessment: ... }`: `kind: "assessment"`, ID/token, `createdAt`, original `configuration`, both deadlines, effective status/eligibility, all safe ordered `questions`, empty `acceptedAnswers`, and initial `answeredCount`/`totalQuestions`/`nextQuestionId`. All question content arrives up front via `PublicQuestion`; no `correctAnswer` or explanation is released (decision #5).
+`CreatedSession` is **flat**, not `{ assessment: ... }`: `kind: "assessment"`, ID/token, `createdAt`, original `configuration`, both deadlines, effective status/eligibility, all safe ordered `questions`, empty `acceptedAnswers`, and initial `answeredCount`/`totalQuestions`/`nextQuestionId`. All question content arrives up front via `PublicQuestion`; no `correctAnswer`, `correctOptionId`, or explanation is released (decision #5).
 
-Answers require saved selected-ID membership, a nonnegative integer option within saved bounds, and integer duration **0–3600**. New acceptance grades from the private snapshot and refreshes activity atomically. Same-option replay returns the original answer/duration without writes; different-option replay conflicts. Completed/expiry checks precede acknowledgement. Success returns the **entire accepted set in selected-ID order**, not just the latest answer:
+Answers require saved question-ID membership, a nonnegative integer option ID belonging to that saved question (not merely within array bounds), and integer duration **0–3600**. New acceptance grades from the private snapshot and refreshes activity atomically. Same-option replay returns the original answer/duration without writes; different-option replay conflicts. Completed/expiry checks precede acknowledgement. Success returns the **entire accepted set in selected-ID order**, not just the latest answer:
 
 ```json
 {
   "ok": true,
   "data": {
+    "assessmentContract": "option_ids_v1",
     "success": true,
     "sessionComplete": false,
-    "acceptedAnswer": { "questionId": "q_123", "selectedAnswer": 1, "timeSpentSeconds": 45 },
+    "acceptedAnswer": { "questionId": "q_123", "selectedOptionId": 1, "timeSpentSeconds": 45 },
     "acceptedAnswers": [
-      { "questionId": "q_123", "selectedAnswer": 1, "timeSpentSeconds": 45 }
+      { "questionId": "q_123", "selectedOptionId": 1, "timeSpentSeconds": 45 }
     ],
     "answeredCount": 1,
     "totalQuestions": 8,
@@ -535,6 +540,7 @@ The active wire failure is **`{ ok: false, error: { code, message } }`**, with `
 
 **Quality Assurance:**
 
+- **Answer-position balance (MVP):** balance the authored four-option bank by difficulty level, by pillar within each level, and by core/advanced weight class within both. Counts per correct-answer position must differ by at most one (enforced by `db/__tests__/seedData.test.ts`). The current 12-item buckets have three correct answers in each position; six-item weight subsets have one or two per position. Avoid a repeating placement pattern and refer to answer content rather than option numbers in explanations. This is a content-only rule: options remain in their authored order, with no runtime option shuffling or guaranteed position balance in an individual sampled assessment. Re-seeding applies corrections to future assessments; existing assessments retain their saved snapshots.
 - Cross-reference explanations with official documentation (React.dev)
 - Statistical analysis of question difficulty (pass rates by level)
 - A/B testing of question clarity and effectiveness

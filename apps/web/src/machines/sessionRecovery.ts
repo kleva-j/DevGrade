@@ -21,7 +21,10 @@ import {
   SESSION_DISCOVERY,
 } from "@/domain/constants";
 import { ERROR_CODE } from "@/server/errors";
-import { AssessmentClientError } from "./createSessionAdapter";
+import {
+  AssessmentClientError,
+  ClientUpdateRequiredError,
+} from "./createSessionAdapter";
 import { STORAGE_ISSUE, sameCredential } from "./sessionStorage";
 
 export interface DiscoveryCheck {
@@ -215,6 +218,10 @@ export function createSessionRecovery(
           });
           return { history, storageIssue: warning, created };
         } catch (error) {
+          if (error instanceof ClientUpdateRequiredError) {
+            const createdCredential = error.takeCreatedCredential();
+            if (createdCredential) remember(createdCredential);
+          }
           if (
             error instanceof AssessmentClientError &&
             error.failure.code === ERROR_CODE.EXISTING_ATTEMPT

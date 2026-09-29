@@ -7,10 +7,16 @@ import {
   discoverSessionsInput,
   parseInput,
   sessionCredentialSchema,
-  submitAnswerInput,
+  sessionContentInput,
+  submitAnswerWireInput,
   submitSurveyInput,
 } from "./assessmentValidation";
 import { assessmentEnvelope } from "./errors";
+import {
+  acceptedAnswerResponse,
+  createdSessionResponse,
+  sessionResponse,
+} from "./assessmentWire";
 
 /** Testable wire boundary: even validation/DB initialization failures use safe envelopes. */
 export function createAssessmentHandlers(
@@ -30,25 +36,52 @@ export function createAssessmentHandlers(
     };
   }
   return {
-    createSession: handle(createSessionInput, (service, input) =>
-      service.createSession(input),
-    ),
+    createSession: handle(createSessionInput, async (service, input) => {
+      const legacyClient = input.assessmentContract === undefined;
+      return createdSessionResponse(
+        await service.createSession(input, { legacyClient }),
+        legacyClient,
+      );
+    }),
     discoverSessions: handle(discoverSessionsInput, (service, input) =>
       service.discoverSessions(input),
     ),
-    getSession: handle(sessionCredentialSchema, (service, input) =>
-      service.getSession(input),
-    ),
-    resumeSession: handle(sessionCredentialSchema, (service, input) =>
-      service.resumeSession(input),
-    ),
+    getSession: handle(sessionContentInput, async (service, input) => {
+      const legacyClient = input.assessmentContract === undefined;
+      return sessionResponse(
+        await service.getSession(input, { legacyClient }),
+        legacyClient,
+      );
+    }),
+    resumeSession: handle(sessionContentInput, async (service, input) => {
+      const legacyClient = input.assessmentContract === undefined;
+      return sessionResponse(
+        await service.resumeSession(input, { legacyClient }),
+        legacyClient,
+      );
+    }),
     deleteSession: handle(deleteSessionInput, (service, input) =>
       service.deleteSession(input),
     ),
     submitAnswer: handle(
-      submitAnswerInput,
-      (service, { sessionId, ...input }) =>
-        service.submitAnswer(sessionId, input),
+      submitAnswerWireInput,
+      async (service, { sessionId, ...input }) => {
+        const legacyClient = input.selectedAnswer !== undefined;
+        const selectedOptionId = input.selectedOptionId ?? input.selectedAnswer;
+        return acceptedAnswerResponse(
+          await service.submitAnswer(
+            sessionId,
+            {
+              sessionToken: input.sessionToken,
+              questionId: input.questionId,
+              selectedOptionId,
+              timeSpentSeconds: input.timeSpentSeconds,
+            },
+            { legacyClient },
+          ),
+          legacyClient,
+        );
+      },
     ),
     completeSession: handle(
       sessionCredentialSchema,

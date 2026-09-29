@@ -92,8 +92,8 @@ function fixture(t: TestContext, initial: TestSession[] = []) {
   function resume(session: TestSession) {
     actor.send({ type: "RESUME", sessionId: session.credential.sessionId });
   }
-  function submit(option = 0) {
-    actor.send({ type: "SELECT_OPTION", option });
+  function submit(optionId = 0) {
+    actor.send({ type: "SELECT_OPTION", optionId });
     actor.send({ type: "SUBMIT_ANSWER" });
   }
   function current() {
@@ -433,12 +433,12 @@ for (const questionCount of ASSESSMENT_LENGTHS)
     );
     h.actor.send({ type: "CONFIGURE", configuration });
     assert.equal(h.current().configuration.targetLevel, DIFFICULTY.SENIOR);
-    h.actor.send({ type: "SELECT_OPTION", option: 2 });
+    h.actor.send({ type: "SELECT_OPTION", optionId: 2 });
     h.actor.send({ type: "HISTORY" });
     await until(h.actor, { history: "ready" });
     h.open(session);
     await until(h.actor, { viewing: "ready" });
-    assert.equal(h.actor.getSnapshot().context.selectedOption, null);
+    assert.equal(h.actor.getSnapshot().context.selectedOptionId, null);
     assert.equal(h.server.calls.resume, 1);
   });
 for (const questionCount of ASSESSMENT_LENGTHS)
@@ -523,7 +523,7 @@ test("lost answer response retains the identical request/duration; same-option r
   const pending = h.actor.getSnapshot().context.pendingAnswer;
   assert.equal(pending?.timeSpentSeconds, 4);
   h.setNow(Date.parse(createdAt) + 50_000);
-  h.actor.send({ type: "SELECT_OPTION", option: 0 });
+  h.actor.send({ type: "SELECT_OPTION", optionId: 0 });
   assert.deepEqual(h.actor.getSnapshot().context.pendingAnswer, pending);
   h.actor.send({ type: "RETRY" });
   await until(h.actor, { attempting: "answering" });
@@ -539,7 +539,7 @@ test("different-option retry conflict reconciles the accepted answer instead of 
   accept(session, 0, 3, 100);
   h.submit(1);
   await until(h.actor, { attempting: "answering" });
-  assert.equal(h.current().acceptedAnswers[0]?.selectedAnswer, 3);
+  assert.equal(h.current().acceptedAnswers[0]?.selectedOptionId, 3);
   assert.equal(h.current().acceptedAnswers[0]?.timeSpentSeconds, 100);
   assert.equal(h.server.calls.get, 1);
   assert.equal(firstUnanswered(h.current())?.id, "question-1");
@@ -993,11 +993,11 @@ test("background refresh preserves the current choice/timer; offline time is exc
   await h.boot();
   h.resume(session);
   await until(h.actor, { attempting: "answering" });
-  h.actor.send({ type: "SELECT_OPTION", option: 2 });
+  h.actor.send({ type: "SELECT_OPTION", optionId: 2 });
   h.setNow(Date.parse(createdAt) + 30_000);
   h.actor.send({ type: "REFRESH" });
   await until(h.actor, { attempting: "answering" });
-  assert.equal(h.actor.getSnapshot().context.selectedOption, 2);
+  assert.equal(h.actor.getSnapshot().context.selectedOptionId, 2);
   assert.equal(
     h.actor.getSnapshot().context.questionStartedAt,
     Date.parse(createdAt),
@@ -1222,6 +1222,276 @@ test("Cancel after create was sent retains the arriving credential without resum
   assert.equal(h.server.calls.get, 0);
   assert.equal(h.storage.scan().handles.length, 1);
 });
+
+test("selection uses question-local option IDs, not array positions", async (t) => {
+  const session = makeSession();
+  session.assessment.questions[0]!.options = [42, 7, 99, 100].map((id) => ({
+    id,
+    text: String(id),
+  }));
+  const h = fixture(t, [session]);
+  await h.boot();
+  h.resume(session);
+  await until(h.actor, { attempting: "answering" });
+  for (const optionId of [0, 1, 2, 3, -1, 7.5, NaN, Infinity]) {
+    h.actor.send({ type: "SELECT_OPTION", optionId });
+    h.actor.send({ type: "SUBMIT_ANSWER" });
+    assert.equal(h.actor.getSnapshot().context.selectedOptionId, null);
+    assert.ok(h.actor.getSnapshot().matches({ attempting: "answering" }));
+  }
+  assert.equal(h.server.calls.answer, 0);
+  h.actor.send({ type: "SELECT_OPTION", optionId: 99 });
+  h.actor.send({ type: "REFRESH" });
+  await until(h.actor, { attempting: "answering" });
+  assert.equal(h.actor.getSnapshot().context.selectedOptionId, 99);
+  h.setNow(Date.parse(createdAt) + 9000);
+  h.actor.send({ type: "SUBMIT_ANSWER" });
+  await until(h.actor, { attempting: "answering" });
+  assert.deepEqual(h.current().acceptedAnswers[0], {
+    questionId: "question-0",
+    selectedOptionId: 99,
+    timeSpentSeconds: 9,
+  });
+  assert.equal(h.actor.getSnapshot().context.selectedOptionId, null);
+});
+
+for (const code of [ERROR_CODE.CLIENT_UPDATE_REQUIRED]) {
+  for (const operation of ["read", "resume", "answer", "complete"] as const) {
+    test(`${code} during ${operation} stays in existing failure state without retry/reconciliation or credential loss`, async (t) => {
+      const session = makeSession();
+      if (operation === "complete")
+        session.assessment.questions.forEach((_, index) =>
+          accept(session, index),
+        );
+      const h = fixture(t, [session]);
+      await h.boot();
+      const before = [...h.port.values];
+      const fail = t.mock.fn(async () => {
+        throw clientFailure(code);
+      });
+      let state: State;
+      if (operation === "read") {
+        h.server.api.getSession = fail;
+        h.open(session);
+        state = { viewing: "readFailed" };
+      } else if (operation === "resume") {
+        h.server.api.resumeSession = fail;
+        h.resume(session);
+        state = { attempting: "resumeFailed" };
+      } else if (operation === "complete") {
+        h.server.api.completeSession = fail;
+        h.resume(session);
+        state = { attempting: "completeFailed" };
+      } else {
+        h.resume(session);
+        await until(h.actor, { attempting: "answering" });
+        h.server.api.submitAnswer = fail;
+        h.setNow(Date.parse(createdAt) + 6000);
+        h.submit(2);
+        state = { attempting: "answerFailed" };
+      }
+      await until(h.actor, state);
+      assert.equal(h.actor.getSnapshot().context.error, code);
+      const pending = h.actor.getSnapshot().context.pendingAnswer;
+      if (operation === "answer")
+        assert.deepEqual(pending, {
+          questionId: "question-0",
+          selectedOptionId: 2,
+          timeSpentSeconds: 6,
+        });
+      h.actor.send({ type: "RETRY" });
+      h.actor.send({ type: "REFRESH" });
+      h.actor.send({ type: "RETRY" });
+      assert.ok(h.actor.getSnapshot().matches(state));
+      assert.equal(fail.mock.callCount(), 1);
+      assert.equal(h.server.calls.get, 0);
+      assert.deepEqual(h.actor.getSnapshot().context.pendingAnswer, pending);
+      assert.deepEqual([...h.port.values], before);
+      h.actor.send({ type: "HISTORY" });
+      await until(h.actor, { history: "ready" });
+      h.start();
+      await until(h.actor, { creation: "ready" });
+      assert.equal(h.server.calls.create, 0);
+    });
+  }
+}
+
+for (const operation of ["create", "delete", "survey"] as const) {
+  test(`client_update_required during ${operation} does not retry, reconcile or erase credentials`, async (t) => {
+    const session = makeSession();
+    session.completed = operation === "survey";
+    const h = fixture(t, operation === "create" ? [] : [session]);
+    await h.boot();
+    const fail = t.mock.fn(async () => {
+      throw clientFailure(ERROR_CODE.CLIENT_UPDATE_REQUIRED);
+    });
+    let state: State;
+    if (operation === "create") {
+      h.server.api.createSession = fail;
+      h.start();
+      state = { creation: "createFailed" };
+    } else if (operation === "delete") {
+      h.server.api.deleteSession = fail;
+      h.actor.send({
+        type: "DELETE",
+        sessionId: session.credential.sessionId,
+        expectedState: DELETE_EXPECTATION.UNFINISHED,
+      });
+      h.actor.send({ type: "CONFIRM_DELETE" });
+      state = "deleteFailed";
+    } else {
+      h.open(session);
+      await until(h.actor, "completed");
+      h.server.api.submitSurvey = fail;
+      h.actor.send({ type: "SUBMIT_SURVEY", rating: 4 });
+      state = { completed: "surveyPrompt" };
+    }
+    await until(h.actor, state);
+    const reads = h.server.calls.get;
+    assert.equal(
+      h.actor.getSnapshot().context.error,
+      ERROR_CODE.CLIENT_UPDATE_REQUIRED,
+    );
+    h.actor.send({ type: "RETRY" });
+    h.actor.send({ type: "REFRESH" });
+    h.actor.send({ type: "SUBMIT_SURVEY", rating: 5 });
+    assert.ok(h.actor.getSnapshot().matches(state));
+    assert.equal(fail.mock.callCount(), 1);
+    assert.equal(h.server.calls.get, reads);
+    assert.equal(
+      h.storage.scan().handles.length,
+      operation === "create" ? 0 : 1,
+    );
+  });
+}
+
+for (const code of [
+  ERROR_CODE.INTERNAL_ERROR,
+  ERROR_CODE.RATE_LIMITED,
+  ERROR_CODE.BAD_REQUEST,
+  ERROR_CODE.INSUFFICIENT_QUESTIONS,
+  ERROR_CODE.SNAPSHOT_UNAVAILABLE,
+]) {
+  test(`${code} answer retries preserve the original option ID and duration`, async (t) => {
+    const session = makeSession();
+    const h = fixture(t, [session]);
+    await h.boot();
+    h.resume(session);
+    await until(h.actor, { attempting: "answering" });
+    const submit = h.server.api.submitAnswer;
+    const calls: unknown[] = [];
+    h.server.api.submitAnswer = async (input) => {
+      calls.push(structuredClone(input));
+      if (calls.length === 1) throw clientFailure(code);
+      return submit(input);
+    };
+    h.setNow(Date.parse(createdAt) + 4000);
+    h.submit(2);
+    await until(h.actor, { attempting: "answerFailed" });
+    h.setNow(Date.parse(createdAt) + 90_000);
+    h.actor.send({ type: "SELECT_OPTION", optionId: 0 });
+    h.actor.send({ type: "RETRY" });
+    await until(h.actor, { attempting: "answering" });
+    assert.deepEqual(calls[1], calls[0]);
+    assert.deepEqual(h.current().acceptedAnswers[0], {
+      questionId: "question-0",
+      selectedOptionId: 2,
+      timeSpentSeconds: 4,
+    });
+  });
+}
+
+test("setError preserves the previous storage warning when a failed recheck has no new warning", async (t) => {
+  const h = fixture(t);
+  h.port.blockRead = true;
+  await h.boot();
+  assert.equal(
+    h.actor.getSnapshot().context.storageIssue,
+    STORAGE_ISSUE.UNAVAILABLE,
+  );
+  h.port.blockRead = false;
+  const discover = h.server.api.discoverSessions;
+  h.server.api.discoverSessions = async () => {
+    throw clientFailure(ERROR_CODE.CLIENT_UPDATE_REQUIRED);
+  };
+  h.actor.send({ type: "REFRESH" });
+  await until(h.actor, { history: "checkFailed" });
+  assert.equal(h.recovery.warning, null);
+  assert.equal(
+    h.actor.getSnapshot().context.storageIssue,
+    STORAGE_ISSUE.UNAVAILABLE,
+  );
+  h.server.api.discoverSessions = discover;
+  h.actor.send({ type: "HISTORY" });
+  await until(h.actor, { history: "ready" });
+  assert.equal(h.actor.getSnapshot().context.storageIssue, null);
+});
+
+for (const code of [
+  ERROR_CODE.INSUFFICIENT_QUESTIONS,
+  ERROR_CODE.SNAPSHOT_UNAVAILABLE,
+]) {
+  test(`${code} creation keeps Try again active and retries the original configuration`, async (t) => {
+    const h = fixture(t);
+    await h.boot();
+    const create = h.server.api.createSession;
+    h.server.api.createSession = async () => {
+      throw clientFailure(code);
+    };
+    const requested = { ...configuration, targetLevel: DIFFICULTY.SENIOR };
+    h.start(requested);
+    await until(h.actor, { creation: "createFailed" });
+    assert.equal(h.actor.getSnapshot().context.error, code);
+    assert.ok(h.actor.getSnapshot().can({ type: "RETRY" }));
+    h.server.api.createSession = create;
+    h.actor.send({ type: "RETRY" });
+    await until(h.actor, { attempting: "answering" });
+    assert.deepEqual(h.current().configuration, requested);
+  });
+}
+
+for (const operation of ["read", "resume", "complete"] as const) {
+  test(`snapshot_unavailable during ${operation} retains the existing retry path`, async (t) => {
+    const session = makeSession();
+    if (operation === "complete")
+      session.assessment.questions.forEach((_, index) =>
+        accept(session, index),
+      );
+    const h = fixture(t, [session]);
+    await h.boot();
+    const original = { ...h.server.api };
+    const fail = async () => {
+      throw clientFailure(ERROR_CODE.SNAPSHOT_UNAVAILABLE);
+    };
+    let state: State;
+    if (operation === "read") {
+      h.server.api.getSession = fail;
+      h.open(session);
+      state = { viewing: "readFailed" };
+    } else {
+      if (operation === "resume") h.server.api.resumeSession = fail;
+      else h.server.api.completeSession = fail;
+      h.resume(session);
+      state = {
+        attempting: operation === "resume" ? "resumeFailed" : "completeFailed",
+      };
+    }
+    await until(h.actor, state);
+    assert.ok(h.actor.getSnapshot().can({ type: "RETRY" }));
+    Object.assign(h.server.api, original);
+    h.actor.send({ type: "RETRY" });
+    await until(
+      h.actor,
+      operation === "complete"
+        ? "completed"
+        : operation === "resume"
+          ? { attempting: "answering" }
+          : { viewing: "ready" },
+    );
+    assert.equal(h.server.calls.get, operation === "resume" ? 0 : 1);
+    assert.equal(h.storage.scan().handles.length, 1);
+  });
+}
 
 test("creation failure retries the original configuration", async (t) => {
   const h = fixture(t);

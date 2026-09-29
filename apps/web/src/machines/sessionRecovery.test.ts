@@ -258,7 +258,7 @@ test("reads never resume or complete even an all-answered unfinished session", a
   const h = fixture();
   const session = h.initial[0]!;
   session.assessment.acceptedAnswers = session.assessment.questions.map(
-    (q) => ({ questionId: q.id, selectedAnswer: 0, timeSpentSeconds: 1 }),
+    (q) => ({ questionId: q.id, selectedOptionId: 0, timeSpentSeconds: 1 }),
   );
   await h.recovery.check(null);
   await h.recovery.get(session.credential.sessionId);

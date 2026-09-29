@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 
-import type { Question } from "@/domain/types";
+import type { AnswerInput, Question } from "@/domain/types";
+import type { AssessmentClient } from "./sessionAccess";
 import type { SkillCategory } from "@/domain/constants";
 import type { QuestionRow } from "@/db/schema";
 import type { Db } from "@/db/client";
@@ -35,6 +36,7 @@ import {
 } from "@/db/schema";
 import {
   MAX_SESSIONS_PER_HOUR,
+  QUESTION_SNAPSHOT_VERSION,
   SNAPSHOT_ERROR_CODE,
   DELETE_EXPECTATION,
   SESSION_DISCOVERY,
@@ -51,6 +53,7 @@ import {
   SnapshotError,
 } from "@/domain/sessionSnapshots";
 import { toPublicQuestion } from "@/domain/types";
+import { normalizeQuestionOptions } from "@/domain/questionOptions";
 import {
   sessionCredentialSchema,
   discoverSessionsInput,
@@ -67,6 +70,9 @@ import {
   authenticatedSession,
   withLockedSession,
   requireUnfinished,
+  requireCompatibleSession,
+  requireCompatibleSnapshot,
+  savedQuestions,
   acceptedAnswers,
   knownAnswerIds,
   knownSessions,
@@ -85,7 +91,14 @@ export {
   submitSurveySchema,
 } from "./assessmentValidation";
 
-function rowToQuestion(row: QuestionRow): Question {
+export function rowToQuestion(
+  row: Omit<QuestionRow, "options"> & { options: unknown },
+): Question {
+  const options = normalizeQuestionOptions(row.options);
+  // The legacy column holds an index for string banks and an ID for object banks.
+  const correctOptionId = row.correctAnswer;
+  if (!options.some((option) => option.id === correctOptionId))
+    throw new SnapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS);
   return {
     id: row.id,
     framework: row.framework,
@@ -94,8 +107,8 @@ function rowToQuestion(row: QuestionRow): Question {
     title: row.title,
     prompt: row.prompt,
     codeBlock: row.codeBlock,
-    options: row.options,
-    correctAnswer: row.correctAnswer,
+    options,
+    correctOptionId,
     explanation: row.explanation,
     difficultyWeight: row.difficultyWeight,
   };
@@ -104,13 +117,16 @@ function rowToQuestion(row: QuestionRow): Question {
 /** Framework-independent service. Invalid input is rejected before opening a DB transaction. */
 export function createAssessmentService(db: Db) {
   return {
-    async createSession(input: {
-      framework: string;
-      targetLevel: string;
-      questionCount?: number;
-      rawClientId: string;
-      knownCredentials?: SessionCredential[];
-    }): Promise<CreatedSession> {
+    async createSession(
+      input: {
+        framework: string;
+        targetLevel: string;
+        questionCount?: number;
+        rawClientId: string;
+        knownCredentials?: SessionCredential[];
+      },
+      { legacyClient = false }: Partial<AssessmentClient> = {},
+    ): Promise<CreatedSession> {
       const {
         framework,
         targetLevel,
@@ -118,6 +134,7 @@ export function createAssessmentService(db: Db) {
         rawClientId,
         knownCredentials: credentials = [],
       } = parseInput(createSessionInput, input);
+      requireCompatibleSnapshot(QUESTION_SNAPSHOT_VERSION, legacyClient);
       if (!MVP_FRAMEWORKS.includes(framework))
         throw new AssessmentError(
           ERROR_CODE.BAD_REQUEST,
@@ -191,6 +208,7 @@ export function createAssessmentService(db: Db) {
             })),
           { framework, targetLevel },
         );
+        requireCompatibleSnapshot(questionSnapshot.version, legacyClient);
         const createdAt = await databaseTime(tx);
         const [session] = await tx
           .insert(testSessions)
@@ -211,7 +229,7 @@ export function createAssessmentService(db: Db) {
           ...metadata(session!, createdAt, []),
           ...progress(session!, []),
           sessionToken,
-          questions: questionSnapshot.questions.map(toPublicQuestion),
+          questions: savedQuestions(session!).questions.map(toPublicQuestion),
           acceptedAnswers: [],
         };
       });
@@ -252,23 +270,33 @@ export function createAssessmentService(db: Db) {
       );
     },
 
-    async getSession(input: SessionCredential): Promise<SessionView> {
+    async getSession(
+      input: SessionCredential,
+      { legacyClient = false }: Partial<AssessmentClient> = {},
+    ): Promise<SessionView> {
       const credential = parseInput(sessionCredentialSchema, input);
       return db.transaction(
         async (tx) => {
           const session = await authenticatedSession(tx, credential);
           // Request-time authorization on one coherent snapshot; later deletion cannot recall it.
-          return sessionView(tx, session, await databaseTime(tx));
+          const now = await databaseTime(tx);
+          requireAccess(lifecycle(session, now));
+          requireCompatibleSession(session, legacyClient);
+          return sessionView(tx, session, now);
         },
         { isolationLevel: "repeatable read", accessMode: "read only" },
       );
     },
 
-    async resumeSession(input: SessionCredential): Promise<SessionView> {
+    async resumeSession(
+      input: SessionCredential,
+      { legacyClient = false }: Partial<AssessmentClient> = {},
+    ): Promise<SessionView> {
       const credential = parseInput(sessionCredentialSchema, input);
       return withLockedSession(db, credential, async (tx, session, now) => {
         const policy = lifecycle(session, now);
         requireAccess(policy);
+        requireCompatibleSession(session, legacyClient);
         // Completed and expired/legacy attempts return their view without touching activity.
         if (!policy.canResume) return sessionView(tx, session, now);
         const resumed = {
@@ -286,16 +314,15 @@ export function createAssessmentService(db: Db) {
 
     async submitAnswer(
       sessionId: string,
-      input: {
-        sessionToken: string;
-        questionId: string;
-        selectedAnswer: number;
-        timeSpentSeconds: number;
-      },
+      input: AnswerInput & { sessionToken: string },
+      { legacyClient = false }: Partial<AssessmentClient> = {},
     ): Promise<AcceptedAnswerResult> {
       const data = parseInput(submitAnswerInput, { ...input, sessionId });
       return withLockedSession(db, data, async (tx, session, now) => {
-        const snapshot = requireUnfinished(session, lifecycle(session, now));
+        const policy = lifecycle(session, now);
+        requireAccess(policy);
+        requireCompatibleSession(session, legacyClient);
+        const snapshot = requireUnfinished(session, policy);
         const question = snapshot.questions.find(
           (q) => q.id === data.questionId,
         );
@@ -304,7 +331,11 @@ export function createAssessmentService(db: Db) {
             ERROR_CODE.BAD_REQUEST,
             MESSAGES.questionNotInSession,
           );
-        if (data.selectedAnswer >= question.options.length)
+        if (
+          !question.options.some(
+            (option) => option.id === data.selectedOptionId,
+          )
+        )
           throw new AssessmentError(
             ERROR_CODE.BAD_REQUEST,
             MESSAGES.optionOutOfRange,
@@ -314,7 +345,7 @@ export function createAssessmentService(db: Db) {
           (answer) => answer.questionId === data.questionId,
         );
         if (accepted) {
-          if (accepted.selectedAnswer !== data.selectedAnswer)
+          if (accepted.selectedOptionId !== data.selectedOptionId)
             throw new AssessmentError(
               ERROR_CODE.CONFLICT,
               MESSAGES.duplicateAnswer,
@@ -323,13 +354,15 @@ export function createAssessmentService(db: Db) {
         } else {
           accepted = {
             questionId: data.questionId,
-            selectedAnswer: data.selectedAnswer,
+            selectedOptionId: data.selectedOptionId,
             timeSpentSeconds: data.timeSpentSeconds,
           };
           await tx.insert(sessionAnswers).values({
-            ...accepted,
+            questionId: accepted.questionId,
+            selectedAnswer: accepted.selectedOptionId,
+            timeSpentSeconds: accepted.timeSpentSeconds,
             sessionId: session.id,
-            isCorrect: data.selectedAnswer === question.correctAnswer,
+            isCorrect: data.selectedOptionId === question.correctOptionId,
             answeredAt: now,
           });
           await tx
@@ -373,14 +406,14 @@ export function createAssessmentService(db: Db) {
             MESSAGES.snapshotUnavailable,
           );
         }
-        const questionSnapshot = requireUnfinished(session, policy);
+        requireUnfinished(session, policy);
         const answers = await acceptedAnswers(tx, session.id);
         const reportSnapshot = buildReport({
           sessionId: session.id,
           framework: session.framework,
           targetLevel: session.targetLevel,
           selectedQuestionIds: session.selectedQuestionIds,
-          questionSnapshot,
+          questionSnapshot: session.questionSnapshot,
           answers,
           completedAt: now,
         });

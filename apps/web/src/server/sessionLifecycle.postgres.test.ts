@@ -59,7 +59,7 @@ const configuration = {
 };
 const wrongToken = "0".repeat(64);
 const noSecrets =
-  /"(?:sessionToken|clientId|questionSnapshot|correctAnswer|isCorrect|explanation|difficultyWeight|source)"\s*:/;
+  /"(?:sessionToken|clientId|questionSnapshot|correctAnswer|correctOptionId|isCorrect|explanation|difficultyWeight|source)"\s*:/;
 function errorCode(code: AssessmentError["code"]) {
   return (error: unknown) => {
     assert.ok(error instanceof AssessmentError);
@@ -122,7 +122,7 @@ async function answerAll(f: Fixture, credential: SessionCredential) {
     await f.service.submitAnswer(credential.sessionId, {
       sessionToken: credential.sessionToken,
       questionId,
-      selectedAnswer: 2,
+      selectedOptionId: 2,
       timeSpentSeconds: 7,
     });
   }
@@ -198,7 +198,7 @@ test(
           const input = {
             sessionToken: created.sessionToken,
             questionId: lastId,
-            selectedAnswer: 2,
+            selectedOptionId: 2,
             timeSpentSeconds: 11,
           };
           const accepted = await f.service.submitAnswer(
@@ -224,7 +224,7 @@ test(
           await assert.rejects(
             f.service.submitAnswer(created.sessionId, {
               ...input,
-              selectedAnswer: 1,
+              selectedOptionId: 1,
             }),
             errorCode(ERROR_CODE.CONFLICT),
           );
@@ -234,7 +234,7 @@ test(
           assert.equal(view.effectiveStatus, SESSION_STATUS.ABANDONED);
           assert.deepEqual(view.questions, created.questions);
           assert.deepEqual(view.acceptedAnswers, [
-            { questionId: lastId, selectedAnswer: 2, timeSpentSeconds: 11 },
+            { questionId: lastId, selectedOptionId: 2, timeSpentSeconds: 11 },
           ]);
           assert.equal(view.nextQuestionId, created.questions[0]!.id);
           assert.equal(view.configuration.questionCount, length);
@@ -340,7 +340,7 @@ test(
       .entries()) {
       const answer = {
         questionId: question.id,
-        selectedAnswer: index % 3,
+        selectedOptionId: index % 3,
         timeSpentSeconds: index + 1,
       };
       expected.unshift(answer);
@@ -386,11 +386,17 @@ test(
     assert.equal(completed.surveyRating, null);
     assert.equal(completed.attemptExpiresAt, initial.attemptExpiresAt);
     assert.equal(completed.accessExpiresAt, initial.accessExpiresAt);
-    assert.deepEqual(completed.reportSnapshot.questions, initial.questions);
+    assert.deepEqual(
+      completed.reportSnapshot.questions,
+      initial.questions.map((question) => ({
+        ...question,
+        options: question.options.map((option) => option.text),
+      })),
+    );
     assert.deepEqual(completed, await f.service.getSession(credential));
     assert.doesNotMatch(
       JSON.stringify(completed),
-      /"(?:sessionToken|clientId|questionSnapshot|correctAnswer|difficultyWeight|source)"\s*:/,
+      /"(?:sessionToken|clientId|questionSnapshot|correctAnswer|correctOptionId|difficultyWeight|source)"\s*:/,
     );
     await f.db
       .update(testSessions)
@@ -432,7 +438,7 @@ test(
       const input = {
         sessionToken: created.sessionToken,
         questionId: created.questions[0]!.id,
-        selectedAnswer: 2,
+        selectedOptionId: 2,
         timeSpentSeconds: 99,
       };
       assert.equal(
@@ -627,7 +633,7 @@ test(
     assert.deepEqual(await f.service.resumeSession(created), view);
     assert.doesNotMatch(
       JSON.stringify(view),
-      /questions|acceptedAnswers|correctAnswer|explanation/,
+      /questions|acceptedAnswers|correctAnswer|correctOptionId|explanation/,
     );
     assert.deepEqual(await parent(f.db, created), before);
     await assert.rejects(
@@ -903,7 +909,7 @@ test(
     await f.service.submitAnswer(created.sessionId, {
       ...created,
       questionId: created.questions[0]!.id,
-      selectedAnswer: 2,
+      selectedOptionId: 2,
       timeSpentSeconds: 1,
     });
     await assert.rejects(
@@ -927,7 +933,7 @@ test(
           const input = {
             ...created,
             questionId: created.questions[0]!.id,
-            selectedAnswer: 2,
+            selectedOptionId: 2,
             timeSpentSeconds: 7,
           };
           const race = await orderedRace(
@@ -941,7 +947,7 @@ test(
             (db) =>
               createAssessmentService(db).submitAnswer(created.sessionId, {
                 ...input,
-                selectedAnswer: same ? 2 : 1,
+                selectedOptionId: same ? 2 : 1,
                 timeSpentSeconds: 999,
               }),
           );
@@ -1091,7 +1097,7 @@ test(
             createAssessmentService(db).submitAnswer(created.sessionId, {
               ...created,
               questionId,
-              selectedAnswer: 2,
+              selectedOptionId: 2,
               timeSpentSeconds: 9,
             });
           const complete = (db: Db) =>
@@ -1238,7 +1244,7 @@ test(
           createAssessmentService(db).submitAnswer(c.sessionId, {
             ...c,
             questionId: id,
-            selectedAnswer: 2,
+            selectedOptionId: 2,
             timeSpentSeconds: 1,
           }),
       },

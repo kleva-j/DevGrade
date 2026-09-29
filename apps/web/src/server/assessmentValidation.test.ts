@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { DIFFICULTIES, DIFFICULTY, FRAMEWORK } from "@/domain/constants";
+import { randomUUID } from "node:crypto";
+
+import {
+  ASSESSMENT_CONTRACT,
+  DIFFICULTIES,
+  DIFFICULTY,
+  FRAMEWORK,
+} from "@/domain/constants";
 import {
   createSessionInput,
   createSessionSchema,
+  sessionContentInput,
+  submitAnswerInput,
+  submitAnswerWireInput,
 } from "@/server/assessmentValidation";
 
 import {
@@ -83,6 +93,63 @@ for (const [name, schema, clientFields] of [
     }
   });
 }
+
+test("content contracts accept only the explicit option-ID marker or omission", () => {
+  for (const [schema, input] of [
+    [createSessionInput, { ...configuration, rawClientId: "anonymous-test" }],
+    [
+      sessionContentInput,
+      { sessionId: randomUUID(), sessionToken: "a".repeat(64) },
+    ],
+  ] as const) {
+    assert.ok(schema.safeParse(input).success);
+    assert.ok(
+      schema.safeParse({
+        ...input,
+        assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+      }).success,
+    );
+    for (const assessmentContract of [null, false, 1, "", "option_ids_v2"])
+      assert.equal(
+        schema.safeParse({ ...input, assessmentContract }).success,
+        false,
+      );
+  }
+});
+
+test("wire answers require exactly one nonnegative integer field; service accepts only canonical IDs", () => {
+  const base = {
+    sessionId: randomUUID(),
+    sessionToken: "a".repeat(64),
+    questionId: "q",
+    timeSpentSeconds: 2,
+  };
+  for (const field of ["selectedOptionId", "selectedAnswer"]) {
+    for (const id of [0, 10, 42]) {
+      const input = { ...base, [field]: id };
+      assert.deepEqual(submitAnswerWireInput.parse(input), input);
+      assert.equal(
+        submitAnswerInput.safeParse(input).success,
+        field === "selectedOptionId",
+      );
+    }
+    for (const id of [-1, 0.5, "2", null, undefined, true, NaN, Infinity])
+      assert.equal(
+        submitAnswerWireInput.safeParse({ ...base, [field]: id }).success,
+        false,
+      );
+  }
+  assert.equal(submitAnswerWireInput.safeParse(base).success, false);
+  for (const selectedAnswer of [0, 1, null, undefined])
+    assert.equal(
+      submitAnswerWireInput.safeParse({
+        ...base,
+        selectedOptionId: 0,
+        selectedAnswer,
+      }).success,
+      false,
+    );
+});
 
 describe("createSessionInput anonymous client id", () => {
   for (const rawClientId of [undefined, null, "", 123, false]) {

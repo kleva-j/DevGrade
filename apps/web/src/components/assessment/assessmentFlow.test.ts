@@ -8,6 +8,7 @@ import { ASSESSMENT_LENGTH, SESSION_STATUS } from "@/domain/constants";
 import { configuration, makeSession } from "@/machines/sessionTestFixtures";
 import { AssessmentFlow } from "./AssessmentFlow";
 import { SessionHistory } from "./SessionHistory";
+import { QuestionRunner } from "./QuestionRunner";
 import { UI } from "./copy";
 
 // Shared UI preserves JSX; tsx needs the classic runtime where Vite supplies it.
@@ -32,6 +33,57 @@ test("initial render shows usable intake without announcing saved-assessment dis
   assert.ok(!html.includes('role="status"'));
   assert.ok(!html.includes('data-slot="spinner"'));
   assert.ok(!html.includes('role="alert"'));
+});
+
+test("runner preserves option order and selection by ID rather than array position", () => {
+  const question = {
+    ...makeSession().assessment.questions[0]!,
+    options: [
+      { id: 42, text: "First saved option" },
+      { id: 11, text: "Second saved option" },
+      { id: 87, text: "Third saved option" },
+      { id: 6, text: "Fourth saved option" },
+    ],
+  };
+  const original = structuredClone(question);
+  for (const options of [question.options, [...question.options].reverse()]) {
+    const html = renderToStaticMarkup(
+      createElement(QuestionRunner, {
+        question: { ...question, options },
+        index: 0,
+        total: ASSESSMENT_LENGTH.QUICK,
+        answeredCount: 0,
+        questionStartedAt: 0,
+        timerPausedAt: null,
+        selectedOptionId: 87,
+        submitting: false,
+        isLast: false,
+        error: null,
+        onSelect: () => {},
+        onSubmit: () => {},
+        onRetry: () => {},
+      }),
+    );
+    const radios =
+      html.match(/<[^>]+data-slot="radio-group-item"[^>]*>/g) ?? [];
+    assert.equal(radios.length, options.length);
+    options.forEach((option, index) => {
+      const radio = radios[index]!;
+      const input = (html.match(/<input\b[^>]*>/g) ?? []).find((tag) =>
+        tag.includes(`id="${question.id}-${option.id}"`),
+      );
+      assert.ok(input);
+      assert.ok(input.includes(`value="${option.id}"`));
+      assert.equal(input.includes("checked="), option.id === 87);
+      assert.ok(radio.includes(`aria-checked="${option.id === 87}"`));
+      assert.ok(html.includes(`for="${question.id}-${option.id}"`));
+      if (index > 0)
+        assert.ok(
+          html.indexOf(options[index - 1]!.text) < html.indexOf(option.text),
+        );
+    });
+  }
+  assert.deepEqual(question, original);
 });
 
 test("empty saved history renders nothing", () => {

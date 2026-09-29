@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  ASSESSMENT_CONTRACT,
   ASSESSMENT_LENGTHS,
   DEFAULT_ASSESSMENT_LENGTH,
   DELETE_EXPECTATION,
@@ -26,8 +27,16 @@ export const discoverSessionsInput = z.object({
   credentials: knownCredentialsSchema,
 });
 
+export const assessmentContractSchema = z
+  .literal(ASSESSMENT_CONTRACT.OPTION_IDS)
+  .optional();
+export const sessionContentInput = sessionCredentialSchema.extend({
+  assessmentContract: assessmentContractSchema,
+});
+
 /** Shared by the service and wire boundary; old clients default to Quick. */
 export const createSessionSchema = z.object({
+  assessmentContract: assessmentContractSchema,
   framework: z.enum(FRAMEWORKS),
   targetLevel: z.enum(DIFFICULTIES),
   questionCount: z
@@ -42,7 +51,8 @@ export const createSessionInput = createSessionSchema.extend({
 export const submitAnswerSchema = z.object({
   sessionToken: sessionTokenSchema,
   questionId: z.string().min(1).max(50),
-  selectedAnswer: z.number().int().nonnegative(),
+  selectedOptionId: z.number().int().nonnegative(),
+  selectedAnswer: z.never().optional(),
   timeSpentSeconds: z.number().int().min(0).max(3600),
 });
 export const completeSessionSchema = z.object({
@@ -55,6 +65,23 @@ export const submitSurveySchema = z.object({
 export const submitAnswerInput = submitAnswerSchema.extend({
   sessionId: sessionIdSchema,
 });
+// Reject mixed fields rather than allowing Zod's unknown-key stripping to pick one.
+const legacySubmitAnswerSchema = submitAnswerSchema.extend({
+  selectedOptionId: z.never().optional(),
+  selectedAnswer: z.number().int().nonnegative(),
+});
+export const submitAnswerWireInput = z
+  .union([
+    submitAnswerInput,
+    legacySubmitAnswerSchema.extend({ sessionId: sessionIdSchema }),
+  ])
+  .refine(
+    (input) =>
+      !(
+        Object.hasOwn(input, "selectedOptionId") &&
+        Object.hasOwn(input, "selectedAnswer")
+      ),
+  );
 export const submitSurveyInput = submitSurveySchema.extend({
   sessionId: sessionIdSchema,
 });

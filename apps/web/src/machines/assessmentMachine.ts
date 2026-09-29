@@ -36,7 +36,7 @@ export interface AssessmentContext {
   storageIssue: StorageIssue | null;
   sessionId: string | null;
   view: SessionView | null;
-  selectedOption: number | null;
+  selectedOptionId: number | null;
   questionStartedAt: number;
   timerPausedAt: number | null;
   pendingAnswer: AnswerInput | null;
@@ -66,7 +66,7 @@ export type AssessmentEvent =
     }
   | { type: "CONFIRM_DELETE" }
   | { type: "CANCEL" }
-  | { type: "SELECT_OPTION"; option: number }
+  | { type: "SELECT_OPTION"; optionId: number }
   | { type: "SUBMIT_ANSWER" }
   | { type: "FOCUS_LOSS" }
   | { type: "OFFLINE" }
@@ -162,6 +162,11 @@ export function firstUnanswered(view: AssessmentView) {
   );
   return view.questions.find((question) => !accepted.has(question.id)) ?? null;
 }
+/** A stale client needs a reload; other failures keep their existing retry paths. */
+function isRetryableError(error: AssessmentContext["error"]) {
+  return error !== ERROR_CODE.CLIENT_UPDATE_REQUIRED;
+}
+
 function assessment(context: AssessmentContext) {
   return context.view?.kind === SESSION_VIEW.ASSESSMENT ? context.view : null;
 }
@@ -216,6 +221,7 @@ const machineSetup = setup({
       "error" in event && isUnavailableError(event.error),
     reconcile: ({ event }) =>
       "error" in event && needsReconciliation(event.error),
+    retryable: ({ context }) => isRetryableError(context.error),
   },
   actions: {
     setError: assign({
@@ -223,13 +229,15 @@ const machineSetup = setup({
         "error" in event && event.error instanceof AssessmentClientError
           ? event.error.code
           : CLIENT_ERROR_CODE.REQUEST_FAILED,
+      storageIssue: ({ context }) =>
+        context.recovery.warning ?? context.storageIssue,
     }),
 
     goHome: assign({
       view: null,
       sessionId: null,
       afterDelete: null,
-      selectedOption: null,
+      selectedOptionId: null,
       pendingAnswer: null,
       error: null,
       notice: null,
@@ -267,7 +275,13 @@ const machineSetup = setup({
         sessionId: view.sessionId,
         pendingAnswer: null,
         error: null,
-        selectedOption: sameQuestion ? context.selectedOption : null,
+        selectedOptionId:
+          sameQuestion &&
+          firstUnanswered(view)?.options.some(
+            ({ id }) => id === context.selectedOptionId,
+          )
+            ? context.selectedOptionId
+            : null,
         questionStartedAt: sameQuestion
           ? context.questionStartedAt
           : context.now(),
@@ -338,7 +352,7 @@ export const assessmentMachine = machineSetup.createMachine({
     storageIssue: null,
     sessionId: null,
     view: null,
-    selectedOption: null,
+    selectedOptionId: null,
     questionStartedAt: 0,
     timerPausedAt: null,
     pendingAnswer: null,
@@ -367,7 +381,12 @@ export const assessmentMachine = machineSetup.createMachine({
       initial: "checking",
       states: {
         checking,
-        checkFailed: { on: { RETRY: "checking", REFRESH: "checking" } },
+        checkFailed: {
+          on: {
+            RETRY: { guard: "retryable", target: "checking" },
+            REFRESH: { guard: "retryable", target: "checking" },
+          },
+        },
         ready: { on: { REFRESH: "checking" } },
       },
     },
@@ -414,9 +433,13 @@ export const assessmentMachine = machineSetup.createMachine({
             },
           },
         },
-        createFailed: { on: { RETRY: "creating" } },
+        createFailed: {
+          on: { RETRY: { guard: "retryable", target: "creating" } },
+        },
         checking,
-        checkFailed: { on: { RETRY: "checking" } },
+        checkFailed: {
+          on: { RETRY: { guard: "retryable", target: "checking" } },
+        },
         ready: { on: { REFRESH: "checking", START: "creating" } },
       },
     },
@@ -425,7 +448,9 @@ export const assessmentMachine = machineSetup.createMachine({
       initial: "ready",
       states: {
         restoring: reading,
-        readFailed: { on: { RETRY: "restoring" } },
+        readFailed: {
+          on: { RETRY: { guard: "retryable", target: "restoring" } },
+        },
         ready: {
           always: {
             guard: ({ context }) =>
@@ -479,7 +504,9 @@ export const assessmentMachine = machineSetup.createMachine({
             ],
           },
         },
-        resumeFailed: { on: { RETRY: "resuming" } },
+        resumeFailed: {
+          on: { RETRY: { guard: "retryable", target: "resuming" } },
+        },
         ready: {
           always: [
             {
@@ -498,19 +525,22 @@ export const assessmentMachine = machineSetup.createMachine({
           on: {
             SELECT_OPTION: {
               guard: ({ context, event }) =>
-                Number.isInteger(event.option) &&
-                event.option >= 0 &&
-                event.option <
-                  (firstUnanswered(assessment(context)!)?.options.length ?? 0),
-              actions: assign({ selectedOption: ({ event }) => event.option }),
+                Number.isSafeInteger(event.optionId) &&
+                (firstUnanswered(assessment(context)!)?.options.some(
+                  ({ id }) => id === event.optionId,
+                ) ??
+                  false),
+              actions: assign({
+                selectedOptionId: ({ event }) => event.optionId,
+              }),
             },
             SUBMIT_ANSWER: {
-              guard: ({ context }) => context.selectedOption !== null,
+              guard: ({ context }) => context.selectedOptionId !== null,
               target: "submittingAnswer",
               actions: assign({
                 pendingAnswer: ({ context }) => ({
                   questionId: firstUnanswered(assessment(context)!)!.id,
-                  selectedAnswer: context.selectedOption!,
+                  selectedOptionId: context.selectedOptionId!,
                   timeSpentSeconds: boundedDuration(
                     context.questionStartedAt,
                     context.timerPausedAt ?? context.now(),
@@ -555,9 +585,13 @@ export const assessmentMachine = machineSetup.createMachine({
           },
         },
         // Replay exactly the pending answer, including its original duration.
-        answerFailed: { on: { RETRY: "submittingAnswer" } },
+        answerFailed: {
+          on: { RETRY: { guard: "retryable", target: "submittingAnswer" } },
+        },
         reconciling: reading,
-        readFailed: { on: { RETRY: "reconciling" } },
+        readFailed: {
+          on: { RETRY: { guard: "retryable", target: "reconciling" } },
+        },
         completing: {
           invoke: {
             src: "complete",
@@ -577,7 +611,9 @@ export const assessmentMachine = machineSetup.createMachine({
           },
         },
         // A lost completion may already have awarded a report; read before retrying.
-        completeFailed: { on: { RETRY: "reconciling" } },
+        completeFailed: {
+          on: { RETRY: { guard: "retryable", target: "reconciling" } },
+        },
       },
     },
     unavailable: {
@@ -585,7 +621,7 @@ export const assessmentMachine = machineSetup.createMachine({
         storageIssue: context.recovery.warning,
         view: null,
         pendingAnswer: null,
-        selectedOption: null,
+        selectedOptionId: null,
         afterDelete: null,
         history: context.history.filter(
           (entry) => entry.sessionId !== context.sessionId,
@@ -640,15 +676,21 @@ export const assessmentMachine = machineSetup.createMachine({
         { target: "history", actions: "goHome" },
       ],
     },
-    deleteFailed: { on: { RETRY: "deleting" } },
+    deleteFailed: { on: { RETRY: { guard: "retryable", target: "deleting" } } },
     completed: {
       initial: "surveyPrompt",
-      on: { REFRESH: "viewing.restoring" },
+      on: {
+        REFRESH: {
+          guard: "retryable",
+          target: "viewing.restoring",
+        },
+      },
       states: {
         surveyPrompt: {
           on: {
             SUBMIT_SURVEY: {
-              guard: ({ event }) =>
+              guard: ({ context, event }) =>
+                isRetryableError(context.error) &&
                 Number.isInteger(event.rating) &&
                 event.rating >= SURVEY_RATING_MIN &&
                 event.rating <= SURVEY_RATING_MAX,

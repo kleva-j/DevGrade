@@ -24,6 +24,7 @@ import {
   testSessions,
 } from "@/db/schema";
 import {
+  QUESTION_SNAPSHOT_FORMAT,
   SESSION_DISCOVERY_BATCH_SIZE,
   SESSION_STATUS,
   SESSION_VIEW,
@@ -140,6 +141,28 @@ export async function knownAnswerIds(
   return answers;
 }
 
+/** Service callers are canonical; only the wire boundary opts into legacy access. */
+export interface AssessmentClient {
+  legacyClient: boolean;
+}
+export function requireCompatibleSnapshot(
+  version: number,
+  legacyClient: boolean,
+) {
+  if (legacyClient && version !== QUESTION_SNAPSHOT_FORMAT.V1)
+    throw new AssessmentError(
+      ERROR_CODE.CLIENT_UPDATE_REQUIRED,
+      MESSAGES.clientUpdateRequired,
+    );
+}
+export function requireCompatibleSession(
+  session: TestSessionRow,
+  legacyClient: boolean,
+) {
+  if (session.questionSnapshot !== null)
+    requireCompatibleSnapshot(session.questionSnapshot.version, legacyClient);
+}
+
 export function savedQuestions(session: TestSessionRow) {
   if (session.questionSnapshot === null)
     throw new AssessmentError(
@@ -212,7 +235,7 @@ export async function acceptedAnswers(tx: Transaction, sessionId: string) {
   return tx
     .select({
       questionId: sessionAnswers.questionId,
-      selectedAnswer: sessionAnswers.selectedAnswer,
+      selectedOptionId: sessionAnswers.selectedAnswer,
       timeSpentSeconds: sessionAnswers.timeSpentSeconds,
     })
     .from(sessionAnswers)

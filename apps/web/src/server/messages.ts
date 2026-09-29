@@ -31,6 +31,8 @@ export const MESSAGES = {
   legacySummaryAvailable:
     "Only the saved summary is available for this older assessment.",
   snapshotUnavailable: "The saved assessment content is unavailable.",
+  clientUpdateRequired:
+    "Refresh this page to continue with the updated assessment. Your saved session is still available.",
   existingAttempt:
     "Resume or delete your unfinished assessment before starting another.",
   unexpectedError: "An unexpected error occurred.",

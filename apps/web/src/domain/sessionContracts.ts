@@ -56,6 +56,7 @@ export interface SessionMetadata extends SessionDeadlines {
   canResume: boolean;
 }
 
+/** Canonical domain fields only; transport adapters own legacy wire aliases. */
 export type AssessmentView = SessionMetadata &
   SessionProgress & {
     kind: typeof SESSION_VIEW.ASSESSMENT;

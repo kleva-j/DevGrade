@@ -1,9 +1,10 @@
 import { z } from "zod";
 
-import type { AssessmentConfiguration, Question } from "./types";
+import type { AnswerInput, AssessmentConfiguration, Question } from "./types";
 
 import {
   QUESTION_SNAPSHOT_VERSION,
+  QUESTION_SNAPSHOT_FORMAT,
   REPORT_SNAPSHOT_VERSION,
   SNAPSHOT_ERROR_CODE,
   PROFICIENCY_LEVELS,
@@ -14,7 +15,8 @@ import {
   FRAMEWORKS,
 } from "./constants";
 import { scoreAssessmentV1 } from "./scoring";
-import { toPublicQuestion } from "./types";
+import { questionOptionsSchema } from "./questionOptions";
+import { toReportQuestion } from "./types";
 
 type SnapshotErrorCode =
   (typeof SNAPSHOT_ERROR_CODE)[keyof typeof SNAPSHOT_ERROR_CODE];
@@ -27,7 +29,8 @@ export class SnapshotError extends Error {
   }
 }
 
-const publicQuestionSchema = z.object({
+// Historical V1 validation must not inherit new bank/V2 option constraints.
+const reportQuestionSchema = z.object({
   id: z.string().min(1),
   skillCategory: z.enum(SKILL_CATEGORIES),
   title: z.string(),
@@ -36,17 +39,25 @@ const publicQuestionSchema = z.object({
   options: z.array(z.string()).min(2),
 });
 
-const snapshotQuestionSchema = publicQuestionSchema
-  .extend({
-    framework: z.enum(FRAMEWORKS),
-    difficulty: z.enum(DIFFICULTIES),
-    correctAnswer: z.number().int().nonnegative(),
-    explanation: z.string(),
-    difficultyWeight: z.number().positive(),
-    // Sources are extensible strings in the bank, not a closed enum.
-    source: z.string().min(1),
-  })
+const snapshotQuestionBaseSchema = reportQuestionSchema.extend({
+  framework: z.enum(FRAMEWORKS),
+  difficulty: z.enum(DIFFICULTIES),
+  explanation: z.string(),
+  difficultyWeight: z.number().positive(),
+  // Sources are extensible strings in the bank, not a closed enum.
+  source: z.string().min(1),
+});
+
+const snapshotQuestionV1Schema = snapshotQuestionBaseSchema
+  .extend({ correctAnswer: z.number().int().nonnegative() })
   .refine((q) => q.correctAnswer < q.options.length);
+
+const snapshotQuestionV2Schema = snapshotQuestionBaseSchema
+  .extend({
+    options: questionOptionsSchema,
+    correctOptionId: z.number().int().nonnegative(),
+  })
+  .refine((q) => q.options.some(({ id }) => id === q.correctOptionId));
 
 const pillarSchema = z.object({
   skillCategory: z.enum(SKILL_CATEGORIES),
@@ -64,15 +75,34 @@ export interface SnapshotQuestion extends Question {
 export type SnapshotPillar = z.infer<typeof pillarSchema>;
 
 const questionSnapshotV1Schema = z.object({
-  version: z.literal(QUESTION_SNAPSHOT_VERSION),
+  version: z.literal(QUESTION_SNAPSHOT_FORMAT.V1),
   scoringVersion: z.literal(SCORING_VERSION.V1),
-  questions: z.array(snapshotQuestionSchema),
+  questions: z.array(snapshotQuestionV1Schema),
   pillars: z.array(pillarSchema),
 });
 
-/** PRIVATE server storage. Never use this as a response payload. */
+const questionSnapshotV2Schema = questionSnapshotV1Schema.extend({
+  version: z.literal(QUESTION_SNAPSHOT_FORMAT.V2),
+  questions: z.array(snapshotQuestionV2Schema),
+});
+
+const questionSnapshotSchema = z.discriminatedUnion("version", [
+  questionSnapshotV1Schema,
+  questionSnapshotV2Schema,
+]);
+
+/** RAW PRIVATE server storage. Never use this as a response payload. */
 export type QuestionSnapshotV1 = z.infer<typeof questionSnapshotV1Schema>;
-export type QuestionSnapshot = QuestionSnapshotV1;
+export type QuestionSnapshotV2 = z.infer<typeof questionSnapshotV2Schema>;
+export type QuestionSnapshot = QuestionSnapshotV1 | QuestionSnapshotV2;
+
+/** Normalized runtime content; a parsed V1 is NOT a persisted V1 snapshot. */
+export interface ParsedQuestionSnapshot {
+  version: QuestionSnapshot["version"];
+  scoringVersion: QuestionSnapshot["scoringVersion"];
+  questions: SnapshotQuestion[];
+  pillars: SnapshotPillar[];
+}
 
 const categoryScoreSchema = z.object({
   skillCategory: z.enum(SKILL_CATEGORIES),
@@ -105,7 +135,7 @@ const reportSnapshotV1Schema = z.object({
   scoringVersion: z.literal(SCORING_VERSION.V1),
   completedAt: z.iso.datetime(),
   result: assessmentResultSchema,
-  questions: z.array(publicQuestionSchema),
+  questions: z.array(reportQuestionSchema),
   pillars: z.array(pillarSchema),
 });
 
@@ -153,8 +183,8 @@ export function parseQuestionSnapshot(
   value: unknown,
   selectedQuestionIds: readonly string[],
   configuration: SnapshotConfiguration,
-): QuestionSnapshot {
-  const parsed = questionSnapshotV1Schema.safeParse(value);
+): ParsedQuestionSnapshot {
+  const parsed = questionSnapshotSchema.safeParse(value);
   if (
     !parsed.success ||
     !validSelectedIds(selectedQuestionIds) ||
@@ -171,19 +201,30 @@ export function parseQuestionSnapshot(
   ) {
     throw new SnapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS);
   }
-  return parsed.data;
+  const snapshot = parsed.data;
+  if (snapshot.version === QUESTION_SNAPSHOT_FORMAT.V1) {
+    return {
+      ...snapshot,
+      questions: snapshot.questions.map(({ options, correctAnswer, ...q }) => ({
+        ...q,
+        options: options.map((text, id) => ({ id, text })),
+        correctOptionId: correctAnswer,
+      })),
+    };
+  }
+  return snapshot;
 }
 
-/** Copies only the contract's fields, detaching nested arrays from live objects. */
+/** Validate canonical bank input, but keep Stage 1 writes in detached raw V1. */
 export function createQuestionSnapshot(
   selectedQuestionIds: readonly string[],
   questions: readonly SnapshotQuestion[],
   pillars: readonly SnapshotPillar[],
   configuration: SnapshotConfiguration,
-): QuestionSnapshot {
-  return parseQuestionSnapshot(
+): QuestionSnapshotV1 {
+  const snapshot = parseQuestionSnapshot(
     {
-      version: QUESTION_SNAPSHOT_VERSION,
+      version: QUESTION_SNAPSHOT_FORMAT.V2,
       scoringVersion: SCORING_VERSION.V1,
       questions,
       pillars,
@@ -191,6 +232,17 @@ export function createQuestionSnapshot(
     selectedQuestionIds,
     configuration,
   );
+  return {
+    version: QUESTION_SNAPSHOT_VERSION,
+    scoringVersion: snapshot.scoringVersion,
+    questions: snapshot.questions.map(({ options, correctOptionId, ...q }) => ({
+      ...q,
+      options: options.map(({ text }) => text),
+      // V1 identity is the saved position, which need not equal the bank's ID.
+      correctAnswer: options.findIndex(({ id }) => id === correctOptionId),
+    })),
+    pillars: snapshot.pillars,
+  };
 }
 
 /** Read without rescoring or consulting the private snapshot/current bank. */
@@ -232,7 +284,7 @@ export function createReportSnapshot(
     sessionId: string;
     selectedQuestionIds: readonly string[];
     questionSnapshot: unknown;
-    answers: readonly { questionId: string; selectedAnswer: number }[];
+    answers: readonly AnswerInput[];
     completedAt: Date;
   },
 ): ReportSnapshot {
@@ -251,9 +303,8 @@ export function createReportSnapshot(
       const answer = answers.get(q.id);
       return (
         answer !== undefined &&
-        Number.isInteger(answer.selectedAnswer) &&
-        answer.selectedAnswer >= 0 &&
-        answer.selectedAnswer < q.options.length
+        Number.isInteger(answer.selectedOptionId) &&
+        q.options.some(({ id }) => id === answer.selectedOptionId)
       );
     })
   ) {
@@ -266,7 +317,7 @@ export function createReportSnapshot(
     input.targetLevel,
     snapshot.questions.map((question) => ({
       question,
-      selectedAnswer: answers.get(question.id)!.selectedAnswer,
+      selectedOptionId: answers.get(question.id)!.selectedOptionId,
     })),
   );
   return parseReportSnapshot({
@@ -274,7 +325,9 @@ export function createReportSnapshot(
     scoringVersion: snapshot.scoringVersion,
     completedAt: input.completedAt.toISOString(),
     result,
-    questions: snapshot.questions.map(toPublicQuestion),
+    questions: snapshot.questions.map(toReportQuestion),
     pillars: snapshot.pillars,
   });
 }
+
+export const buildReport = createReportSnapshot;

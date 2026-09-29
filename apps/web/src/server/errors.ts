@@ -17,6 +17,7 @@ export const ERROR_CODE = {
   LEGACY_UNRESTORABLE: "legacy_unrestorable",
   LEGACY_SUMMARY_AVAILABLE: "legacy_summary_available",
   SNAPSHOT_UNAVAILABLE: "snapshot_unavailable",
+  CLIENT_UPDATE_REQUIRED: "client_update_required",
   EXISTING_ATTEMPT: "existing_attempt",
   INTERNAL_ERROR: "internal_error",
 } as const;
@@ -57,6 +58,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   [ERROR_CODE.LEGACY_UNRESTORABLE]: 409,
   [ERROR_CODE.LEGACY_SUMMARY_AVAILABLE]: 409,
   [ERROR_CODE.SNAPSHOT_UNAVAILABLE]: 409,
+  [ERROR_CODE.CLIENT_UPDATE_REQUIRED]: 409,
   [ERROR_CODE.EXISTING_ATTEMPT]: 409,
   [ERROR_CODE.INTERNAL_ERROR]: 500,
 };
@@ -91,6 +93,7 @@ const SAFE_MESSAGE: Record<ErrorCode, string> = {
   [ERROR_CODE.LEGACY_UNRESTORABLE]: MESSAGES.legacyUnrestorable,
   [ERROR_CODE.LEGACY_SUMMARY_AVAILABLE]: MESSAGES.legacySummaryAvailable,
   [ERROR_CODE.SNAPSHOT_UNAVAILABLE]: MESSAGES.snapshotUnavailable,
+  [ERROR_CODE.CLIENT_UPDATE_REQUIRED]: MESSAGES.clientUpdateRequired,
   [ERROR_CODE.EXISTING_ATTEMPT]: MESSAGES.existingAttempt,
   [ERROR_CODE.INTERNAL_ERROR]: MESSAGES.unexpectedError,
 };

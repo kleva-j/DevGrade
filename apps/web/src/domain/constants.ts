@@ -176,7 +176,11 @@ export const SESSION_RESUME_WINDOW_HOURS = 24;
 /** Access cutoff and cleanup eligibility, not a physical-erasure guarantee. */
 export const SESSION_RETENTION_DAYS = 7;
 
-export const QUESTION_SNAPSHOT_VERSION = 1;
+export const ASSESSMENT_CONTRACT = { OPTION_IDS: "option_ids_v1" } as const;
+export const QUESTION_OPTION_COUNT = 4;
+export const QUESTION_SNAPSHOT_FORMAT = { V1: 1, V2: 2 } as const;
+/** Stage 1 keeps writing positional V1 snapshots until all readers support IDs. */
+export const QUESTION_SNAPSHOT_VERSION = QUESTION_SNAPSHOT_FORMAT.V1;
 export const REPORT_SNAPSHOT_VERSION = 1;
 
 /** Above the legitimate same-browser weekly maximum (5 × 24 × 7 = 840). */

@@ -41,6 +41,11 @@ export async function createPostgresFixture(t: TestContext) {
     );
   }
 
+  assert.ok(
+    !/(^|\.)aivencloud\.com$/i.test(url.hostname),
+    "PostgreSQL integration tests must not run against Aiven",
+  );
+
   const suffix = randomUUID().replaceAll("-", "");
   const dataSchema = `assessment_test_${suffix}`;
   const journalSchema = `assessment_migrations_${suffix}`;

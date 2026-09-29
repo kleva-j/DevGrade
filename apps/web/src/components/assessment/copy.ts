@@ -121,6 +121,10 @@ export const UI = {
       "Creation could not be confirmed. Check again before retrying. If the response was lost after creation, that assessment cannot be recovered without its key; a later explicit retry may create another.",
     snapshotUnavailable:
       "The saved content cannot be opened safely. Its key has been kept. Return to history to retry later or explicitly delete this assessment.",
+    clientUpdateRequired:
+      "This page needs an update to continue safely. Refresh the page, then resume your saved assessment. Accepted answers are kept; an unsent selection may need to be selected again.",
+    clientUpdateStorageRequired:
+      "This page needs an update, but recovery keys may only be available in this tab. Keep it open. Restore browser storage access and check saved assessments again before refreshing.",
     legacySummary:
       "Legacy summary — historical question content and guidance were not saved. Only the persisted scores are shown; no question review has been reconstructed.",
   },
@@ -153,6 +157,8 @@ export const UI = {
     creating: "Building your assessment…",
     scoring: "Scoring your answers…",
     errorTitle: "Something went wrong",
+    updateTitle: "Refresh to continue",
+    reload: "Refresh page",
     retry: "Try again",
   },
 } as const;

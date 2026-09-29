@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { SnapshotQuestion } from "@/domain/sessionSnapshots";
+import type {
+  QuestionSnapshot,
+  QuestionSnapshotV1,
+  QuestionSnapshotV2,
+  SnapshotQuestion,
+} from "@/domain/sessionSnapshots";
+import type { AnswerInput } from "@/domain/types";
 
 import {
   ASSESSMENT_LENGTHS,
@@ -9,19 +15,21 @@ import {
   DIFFICULTY,
   FRAMEWORK,
   PROFICIENCY,
+  QUESTION_SNAPSHOT_FORMAT,
   SCORING_VERSION,
   SKILL_CATEGORIES,
   SKILL_CATEGORY_META,
   SNAPSHOT_ERROR_CODE,
 } from "@/domain/constants";
 import {
+  buildReport,
   createQuestionSnapshot,
   createReportSnapshot,
   parseQuestionSnapshot,
   parseReportSnapshot,
   SnapshotError,
 } from "@/domain/sessionSnapshots";
-import { toPublicQuestion } from "@/domain/types";
+import { toPublicQuestion, toReportQuestion } from "@/domain/types";
 
 const configuration = {
   framework: FRAMEWORK.REACT,
@@ -40,8 +48,13 @@ function fixture(count = 8) {
       title: `Title ${i}`,
       prompt: `Prompt ${i}`,
       codeBlock: i % 2 ? null : "const value = 1;",
-      options: ["First", "Second", "Third"],
-      correctAnswer: i % 3,
+      options: [
+        { id: 30, text: "First" },
+        { id: 7, text: "Second" },
+        { id: 90, text: "Third" },
+        { id: 0, text: "Fourth" },
+      ],
+      correctOptionId: [30, 7, 90, 0][i % 4]!,
       explanation: `Explanation ${i}`,
       difficultyWeight: i % 2 ? 2 : 1,
       source: CONTENT_SOURCE.SUDHEERJ_REACT,
@@ -58,9 +71,10 @@ function fixture(count = 8) {
     pillars,
     configuration,
   );
-  const answers = questions.map((q, i) => ({
+  const answers = snapshot.questions.map((q, i) => ({
     questionId: q.id,
-    selectedAnswer:
+    timeSpentSeconds: 5,
+    selectedOptionId:
       i < count / 2
         ? q.correctAnswer
         : (q.correctAnswer + 1) % q.options.length,
@@ -68,7 +82,39 @@ function fixture(count = 8) {
   return { questions, pillars, ids, snapshot, answers };
 }
 
-function reportFrom(f = fixture()) {
+function v2Fixture() {
+  const f = fixture();
+  const questions = f.questions.map((q, i) => ({
+    ...q,
+    options: [q.options[2]!, q.options[0]!, q.options[3]!, q.options[1]!].map(
+      ({ id, text }) => ({ id: id + i * 100, text }),
+    ),
+    correctOptionId: q.correctOptionId + i * 100,
+  }));
+  const snapshot: QuestionSnapshotV2 = {
+    version: QUESTION_SNAPSHOT_FORMAT.V2,
+    scoringVersion: SCORING_VERSION.V1,
+    questions,
+    pillars: f.pillars,
+  };
+  const answers = questions.map((q, i) => ({
+    questionId: q.id,
+    selectedOptionId:
+      i < questions.length / 2
+        ? q.correctOptionId
+        : q.options.find(({ id }) => id !== q.correctOptionId)!.id,
+    timeSpentSeconds: 5,
+  }));
+  return { ...f, questions, snapshot, answers };
+}
+
+function reportFrom(
+  f: {
+    ids: string[];
+    snapshot: QuestionSnapshot;
+    answers: AnswerInput[];
+  } = fixture(),
+) {
   return createReportSnapshot({
     ...configuration,
     sessionId: "session-1",
@@ -98,7 +144,7 @@ for (const count of ASSESSMENT_LENGTHS) {
     assert.equal(report.completedAt, completedAt.toISOString());
     assert.equal(report.result.totalScore, 50);
     assert.equal(report.result.proficiencyLevel, PROFICIENCY.DEVELOPING);
-    assert.deepEqual(report.questions, f.questions.map(toPublicQuestion));
+    assert.deepEqual(report.questions, f.questions.map(toReportQuestion));
     assert.deepEqual(
       report.result.questionResults.map((q) => q.questionId),
       f.ids,
@@ -122,7 +168,14 @@ for (const count of ASSESSMENT_LENGTHS) {
         f.ids,
         configuration,
       ),
-      f.snapshot,
+      {
+        ...f.snapshot,
+        questions: f.questions.map((q, i) => ({
+          ...q,
+          options: q.options.map(({ text }, id) => ({ id, text })),
+          correctOptionId: i % 4,
+        })),
+      },
     );
   });
 }
@@ -133,8 +186,9 @@ test("private content and awarded report are detached from bank edits and each o
   const report = reportFrom(f);
   const awarded = structuredClone(report);
   for (const q of f.questions) {
-    q.correctAnswer = (q.correctAnswer + 1) % q.options.length;
-    q.options[0] = "edited option";
+    q.correctOptionId = 999;
+    q.options[0]!.text = "edited option";
+    q.options[0]!.id = 999;
     q.title = "edited title";
     q.explanation = "edited explanation";
     q.source = CONTENT_SOURCE.ORIGINAL;
@@ -149,15 +203,24 @@ test("private content and awarded report are detached from bank edits and each o
   assert.deepEqual(report, awarded);
 });
 
-test("public creation projection contains no private data and shares no option arrays", () => {
+test("public creation projection contains neither private key and deeply detaches options", () => {
   const f = fixture();
-  const questions = f.snapshot.questions.map(toPublicQuestion);
+  const privateQuestions = f.questions.map((q) => ({
+    ...q,
+    correctAnswer: 0,
+    options: q.options.map((option) => ({ ...option, explanation: "private" })),
+  }));
+  const questions = privateQuestions.map(toPublicQuestion);
   assert.doesNotMatch(
     JSON.stringify(questions),
-    /"(?:correctAnswer|explanation|difficultyWeight|source|scoringVersion)"\s*:/,
+    /"(?:correctAnswer|correctOptionId|explanation|difficultyWeight|source|scoringVersion)"\s*:/,
   );
-  questions[0]!.options[0] = "client edit";
-  assert.equal(f.snapshot.questions[0]!.options[0], "First");
+  assert.deepEqual(questions[0]!.options, f.questions[0]!.options);
+  questions[0]!.options[0]!.text = "client edit";
+  questions[0]!.options[0]!.id = 999;
+  questions[0]!.options.reverse();
+  assert.equal(privateQuestions[0]!.options[0]!.text, "First");
+  assert.equal(privateQuestions[0]!.options[0]!.id, 30);
 });
 
 test("report allowlist removes credentials, private snapshots/keys and mutable survey state recursively", () => {
@@ -174,11 +237,13 @@ test("report allowlist removes credentials, private snapshots/keys and mutable s
       questionResults: report.result.questionResults.map((q) => ({
         ...q,
         correctAnswer: 2,
+        correctOptionId: 90,
       })),
     },
     questions: report.questions.map((q) => ({
       ...q,
       correctAnswer: 2,
+      correctOptionId: 90,
       explanation: "private",
       difficultyWeight: 2,
       source: "private",
@@ -188,7 +253,7 @@ test("report allowlist removes credentials, private snapshots/keys and mutable s
   assert.deepEqual(parsed, report);
   assert.doesNotMatch(
     JSON.stringify(parsed),
-    /"(?:sessionToken|clientId|correctAnswer|questionSnapshot|surveyRating|difficultyWeight|source)"\s*:/,
+    /"(?:sessionToken|clientId|correctAnswer|correctOptionId|questionSnapshot|surveyRating|difficultyWeight|source)"\s*:/,
   );
   assert.ok(
     parsed.result.questionResults.every((q) => q.explanation.length > 0),
@@ -202,7 +267,9 @@ test("missing, malformed and future-version private snapshots fail closed", () =
     null,
     undefined,
     {},
-    { ...f.snapshot, version: 2 },
+    { ...f.snapshot, version: 2 }, // V1 content cannot be relabeled as V2.
+    { ...f.snapshot, version: 3 },
+    { ...f.snapshot, version: "1" },
     { ...f.snapshot, scoringVersion: "weighted-v2" },
     { ...f.snapshot, questions: [...f.snapshot.questions].reverse() },
     { ...f.snapshot, questions: f.snapshot.questions.slice(1) },
@@ -262,8 +329,8 @@ test("completion requires the exact answer-ID set and valid saved option indices
     [...f.answers, f.answers[0]!],
     f.answers.map(() => f.answers[0]!),
     f.answers.map((a, i) => (i ? a : { ...a, questionId: "foreign-question" })),
-    ...[-1, 0.5, 3, NaN].map((selectedAnswer) =>
-      f.answers.map((a) => ({ ...a, selectedAnswer })),
+    ...[-1, 0.5, 4, 30, NaN].map((selectedOptionId) =>
+      f.answers.map((a) => ({ ...a, selectedOptionId })),
     ),
   ]) {
     assert.throws(
@@ -298,4 +365,295 @@ test("report readers validate version, content order, completion time and pillar
     }).result.totalScore,
     42,
   );
+});
+
+test("frozen V1 uses saved indices, accepts historical options, and awards the unchanged V1 report", () => {
+  // Deliberately independent of the current writer/bank and its four-option rules.
+  const snapshot: QuestionSnapshotV1 = {
+    version: 1,
+    scoringVersion: SCORING_VERSION.V1,
+    questions: Array.from({ length: 8 }, (_, i) => ({
+      id: `saved-${i}`,
+      framework: FRAMEWORK.REACT,
+      difficulty: DIFFICULTY.MID,
+      skillCategory: SKILL_CATEGORIES[i % 4]!,
+      title: `Saved title ${i}`,
+      prompt: "Saved prompt",
+      codeBlock: null,
+      options: ["Third in today's bank", "", "  "],
+      correctAnswer: i % 3,
+      explanation: `Saved explanation ${i}`,
+      difficultyWeight: i % 2 ? 2 : 1,
+      source: "historical-source",
+    })),
+    pillars: SKILL_CATEGORIES.map((skillCategory) => ({
+      skillCategory,
+      ...SKILL_CATEGORY_META[skillCategory],
+    })),
+  };
+  const before = structuredClone(snapshot);
+  const ids = snapshot.questions.map((q) => q.id);
+  const answers = snapshot.questions.map((q, i) => ({
+    questionId: q.id,
+    selectedOptionId: i < 4 ? q.correctAnswer : (q.correctAnswer + 1) % 3,
+    timeSpentSeconds: 5,
+  }));
+  const parsed = parseQuestionSnapshot(snapshot, ids, configuration);
+  assert.equal(parsed.version, 1);
+  assert.deepEqual(
+    parsed.questions,
+    snapshot.questions.map(({ options, correctAnswer, ...q }) => ({
+      ...q,
+      options: options.map((text, id) => ({ id, text })),
+      correctOptionId: correctAnswer,
+    })),
+  );
+  const expected = {
+    version: 1,
+    scoringVersion: SCORING_VERSION.V1,
+    completedAt: completedAt.toISOString(),
+    result: {
+      sessionId: "session-1",
+      framework: FRAMEWORK.REACT,
+      targetLevel: DIFFICULTY.MID,
+      totalScore: 50,
+      maxScore: 100,
+      proficiencyLevel: PROFICIENCY.DEVELOPING,
+      categoryScores: SKILL_CATEGORIES.map((skillCategory, i) => ({
+        skillCategory,
+        correctWeight: i % 2 ? 2 : 1,
+        totalWeight: i % 2 ? 4 : 2,
+        scorePct: 50,
+        proficiency: PROFICIENCY.DEVELOPING,
+      })),
+      skillGaps: [],
+      questionResults: ids.map((questionId, i) => ({
+        questionId,
+        isCorrect: i < 4,
+        explanation: `Saved explanation ${i}`,
+      })),
+    },
+    questions: ids.map((id, i) => ({
+      id,
+      skillCategory: SKILL_CATEGORIES[i % 4]!,
+      title: `Saved title ${i}`,
+      prompt: "Saved prompt",
+      codeBlock: null,
+      options: ["Third in today's bank", "", "  "],
+    })),
+    pillars: snapshot.pillars,
+  };
+  assert.deepEqual(reportFrom({ snapshot, ids, answers }), expected);
+  assert.deepEqual(parseReportSnapshot(expected), expected);
+  assert.deepEqual(snapshot, before);
+  parsed.questions[0]!.options[0]!.text = "runtime edit";
+  parsed.pillars[0]!.displayName = "runtime edit";
+  assert.deepEqual(snapshot, before);
+
+  assert.throws(
+    () =>
+      createReportSnapshot({
+        ...configuration,
+        sessionId: "session-1",
+        selectedQuestionIds: ids,
+        questionSnapshot: parsed,
+        answers,
+        completedAt,
+      }),
+    snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+    "normalized V1 must not be mistaken for raw persisted V1",
+  );
+});
+
+test("Stage 1 writer saves text and correct position, never stable bank ID or private runtime fields", () => {
+  const f = v2Fixture();
+  const before = structuredClone(f.questions);
+  const snapshot = createQuestionSnapshot(
+    f.ids,
+    f.questions,
+    f.pillars,
+    configuration,
+  );
+  assert.equal(snapshot.version, QUESTION_SNAPSHOT_FORMAT.V1);
+  assert.deepEqual(f.questions, before);
+  for (const [i, saved] of snapshot.questions.entries()) {
+    const canonical = f.questions[i]!;
+    assert.deepEqual(
+      saved.options,
+      canonical.options.map(({ text }) => text),
+    );
+    assert.equal(
+      saved.correctAnswer,
+      canonical.options.findIndex(({ id }) => id === canonical.correctOptionId),
+    );
+    assert.equal(
+      saved.options[saved.correctAnswer],
+      canonical.options.find(({ id }) => id === canonical.correctOptionId)!
+        .text,
+    );
+    assert.equal("correctOptionId" in saved, false);
+  }
+  assert.equal(snapshot.questions[0]!.correctAnswer, 1);
+  assert.equal(f.questions[0]!.correctOptionId, 30);
+  const parsed = parseQuestionSnapshot(snapshot, f.ids, configuration);
+  assert.equal(parsed.questions[0]!.correctOptionId, 1);
+  f.questions[0]!.options[1]!.text = "bank edit";
+  assert.equal(snapshot.questions[0]!.options[1], "First");
+});
+
+test("V2 reordered noncontiguous IDs grade identically to V1 with ordered string-only reports", () => {
+  const f = v2Fixture();
+  const parsed = parseQuestionSnapshot(f.snapshot, f.ids, configuration);
+  assert.deepEqual(parsed, f.snapshot);
+  assert.deepEqual(
+    parsed.questions[0]!.options.map(({ id }) => id),
+    [90, 30, 0, 7],
+  );
+  const report = reportFrom(f);
+  assert.equal(report.version, 1);
+  assert.equal(report.scoringVersion, SCORING_VERSION.V1);
+  assert.equal(report.result.totalScore, 50);
+  assert.deepEqual(report.questions, f.questions.map(toReportQuestion));
+  assert.deepEqual(report.questions[0]!.options, [
+    "Third",
+    "First",
+    "Fourth",
+    "Second",
+  ]);
+  const v1 = createQuestionSnapshot(
+    f.ids,
+    f.questions,
+    f.pillars,
+    configuration,
+  );
+  const positionalAnswers = f.answers.map((answer, i) => ({
+    ...answer,
+    selectedOptionId: f.questions[i]!.options.findIndex(
+      ({ id }) => id === answer.selectedOptionId,
+    ),
+  }));
+  assert.deepEqual(
+    reportFrom({ ...f, snapshot: v1, answers: positionalAnswers }),
+    report,
+  );
+  assert.equal(buildReport, createReportSnapshot);
+  assert.deepEqual(parseReportSnapshot(report), report);
+  assert.doesNotMatch(
+    JSON.stringify(report),
+    /"(?:correctAnswer|correctOptionId)"\s*:/,
+  );
+});
+
+test("V2 parsing and public projections detach option objects and strip both private key names", () => {
+  const f = v2Fixture();
+  const before = structuredClone(f.snapshot);
+  const parsed = parseQuestionSnapshot(f.snapshot, f.ids, configuration);
+  const publicQuestions = parsed.questions.map(toPublicQuestion);
+  assert.doesNotMatch(
+    JSON.stringify(publicQuestions),
+    /"(?:correctAnswer|correctOptionId|explanation|source|difficultyWeight)"\s*:/,
+  );
+  assert.deepEqual(publicQuestions[0]!.options, before.questions[0]!.options);
+  publicQuestions[0]!.options[0]!.id = 999;
+  publicQuestions[0]!.options[0]!.text = "public edit";
+  assert.deepEqual(parsed, before);
+  parsed.questions[0]!.options[0]!.id = 888;
+  parsed.questions[0]!.options[0]!.text = "runtime edit";
+  parsed.questions[0]!.options.reverse();
+  parsed.pillars[0]!.displayName = "runtime edit";
+  assert.deepEqual(f.snapshot, before);
+});
+
+test("V2 reader and Stage 1 writer reject invalid new-content option identities and text", () => {
+  const f = v2Fixture();
+  const original = f.questions[0]!;
+  const invalidQuestions = [
+    { ...original, options: original.options.slice(1) },
+    { ...original, options: [...original.options, { id: 999, text: "Fifth" }] },
+    {
+      ...original,
+      options: original.options.map((option) => ({ ...option, id: 30 })),
+    },
+    ...[-1, 0.5, NaN, Infinity].map((id) => ({
+      ...original,
+      options: original.options.map((option, i) =>
+        i ? option : { ...option, id },
+      ),
+    })),
+    ...["", " \t\n"].map((text) => ({
+      ...original,
+      options: original.options.map((option, i) =>
+        i ? option : { ...option, text },
+      ),
+    })),
+    ...[-1, 0.5, NaN, Infinity, 1, 999].map((correctOptionId) => ({
+      ...original,
+      correctOptionId,
+    })),
+  ];
+  for (const question of invalidQuestions) {
+    const questions = [question, ...f.questions.slice(1)];
+    assert.throws(
+      () =>
+        parseQuestionSnapshot(
+          { ...f.snapshot, questions },
+          f.ids,
+          configuration,
+        ),
+      snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+    );
+    assert.throws(
+      () => createQuestionSnapshot(f.ids, questions, f.pillars, configuration),
+      snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+    );
+  }
+  for (const version of [0, 3, "2", null]) {
+    assert.throws(
+      () =>
+        parseQuestionSnapshot({ ...f.snapshot, version }, f.ids, configuration),
+      snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+    );
+  }
+  assert.throws(
+    () =>
+      parseQuestionSnapshot(
+        { ...f.snapshot, scoringVersion: "weighted-v2" },
+        f.ids,
+        configuration,
+      ),
+    snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+  );
+});
+
+test("V2 completion validates selected ID membership in each saved question, not array bounds", () => {
+  const f = v2Fixture();
+  for (const selectedOptionId of [
+    -1,
+    0.5,
+    NaN,
+    Infinity,
+    1,
+    4,
+    999,
+    f.questions[1]!.correctOptionId,
+  ]) {
+    assert.throws(
+      () =>
+        reportFrom({
+          ...f,
+          answers: f.answers.map((answer, i) =>
+            i ? answer : { ...answer, selectedOptionId },
+          ),
+        }),
+      snapshotError(SNAPSHOT_ERROR_CODE.INVALID_ANSWERS),
+    );
+  }
+  // ID zero is a valid distractor here, despite having moved away from index zero.
+  const wrong = reportFrom({
+    ...f,
+    answers: f.answers.map((answer, i) =>
+      i ? answer : { ...answer, selectedOptionId: 0 },
+    ),
+  });
+  assert.equal(wrong.result.questionResults[0]!.isCorrect, false);
 });

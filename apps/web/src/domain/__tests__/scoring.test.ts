@@ -16,7 +16,7 @@ import {
   FRAMEWORK,
 } from "@/domain/constants";
 
-/** Build one scorable answer; `selected === correct (0)` marks it correct. */
+/** Use noncontiguous IDs so grading cannot accidentally rely on positions. */
 function answer(
   id: string,
   category: SkillCategory,
@@ -28,10 +28,10 @@ function answer(
       id,
       skillCategory: category,
       difficultyWeight: weight,
-      correctAnswer: 0,
+      correctOptionId: 30,
       explanation: `explanation-${id}`,
     },
-    selectedAnswer: correct ? 0 : 1,
+    selectedOptionId: correct ? 30 : 7,
   };
 }
 
