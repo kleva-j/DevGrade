@@ -21,7 +21,10 @@ import {
   SESSION_DISCOVERY,
 } from "@/domain/constants";
 import { ERROR_CODE } from "@/server/errors";
-import { AssessmentClientError } from "./createSessionAdapter";
+import {
+  AssessmentClientError,
+  ClientUpdateRequiredError,
+} from "./createSessionAdapter";
 import { STORAGE_ISSUE, sameCredential } from "./sessionStorage";
 
 export interface DiscoveryCheck {
@@ -142,6 +145,35 @@ export function createSessionRecovery(
     get warning() {
       return warning;
     },
+    /** Check disk at click time; never recreate missing handles or contact the server. */
+    reloadIfSafe(reloadPage: () => void): StorageIssue | null {
+      let result: StorageScan;
+      try {
+        result = storage.scan();
+      } catch {
+        warning = STORAGE_ISSUE.UNAVAILABLE;
+        return warning;
+      }
+      warning = result.issue;
+      if (!warning) {
+        const saved = new Map(
+          result.handles.map((handle) => [handle.sessionId, handle]),
+        );
+        for (const handle of memory.values()) {
+          const persisted = saved.get(handle.sessionId);
+          if (!persisted) {
+            warning = STORAGE_ISSUE.UNAVAILABLE;
+            break;
+          }
+          if (!sameCredential(handle, persisted)) {
+            warning = STORAGE_ISSUE.CORRUPT;
+            break;
+          }
+        }
+      }
+      if (!warning) reloadPage();
+      return warning;
+    },
     /** The complete gate transaction; never hold this lock across a human choice. */
     check(
       configuration: AssessmentConfiguration | null,
@@ -215,6 +247,10 @@ export function createSessionRecovery(
           });
           return { history, storageIssue: warning, created };
         } catch (error) {
+          if (error instanceof ClientUpdateRequiredError) {
+            const createdCredential = error.takeCreatedCredential();
+            if (createdCredential) remember(createdCredential);
+          }
           if (
             error instanceof AssessmentClientError &&
             error.failure.code === ERROR_CODE.EXISTING_ATTEMPT

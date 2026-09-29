@@ -10,13 +10,11 @@ import { toggleVariants } from "@workspace/ui/components/toggle";
 const ToggleGroupContext = createContext<
   VariantProps<typeof toggleVariants> & {
     spacing?: number;
-    orientation?: "horizontal" | "vertical";
   }
 >({
   size: "default",
   variant: "default",
   spacing: 2,
-  orientation: "horizontal",
 });
 
 function ToggleGroup({
@@ -46,9 +44,7 @@ function ToggleGroup({
       )}
       {...props}
     >
-      <ToggleGroupContext.Provider
-        value={{ variant, size, spacing, orientation }}
-      >
+      <ToggleGroupContext.Provider value={{ variant, size, spacing }}>
         {children}
       </ToggleGroupContext.Provider>
     </ToggleGroupPrimitive>

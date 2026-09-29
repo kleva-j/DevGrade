@@ -27,13 +27,13 @@ export interface ScorableQuestion {
   id: string;
   skillCategory: SkillCategory;
   difficultyWeight: number;
-  correctAnswer: number;
+  correctOptionId: number;
   explanation: string;
 }
 
 export interface ScorableAnswer {
   question: ScorableQuestion;
-  selectedAnswer: number;
+  selectedOptionId: number;
 }
 
 function round2(n: number): number {
@@ -65,8 +65,8 @@ export function scoreAssessmentV1(
   let overallCorrect = 0;
   let overallTotal = 0;
 
-  for (const { question, selectedAnswer } of answers) {
-    const isCorrect = selectedAnswer === question.correctAnswer;
+  for (const { question, selectedOptionId } of answers) {
+    const isCorrect = selectedOptionId === question.correctOptionId;
     const weight = question.difficultyWeight;
 
     overallTotal += weight;

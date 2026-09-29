@@ -159,7 +159,7 @@ async function setup(t: TestContext) {
       await service.submitAnswer(credential.sessionId, {
         sessionToken: credential.sessionToken,
         questionId,
-        selectedAnswer: 0,
+        selectedOptionId: 0,
         timeSpentSeconds: 1,
       });
     }
@@ -408,7 +408,7 @@ test(
       await f.service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId: created.questions[0]!.id,
-        selectedAnswer: 0,
+        selectedOptionId: 0,
         timeSpentSeconds: 1,
       });
       await f.db
@@ -583,7 +583,7 @@ for (const action of ["resume", "answer"] as const) {
           : service.submitAnswer(created.sessionId, {
               sessionToken: created.sessionToken,
               questionId: created.questions[0]!.id,
-              selectedAnswer: 0,
+              selectedOptionId: 0,
               timeSpentSeconds: 1,
             }),
       );
@@ -643,7 +643,7 @@ for (const action of ["resume", "answer"] as const) {
           : service.submitAnswer(created.sessionId, {
               sessionToken: created.sessionToken,
               questionId: created.questions[0]!.id,
-              selectedAnswer: 0,
+              selectedOptionId: 0,
               timeSpentSeconds: 1,
             }),
       );

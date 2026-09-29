@@ -11,9 +11,13 @@ import type {
   SessionMetadata,
   SessionView,
 } from "@/domain/sessionContracts";
-import type { AssessmentApi } from "./createSessionAdapter";
+import type {
+  AssessmentApi,
+  AssessmentEndpoints,
+} from "./createSessionAdapter";
 import type { StoragePort } from "./sessionStorage";
 import {
+  ASSESSMENT_CONTRACT,
   ASSESSMENT_LENGTH,
   DELETE_EXPECTATION,
   DELETE_OUTCOME,
@@ -85,7 +89,7 @@ export function makeSession(config = configuration) {
       title: `Saved question ${i}`,
       prompt: "Saved prompt",
       codeBlock: "savedCode()",
-      options: ["A", "B", "C", "D"],
+      options: ["A", "B", "C", "D"].map((text, id) => ({ id, text })),
     }),
   );
   const assessment: AssessmentView = {
@@ -115,7 +119,10 @@ export function makeSession(config = configuration) {
       version: REPORT_SNAPSHOT_VERSION,
       scoringVersion: SCORING_VERSION.V1,
       completedAt: createdAt,
-      questions: structuredClone(questions),
+      questions: questions.map(({ options, ...question }) => ({
+        ...question,
+        options: options.map(({ text }) => text),
+      })),
       pillars: [
         {
           skillCategory: SKILL_CATEGORY.ASYNC,
@@ -152,15 +159,65 @@ export function makeSession(config = configuration) {
   return { credential, assessment, report, completed: false, legacy: false };
 }
 export type TestSession = ReturnType<typeof makeSession>;
+export function optionIdsResponse<T>(data: T) {
+  return { ...data, assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS };
+}
+export function fakeEndpoints(api: AssessmentApi): AssessmentEndpoints {
+  return {
+    createSession: async ({ data }) => ({
+      ok: true,
+      data: optionIdsResponse(
+        await api.createSession(
+          {
+            framework: data.framework,
+            targetLevel: data.targetLevel,
+            questionCount: data.questionCount,
+          },
+          data.knownCredentials,
+        ),
+      ),
+    }),
+    discoverSessions: async ({ data }) => ({
+      ok: true,
+      data: await api.discoverSessions(data.credentials),
+    }),
+    getSession: async ({ data }) => ({
+      ok: true,
+      data: optionIdsResponse(await api.getSession(data)),
+    }),
+    resumeSession: async ({ data }) => ({
+      ok: true,
+      data: optionIdsResponse(await api.resumeSession(data)),
+    }),
+    submitAnswer: async ({ data: { sessionId, sessionToken, ...answer } }) => ({
+      ok: true,
+      data: optionIdsResponse(
+        await api.submitAnswer({ sessionId, sessionToken, answer }),
+      ),
+    }),
+    completeSession: async ({ data }) => ({
+      ok: true,
+      data: await api.completeSession(data),
+    }),
+    deleteSession: async ({ data }) => ({
+      ok: true,
+      data: await api.deleteSession(data),
+    }),
+    submitSurvey: async ({ data }) => ({
+      ok: true,
+      data: await api.submitSurvey(data),
+    }),
+  };
+}
 export function accept(
   session: TestSession,
   index: number,
-  selectedAnswer = 0,
+  selectedOptionId = 0,
   timeSpentSeconds = 1,
 ): AnswerInput {
   const answer = {
     questionId: session.assessment.questions[index]!.id,
-    selectedAnswer,
+    selectedOptionId,
     timeSpentSeconds,
   };
   session.assessment.acceptedAnswers.push(answer);
@@ -314,7 +371,7 @@ export function fakeServer(initial: TestSession[] = []) {
       const previous = session.assessment.acceptedAnswers.find(
         (a) => a.questionId === answer.questionId,
       );
-      if (previous && previous.selectedAnswer !== answer.selectedAnswer)
+      if (previous && previous.selectedOptionId !== answer.selectedOptionId)
         throw clientFailure(ERROR_CODE.CONFLICT);
       if (!previous)
         session.assessment.acceptedAnswers.push(structuredClone(answer));

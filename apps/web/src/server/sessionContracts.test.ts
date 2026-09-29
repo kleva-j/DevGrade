@@ -102,7 +102,7 @@ test("all service paths reject malformed credentials and over-limit lists before
       service.submitAnswer(input.sessionId, {
         ...input,
         questionId: "q",
-        selectedAnswer: 0,
+        selectedOptionId: 0,
         timeSpentSeconds: 1,
       }),
       badRequest,

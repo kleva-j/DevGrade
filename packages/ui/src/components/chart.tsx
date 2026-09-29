@@ -150,13 +150,19 @@ function ChartTooltipContent({
       return null;
     }
 
+    /* eslint-disable @typescript-eslint/no-unnecessary-condition */
     const [item] = payload;
+    if (!item) {
+      return null;
+    }
+
     const key = `${labelKey ?? item.dataKey ?? item.name ?? "value"}`;
     const itemConfig = getPayloadConfigFromPayload(config, item, key);
     const value =
       !labelKey && typeof label === "string"
-        ? (config[label].label ?? label)
+        ? (config[label]?.label ?? label)
         : itemConfig?.label;
+    /* eslint-enable @typescript-eslint/no-unnecessary-condition */
 
     if (labelFormatter) {
       return (

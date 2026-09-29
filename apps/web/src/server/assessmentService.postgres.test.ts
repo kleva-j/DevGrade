@@ -6,7 +6,7 @@ import { and, count, eq, inArray } from "drizzle-orm";
 
 import type { Db } from "@/db/client";
 import type { NewQuestion, QuestionRow } from "@/db/schema";
-import type { SkillCategory } from "@/domain/constants";
+
 import type { AnswerInput } from "@/domain/types";
 import type { AssessmentService } from "@/server/assessmentService";
 
@@ -27,6 +27,7 @@ import {
 } from "@/domain/constants";
 import { createRng, seedFromString } from "@/domain/random";
 import { stratifiedSample } from "@/domain/sampling";
+import { rowToQuestion } from "./assessmentService";
 
 import { AssessmentError, ERROR_CODE } from "@/server/errors";
 
@@ -184,12 +185,12 @@ async function assertCreatedSession(
       title: row.title,
       prompt: row.prompt,
       codeBlock: row.codeBlock,
-      options: row.options,
+      options: row.options.map((text, id) => ({ id, text })),
     });
   }
   assert.doesNotMatch(
     JSON.stringify(created),
-    /"(?:correctAnswer|correct_answer|explanation)"\s*:/,
+    /"(?:correctAnswer|correctOptionId|correct_answer|explanation)"\s*:/,
   );
 
   for (const skillCategory of SKILL_CATEGORIES) {
@@ -219,10 +220,7 @@ async function assertCreatedSession(
     )
     .orderBy(questions.id);
   const replay = stratifiedSample(
-    orderedPool.map((row) => ({
-      ...row,
-      skillCategory: row.skillCategory as SkillCategory,
-    })),
+    orderedPool.map(rowToQuestion),
     questionCount,
     createRng(seedFromString(created.sessionToken)),
   );
@@ -303,18 +301,18 @@ async function answerAndComplete(
     }
     const row = byId.get(questionId);
     assert.ok(row);
-    const selectedAnswer = answerCorrectly(row)
+    const selectedOptionId = answerCorrectly(row)
       ? row.correctAnswer
       : (row.correctAnswer + 1) % row.options.length;
     const response = await service.submitAnswer(created.sessionId, {
       sessionToken: created.sessionToken,
       questionId,
-      selectedAnswer,
+      selectedOptionId,
       timeSpentSeconds: index + 1,
     });
     acceptedAnswers.push({
       questionId,
-      selectedAnswer,
+      selectedOptionId,
       timeSpentSeconds: index + 1,
     });
     assert.deepEqual(response, {
@@ -323,7 +321,7 @@ async function answerAndComplete(
       sessionComplete: index === questionCount - 1,
       acceptedAnswer: {
         questionId,
-        selectedAnswer,
+        selectedOptionId,
         timeSpentSeconds: index + 1,
       },
       answeredCount: index + 1,
@@ -432,7 +430,13 @@ async function answerAndComplete(
   assert.ok(persistedResult.reportSnapshot);
   assert.ok(stored.questionSnapshot);
   assert.deepEqual(persistedResult.reportSnapshot, view.reportSnapshot);
-  assert.deepEqual(persistedResult.reportSnapshot.questions, created.questions);
+  assert.deepEqual(
+    persistedResult.reportSnapshot.questions,
+    created.questions.map((question) => ({
+      ...question,
+      options: question.options.map((option) => option.text),
+    })),
+  );
   assert.deepEqual(
     persistedResult.reportSnapshot.pillars,
     stored.questionSnapshot.pillars,

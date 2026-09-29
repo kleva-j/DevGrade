@@ -7,17 +7,6 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { RATE_LIMIT_WINDOW_MINUTES } from "@/domain/constants";
 import { testSessions } from "./schema";
 
-/** Postgres SQLSTATE for a unique-constraint violation (`unique_violation`). */
-export const PG_UNIQUE_VIOLATION = "23505";
-export function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    err.code === PG_UNIQUE_VIOLATION
-  );
-}
-
 /** Rate-limit metadata only; raw client IDs are never stored or used as auth. */
 export function hashClientId(rawClientCookie: string): string {
   return createHash("sha256").update(rawClientCookie).digest("hex");

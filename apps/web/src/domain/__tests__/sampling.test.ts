@@ -27,8 +27,13 @@ function q(id: string, category: SkillCategory, weight: number): Question {
     title: id,
     prompt: "prompt",
     codeBlock: null,
-    options: ["a", "b", "c", "d"],
-    correctAnswer: 0,
+    options: [
+      { id: 30, text: "a" },
+      { id: 7, text: "b" },
+      { id: 90, text: "c" },
+      { id: 0, text: "d" },
+    ],
+    correctOptionId: 30,
     explanation: "explanation",
     difficultyWeight: weight,
   };

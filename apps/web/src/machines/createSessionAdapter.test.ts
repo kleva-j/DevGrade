@@ -8,6 +8,7 @@ import {
   unwrapAssessmentEnvelope,
 } from "./createSessionAdapter";
 import {
+  ASSESSMENT_CONTRACT,
   ASSESSMENT_LENGTHS,
   DELETE_EXPECTATION,
   DELETE_OUTCOME,
@@ -37,7 +38,11 @@ for (const questionCount of ASSESSMENT_LENGTHS)
     const session = makeSession();
     const known = [session.credential];
     // The returned count deliberately differs from Standard/Deep. Never pad or truncate.
-    const output = { ...session.assessment, ...session.credential };
+    const output = {
+      ...session.assessment,
+      ...session.credential,
+      assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+    };
     const requests: unknown[] = [];
     const getClient = t.mock.fn(() => "client-id");
     const api = createAssessmentApi(
@@ -63,6 +68,7 @@ for (const questionCount of ASSESSMENT_LENGTHS)
           questionCount,
           rawClientId: "client-id",
           knownCredentials: known,
+          assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
         },
       },
     ]);
@@ -72,10 +78,19 @@ test("all endpoints preserve lifecycle/progress/survey contracts and POST data s
   const calls: unknown[] = [];
   const answer = {
     questionId: "question-0",
-    selectedAnswer: 1,
+    selectedOptionId: 1,
     timeSpentSeconds: 9,
   };
+  const report = {
+    ...session.report,
+    assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+  };
+  const assessment = {
+    ...session.assessment,
+    assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+  };
   const accepted = {
+    assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
     success: true as const,
     acceptedAnswer: answer,
     acceptedAnswers: [answer],
@@ -103,11 +118,11 @@ test("all endpoints preserve lifecycle/progress/survey contracts and POST data s
       },
       getSession: async (input) => {
         calls.push(input);
-        return { ok: true, data: session.report };
+        return { ok: true, data: report };
       },
       resumeSession: async (input) => {
         calls.push(input);
-        return { ok: true, data: session.assessment };
+        return { ok: true, data: assessment };
       },
       deleteSession: async (input) => {
         calls.push(input);
@@ -135,8 +150,14 @@ test("all endpoints preserve lifecycle/progress/survey contracts and POST data s
     () => "client",
   );
   await api.discoverSessions([session.credential]);
-  assert.equal(await api.getSession(session.credential), session.report);
-  assert.equal(await api.resumeSession(session.credential), session.assessment);
+  assert.equal(await api.getSession(session.credential), report);
+  assert.equal(await api.resumeSession(session.credential), assessment);
+  assert.deepEqual(report.reportSnapshot.questions[0]?.options, [
+    "A",
+    "B",
+    "C",
+    "D",
+  ]);
   assert.equal(
     (
       await api.deleteSession({
@@ -154,8 +175,18 @@ test("all endpoints preserve lifecycle/progress/survey contracts and POST data s
   await api.submitSurvey({ ...session.credential, rating: 4 });
   assert.deepEqual(calls, [
     { data: { credentials: [session.credential] } },
-    { data: session.credential },
-    { data: session.credential },
+    {
+      data: {
+        ...session.credential,
+        assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+      },
+    },
+    {
+      data: {
+        ...session.credential,
+        assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+      },
+    },
     {
       data: {
         ...session.credential,

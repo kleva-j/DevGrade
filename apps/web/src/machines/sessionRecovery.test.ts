@@ -6,6 +6,7 @@ import {
   createSessionLock,
   SESSION_STORAGE_PREFIX,
   SESSION_LOCK_NAME,
+  SESSION_STORAGE_VERSION,
   STORAGE_ISSUE,
 } from "./sessionStorage";
 import {
@@ -50,6 +51,140 @@ function fixture(initial = [makeSession()]) {
   );
   return { port, storage, server, recovery, initial };
 }
+test(
+  "reload checks fresh storage instead of a stale warning after a contract mismatch",
+  { timeout: 2000 },
+  async (t) => {
+    const h = fixture();
+    await h.recovery.check(null);
+    const { sessionId } = h.initial[0]!.credential;
+    h.server.api.getSession = async () => {
+      throw clientFailure(ERROR_CODE.CLIENT_UPDATE_REQUIRED);
+    };
+    await assert.rejects(h.recovery.get(sessionId));
+    assert.equal(h.recovery.warning, null);
+    h.port.removeItem(SESSION_STORAGE_PREFIX + sessionId);
+    const before = [...h.port.values];
+    const writes = [...h.port.writes];
+    const calls = { ...h.server.calls };
+    const reload = t.mock.fn();
+    const issue = h.recovery.reloadIfSafe(reload);
+    assert.equal(reload.mock.callCount(), 0);
+    assert.equal(issue, STORAGE_ISSUE.UNAVAILABLE);
+    assert.equal(h.recovery.warning, issue);
+    assert.deepEqual([...h.port.values], before);
+    assert.deepEqual(h.port.writes, writes);
+    assert.deepEqual(h.server.calls, calls);
+  },
+);
+
+for (const mode of [
+  "missing",
+  "blocked",
+  "corrupt",
+  "conflicting",
+  "throwing",
+] as const)
+  test(
+    `reload rejects ${mode} persistence without losing in-memory credentials`,
+    { timeout: 2000 },
+    async (t) => {
+      const h = fixture([makeSession(), makeSession()]);
+      await h.recovery.check(null);
+      const handles = h.storage.scan().handles;
+      // Check every retained handle, not just the first/active assessment.
+      const second = handles[1]!;
+      const key = SESSION_STORAGE_PREFIX + second.sessionId;
+      if (mode === "missing") h.port.removeItem(key);
+      if (mode === "blocked") h.port.blockRead = true;
+      if (mode === "corrupt") h.port.setItem(key, "{");
+      if (mode === "conflicting")
+        h.port.setItem(
+          key,
+          JSON.stringify({
+            ...second,
+            version: SESSION_STORAGE_VERSION,
+            sessionToken: "b".repeat(64),
+          }),
+        );
+      const scan = h.storage.scan;
+      if (mode === "throwing")
+        h.storage.scan = () => {
+          throw new Error("Storage unavailable");
+        };
+      const before = [...h.port.values];
+      const writes = [...h.port.writes];
+      const calls = { ...h.server.calls };
+      const reload = t.mock.fn();
+      const expected =
+        mode === "corrupt" || mode === "conflicting"
+          ? STORAGE_ISSUE.CORRUPT
+          : STORAGE_ISSUE.UNAVAILABLE;
+      assert.equal(h.recovery.reloadIfSafe(reload), expected);
+      assert.equal(reload.mock.callCount(), 0);
+      assert.equal(h.recovery.warning, expected);
+      assert.deepEqual([...h.port.values], before);
+      assert.deepEqual(h.port.writes, writes);
+      assert.deepEqual(h.server.calls, calls);
+
+      // External storage recovery allows a fresh check; the guard itself writes nothing.
+      h.port.blockRead = false;
+      h.storage.scan = scan;
+      h.port.removeItem(key);
+      assert.equal(h.storage.save(second), null);
+      const restored = [...h.port.values];
+      assert.equal(h.recovery.reloadIfSafe(reload), null);
+      assert.equal(reload.mock.callCount(), 1);
+      assert.equal(h.recovery.warning, null);
+      assert.deepEqual([...h.port.values], restored);
+      const known = await h.recovery.check(configuration);
+      assert.deepEqual(
+        known.history.map((entry) => entry.sessionId).sort(),
+        handles.map((handle) => handle.sessionId).sort(),
+      );
+      assert.equal(known.created, null);
+    },
+  );
+
+test(
+  "reload needs no writes or network when all credentials remain saved",
+  { timeout: 2000 },
+  async (t) => {
+    const h = fixture([makeSession(), makeSession()]);
+    await h.recovery.check(null);
+    h.port.blockWrite = true;
+    const before = [...h.port.values];
+    const writes = [...h.port.writes];
+    const calls = { ...h.server.calls };
+    const reload = t.mock.fn(() => {
+      assert.equal(h.recovery.warning, null);
+      assert.deepEqual([...h.port.values], before);
+    });
+    assert.equal(h.recovery.reloadIfSafe(reload), null);
+    assert.equal(reload.mock.callCount(), 1);
+    assert.deepEqual(h.port.writes, writes);
+    assert.deepEqual(h.server.calls, calls);
+  },
+);
+
+test(
+  "reload does not swallow errors from the navigation callback",
+  { timeout: 2000 },
+  async () => {
+    const h = fixture();
+    await h.recovery.check(null);
+    const failure = new Error("Navigation failed");
+    assert.throws(
+      () =>
+        h.recovery.reloadIfSafe(() => {
+          throw failure;
+        }),
+      (error) => error === failure,
+    );
+    assert.equal(h.recovery.warning, null);
+  },
+);
+
 test("all handles, not active/configuration hints, are discovered before any create", async () => {
   const h = fixture([makeSession(), makeSession(), makeSession()]);
   h.initial[0]!.completed = true;
@@ -258,7 +393,7 @@ test("reads never resume or complete even an all-answered unfinished session", a
   const h = fixture();
   const session = h.initial[0]!;
   session.assessment.acceptedAnswers = session.assessment.questions.map(
-    (q) => ({ questionId: q.id, selectedAnswer: 0, timeSpentSeconds: 1 }),
+    (q) => ({ questionId: q.id, selectedOptionId: 0, timeSpentSeconds: 1 }),
   );
   await h.recovery.check(null);
   await h.recovery.get(session.credential.sessionId);

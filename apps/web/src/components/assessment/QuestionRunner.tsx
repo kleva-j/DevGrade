@@ -34,12 +34,12 @@ export interface QuestionRunnerProps {
   answeredCount: number;
   questionStartedAt: number;
   timerPausedAt: number | null;
-  selectedOption: number | null;
+  selectedOptionId: number | null;
   submitting: boolean;
   isLast: boolean;
   /** Present only while the machine is in `answerFailed`. */
   error: string | null;
-  onSelect: (option: number) => void;
+  onSelect: (optionId: number) => void;
   onSubmit: () => void;
   onRetry: () => void;
 }
@@ -74,7 +74,7 @@ export function QuestionRunner({
   answeredCount,
   questionStartedAt,
   timerPausedAt,
-  selectedOption,
+  selectedOptionId,
   submitting,
   isLast,
   error,
@@ -127,17 +127,25 @@ export function QuestionRunner({
             {UI.runner.selectPrompt}
           </FieldLegend>
           <RadioGroup
-            value={selectedOption}
-            onValueChange={(value) => onSelect(value as number)}
+            value={selectedOptionId}
+            onValueChange={(value) => {
+              if (typeof value === "number") onSelect(value);
+            }}
             disabled={submitting || error !== null}
           >
-            {question.options.map((option, i) => (
-              <FieldLabel key={i} htmlFor={`${question.id}-${i}`}>
+            {question.options.map((option) => (
+              <FieldLabel
+                key={option.id}
+                htmlFor={`${question.id}-${option.id}`}
+              >
                 <Field orientation="horizontal">
                   <FieldContent>
-                    <FieldTitle>{option}</FieldTitle>
+                    <FieldTitle>{option.text}</FieldTitle>
                   </FieldContent>
-                  <RadioGroupItem value={i} id={`${question.id}-${i}`} />
+                  <RadioGroupItem
+                    value={option.id}
+                    id={`${question.id}-${option.id}`}
+                  />
                 </Field>
               </FieldLabel>
             ))}
@@ -154,7 +162,7 @@ export function QuestionRunner({
         <div className="mt-8 flex justify-end">
           <Button
             size="lg"
-            disabled={selectedOption === null || submitting}
+            disabled={selectedOptionId === null || submitting}
             onClick={error ? onRetry : onSubmit}
           >
             {error

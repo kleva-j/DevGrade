@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 
 import type { TestContext } from "node:test";
 import type { NewQuestion } from "@/db/schema";
-import type { SnapshotQuestion } from "@/domain/sessionSnapshots";
+import type { QuestionSnapshot } from "@/domain/sessionSnapshots";
 
 import {
   CONTENT_SOURCE,
@@ -20,7 +20,10 @@ import {
   WEIGHT_ADVANCED,
   WEIGHT_CORE,
 } from "@/domain/constants";
-import { parseReportSnapshot } from "@/domain/sessionSnapshots";
+import {
+  parseQuestionSnapshot,
+  parseReportSnapshot,
+} from "@/domain/sessionSnapshots";
 import { toPublicQuestion } from "@/domain/types";
 import {
   questions,
@@ -61,7 +64,7 @@ async function setup(t: TestContext) {
       title: `Original ${skillCategory}-${difficultyWeight}`,
       prompt: "Original prompt",
       codeBlock: "const original = true;",
-      options: ["Original A", "Original B", "Original C"],
+      options: ["Original A", "Original B", "Original C", "Original D"],
       correctAnswer: 2,
       explanation: `Original explanation ${skillCategory}-${difficultyWeight}`,
       difficultyWeight,
@@ -105,7 +108,11 @@ test(
     );
     assert.deepEqual(
       created.questions,
-      snapshot.questions.map(toPublicQuestion),
+      parseQuestionSnapshot(
+        snapshot,
+        session.selectedQuestionIds,
+        session,
+      ).questions.map(toPublicQuestion),
     );
     assert.ok(
       snapshot.questions.every(
@@ -114,7 +121,7 @@ test(
     );
     assert.doesNotMatch(
       JSON.stringify(created),
-      /"(?:questionSnapshot|correctAnswer|explanation|difficultyWeight|source)"\s*:/,
+      /"(?:questionSnapshot|correctAnswer|correctOptionId|explanation|difficultyWeight|source)"\s*:/,
     );
 
     // Identities remain for FK integrity; everything used to present/grade changes.
@@ -142,7 +149,7 @@ test(
       service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId: created.questions[0]!.id,
-        selectedAnswer: 3,
+        selectedOptionId: 4,
         timeSpentSeconds: 1,
       }),
       expectError(ERROR_CODE.BAD_REQUEST),
@@ -154,7 +161,7 @@ test(
       const accepted = await service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId: question.id,
-        selectedAnswer: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+        selectedOptionId: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
         timeSpentSeconds: index + 1,
       });
       assert.deepEqual(accepted, {
@@ -162,14 +169,14 @@ test(
         sessionComplete: index === snapshot.questions.length - 1,
         acceptedAnswer: {
           questionId: question.id,
-          selectedAnswer: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+          selectedOptionId: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
           timeSpentSeconds: index + 1,
         },
         acceptedAnswers: snapshot.questions
           .slice(-index - 1)
           .map((q, offset) => ({
             questionId: q.id,
-            selectedAnswer: q.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+            selectedOptionId: q.difficultyWeight === WEIGHT_CORE ? 0 : 2,
             timeSpentSeconds: index + 1 - offset,
           })),
         answeredCount: index + 1,
@@ -181,7 +188,7 @@ test(
       });
       assert.doesNotMatch(
         JSON.stringify(accepted),
-        /"(?:correctAnswer|isCorrect|explanation)"\s*:/,
+        /"(?:correctAnswer|correctOptionId|isCorrect|explanation)"\s*:/,
       );
     }
     const answers = await db
@@ -190,9 +197,8 @@ test(
       .where(eq(sessionAnswers.sessionId, created.sessionId));
     assert.equal(answers.length, 8);
     for (const answer of answers) {
-      const question: SnapshotQuestion | undefined = snapshot.questions.find(
-        (q) => q.id === answer.questionId,
-      );
+      const question: QuestionSnapshot["questions"][number] | undefined =
+        snapshot.questions.find((q) => q.id === answer.questionId);
       assert.ok(question);
       assert.equal(
         answer.isCorrect,
@@ -238,7 +244,13 @@ test(
     assert.ok(completed?.completedAt);
     const report = parseReportSnapshot(storedResult.reportSnapshot);
     assert.deepEqual(report, view.reportSnapshot);
-    assert.deepEqual(report.questions, created.questions);
+    assert.deepEqual(
+      report.questions,
+      created.questions.map((question) => ({
+        ...question,
+        options: question.options.map((option) => option.text),
+      })),
+    );
     assert.deepEqual(report.pillars, original.pillars);
     assert.equal(report.completedAt, completed.completedAt.toISOString());
     assert.deepEqual(storedResult.createdAt, completed.completedAt);
@@ -265,7 +277,7 @@ test(
     }
     assert.doesNotMatch(
       JSON.stringify(report),
-      /"(?:sessionToken|clientId|correctAnswer|questionSnapshot|difficultyWeight|source)"\s*:/,
+      /"(?:sessionToken|clientId|correctAnswer|correctOptionId|questionSnapshot|difficultyWeight|source)"\s*:/,
     );
     assert.ok(
       report.result.questionResults.every((q) =>
@@ -303,7 +315,7 @@ test(
     const input = {
       sessionToken: created.sessionToken,
       questionId: created.questions[0]!.id,
-      selectedAnswer: 2,
+      selectedOptionId: 2,
       timeSpentSeconds: 1,
     };
     await assert.rejects(
@@ -393,7 +405,7 @@ test(
       await service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId,
-        selectedAnswer: 2,
+        selectedOptionId: 2,
         timeSpentSeconds: 1,
       });
     }

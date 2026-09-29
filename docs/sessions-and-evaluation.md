@@ -1,6 +1,6 @@
 # Assessment sessions and evaluation
 
-**Current source — 2026-09-27.** Lifecycle Stages 1–4 and approved simplification Phases A/B/C are implemented. The owning PRs linked in the delivery plan provide live publication and review status. Maintenance remains **off/default-disabled**. Production migration, secrets, cron configuration, deployment, and activation remain unperformed. See [delivery and activation](session-lifecycle-plan.md), [simplification findings](session-lifecycle-simplification-plan.md), and the [PRD](../prd.md).
+**Current source — 2026-09-28.** Lifecycle Stages 1–4 and approved simplification Phases A/B/C are implemented. The owning PRs linked in the delivery plan provide live publication and review status. Maintenance remains **off/default-disabled**. Production migration, secrets, cron configuration, deployment, and activation remain unperformed. See [delivery and activation](session-lifecycle-plan.md), [simplification findings](session-lifecycle-simplification-plan.md), and the [PRD](../prd.md).
 
 ## 1. Policy and authority
 
@@ -30,7 +30,9 @@ One pure `sessionCredentialSchema` in `domain/sessionContracts.ts` is reused by 
 
 New writers always provide snapshots. Validation rejects unsupported/malformed snapshots and selected-order/configuration mismatches with `snapshot_unavailable`; it never repairs history from today's bank. Null snapshots are legacy-only. Report parsing allowlists nested fields; reads/replays neither rescore nor reconstruct private content. Preserve referenced bank/category identities; retire content rather than delete it.
 
-Sampling uses exactly **1/2/4 core + advanced pairs per pillar** for 8/16/32 questions (weights 1/2), without replacement. Any active-pool shortfall returns `insufficient_questions` without insertion, substitutes, or shortening. Questions are shuffled for presentation; option order is preserved. The seed contains 144 React questions, six core and six advanced per level/pillar bucket.
+Sampling uses exactly **1/2/4 core + advanced pairs per pillar** for 8/16/32 questions (weights 1/2), without replacement. Any active-pool shortfall returns `insufficient_questions` without insertion, substitutes, or shortening. Malformed options or a missing correct-option ID in any active row of the selected framework/level pool produce the same safe failure; repair or retire that row instead of silently skipping it. Questions are shuffled for presentation; option order is preserved. The seed contains 144 React questions, six core and six advanced per level/pillar bucket.
+
+**Option IDs — compatibility Stage 1:** runtime questions use `{ id: number, text: string }` options and a private `correctOptionId`; accepted selections use `selectedOptionId`. The bank reader accepts both legacy strings and ID objects, but bank storage and new private snapshots remain **V1**, with no option shuffling yet. V1 reads derive IDs only from saved option positions. V2 readers validate unique IDs in 0–2,147,483,647 (PostgreSQL `integer`) and correct/selected-ID membership; the V1 writer converts any canonical bank ID back to its saved array position. Existing snapshots/answers are never rewritten. Report snapshots stay V1 with ordered option text. See the [two-stage plan](../plans/001-option-ids-and-shuffling.md).
 
 Grading uses saved questions and pinned **v1** rules:
 
@@ -41,7 +43,7 @@ overall % = 100 × sum(correct × weight) / sum(weight) across all questions
 
 Wrong answers stay in the denominator. Percentages round to two decimals before tier assignment: **≥80 Proficient; ≥50 and <80 Developing; <50 Skill gap**. Only pillars below 50 enter `skillGaps`. Quick pillar scores are 0/33.33/66.67/100; Standard/Deep refine the steps without statistical-confidence or cross-set comparability claims. For Quick, correct weights 3/2/1/3 out of 3 each yield 9/12 = **75**, Developing, with only the third pillar flagged. No timing/focus-loss penalty, partial credit, code execution, or AI grading is applied.
 
-The report includes ordered `{ questionId, isCorrect, explanation }` results, never a `correctAnswer` index. Explanations can reveal answers and are released only after completion. Normalized rows and the safe report come from one calculation in one transaction.
+The report includes ordered `{ questionId, isCorrect, explanation }` results, never a `correctAnswer` index or `correctOptionId`. Explanations can reveal answers and are released only after completion. Normalized rows and the safe report come from one calculation in one transaction.
 
 ## 3. Operations and wire contracts
 
@@ -56,7 +58,9 @@ All eight `server/assessmentFns.ts` functions are **POST**, with **`Cache-Contro
 
 These are TanStack Start server functions, not literal `/api/sessions` REST routes. Logical `AssessmentError.status`/`toErrorResponse` mappings are **not automatically emitted HTTP statuses**. The adapter unwraps typed `AssessmentClientError`; callers inspect codes, not messages. Client transport failures use centralized `CLIENT_ERROR_CODE`, and changed-state notices reuse `DELETE_OUTCOME.CHANGED_STATE`. See [PRD §7](../prd.md#7-api-specifications) for inputs and logical errors.
 
-Validation happens before DB work: exact numeric count 8/16/32 (missing defaults to 8), `rawClientId` length 1–1024, question ID length 1–50, nonnegative integer option within the saved options, integer duration **0–3600**, and integer survey rating **1–5**. No submitted secrets, Zod issues, or raw DB errors are exposed.
+Validation happens before DB work: exact numeric count 8/16/32 (missing defaults to 8), `rawClientId` length 1–1024, question ID length 1–50, integer option ID in 0–2,147,483,647 belonging to the saved question, integer duration **0–3600**, and integer survey rating **1–5**. No submitted secrets, Zod issues, or raw DB errors are exposed.
+
+The current client requests `assessmentContract: "option_ids_v1"` on create/get/resume and submits `selectedOptionId`. Corresponding responses echo the marker. Omitted markers retain old V1 string options and positional `selectedAnswer` responses; both answer fields in one request are rejected. Legacy reads/resume/submissions for unfinished V2 sessions return `client_update_required` without mutation. Completed V2 sessions expose their V1 report or persisted legacy summary to either contract without activity writes; further answers return `session_completed`. Authentication and seven-day access checks still precede these responses. The client treats incompatible markers/option shapes as refresh-required, not as missing credentials or a reason to repeatedly retry. If an incompatible creation response contains valid credentials, they are saved before the error is shown; storage failures keep them in memory and suppress the reload action until storage recovery. The refresh action also checks actual storage at click time, rather than trusting the cached warning: every retained credential must have a matching readable stored handle. Failure updates the existing warning and suppresses reload. The synchronous check makes no storage writes or server calls and does not recreate deliberately cleared handles. It is a point-in-time safeguard, not a guarantee against another tab clearing storage after the check.
 
 ### Creation and discovery
 
