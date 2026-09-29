@@ -79,6 +79,32 @@ describe("seedQuestions bank integrity", () => {
     }
   });
 
+  test("correct-answer positions are balanced by level, pillar, and weight", () => {
+    for (const difficulty of DIFFICULTIES) {
+      for (const skillCategory of [undefined, ...SKILL_CATEGORIES]) {
+        for (const weight of [undefined, WEIGHT_CORE, WEIGHT_ADVANCED]) {
+          const group = seedQuestions.filter(
+            (q) =>
+              q.difficulty === difficulty &&
+              (skillCategory === undefined ||
+                q.skillCategory === skillCategory) &&
+              (weight === undefined || q.difficultyWeight === weight),
+          );
+          const counts = Array.from(
+            { length: OPTION_COUNT },
+            (_, index) => group.filter((q) => q.correctAnswer === index).length,
+          );
+
+          // Six-item weight pools cannot divide evenly across four positions.
+          assert.ok(
+            Math.max(...counts) - Math.min(...counts) <= 1,
+            `${difficulty}/${skillCategory ?? "all pillars"}/${weight ?? "all weights"}: answer-position counts ${counts.join(", ")}`,
+          );
+        }
+      }
+    }
+  });
+
   test("seed depth leaves a reserve beyond every preset quota", () => {
     for (const count of ASSESSMENT_LENGTHS) {
       const quota = count / (SKILL_CATEGORIES.length * 2);

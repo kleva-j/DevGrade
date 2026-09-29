@@ -7,6 +7,8 @@
  * to randomize over (anti-leakage) while realizing the 0/33/67/100 score
  * granularity (#3). Per-bucket minimum depth is enforced by
  * `db/__tests__/seedData.test.ts` (`MIN_CORE_PER_BUCKET`/`MIN_ADVANCED_PER_BUCKET`).
+ * Correct-answer positions are balanced within each level/pillar and weight
+ * class at authoring time; option order remains fixed during assessments.
  *
  * Provenance & licensing (see PRD §10.1 "Content sourcing & licensing"):
  * every row carries a `source`. `ORIGINAL` items are authored here for DevGrade.
@@ -44,11 +46,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Props are mutable inside the child; state is read-only.",
-      "State is owned by the component and can change over time; props are passed in by the parent and are read-only to the receiver.",
-      "Both props and state can be reassigned directly to trigger a re-render.",
       "Reassigning a prop inside the child re-renders the parent.",
+      "Both props and state can be reassigned directly to trigger a re-render.",
+      "State is owned by the component and can change over time; props are passed in by the parent and are read-only to the receiver.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "State is component-owned and updated through its setter to schedule a re-render. Props are inputs from the parent and are read-only to the child. Mutating either directly does not reliably re-render.",
     difficultyWeight: WEIGHT_CORE,
@@ -72,8 +74,8 @@ export const seedQuestions: NewQuestion[] = [
       "  return <button onClick={handleClick}>{count}</button>",
       "}",
     ].join("\n"),
-    options: ["3", "1", "0", "2"],
-    correctAnswer: 1,
+    options: ["3", "0", "1", "2"],
+    correctAnswer: 2,
     explanation:
       "All three calls read the same `count` (0) captured by this render's closure, so each queues `setCount(1)`. React batches them and the last write wins → 1. Use the updater form `setCount(c => c + 1)` to accumulate to 3.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -92,11 +94,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Runs after every render.",
-      "Runs once, after the component's initial mount.",
       "Runs synchronously before the first render.",
+      "Runs once, after the component's initial mount.",
       "Never runs because the array is empty.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "An empty dependency array means the effect has no reactive dependencies, so React runs it once after the initial mount (and runs its cleanup on unmount).",
     difficultyWeight: WEIGHT_CORE,
@@ -117,11 +119,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "Only once, immediately after the effect runs.",
-      "Before the component unmounts (and before the effect re-runs on a dependency change).",
-      "On every render, before the DOM is painted.",
       "Never, because the dependency array is empty.",
+      "On every render, before the DOM is painted.",
+      "Before the component unmounts (and before the effect re-runs on a dependency change).",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "React runs an effect's cleanup before re-running the effect (when a dependency changes) and once more when the component unmounts. With `[]` here, cleanup runs only at unmount, clearing the interval.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -138,12 +140,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "Why does React ask for a `key` on items rendered from a list?",
     codeBlock: null,
     options: [
-      "It sets the item's position in the DOM via CSS order.",
       "It gives each item a stable identity so React can match, reuse, and update the right elements during reconciliation.",
+      "It sets the item's position in the DOM via CSS order.",
       "It encrypts the list data before rendering.",
       "It is required only for TypeScript to type the array.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Keys give siblings a stable identity across renders, letting React's reconciler tell which items were added, removed, or reordered and reuse DOM/state accordingly instead of rebuilding them.",
     difficultyWeight: WEIGHT_CORE,
@@ -163,12 +165,12 @@ export const seedQuestions: NewQuestion[] = [
       "))}",
     ].join("\n"),
     options: [
-      "None — the index is always the safest key.",
       "When the list reorders or an item is inserted, indices shift and React may associate a row's state with the wrong item.",
+      "None — the index is always the safest key.",
       "React throws a runtime error for numeric keys.",
       "It disables reconciliation entirely for the list.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Index keys are only stable while the list is append-only and static. On insert/reorder the index-to-item mapping changes, so React reuses the wrong element and local state (inputs, focus) can attach to the wrong row. Prefer a stable id.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -187,11 +189,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Directly in the component body, during render.",
-      "Inside a `useEffect` (or an event handler) — never during render.",
-      "Inside the JSX return expression.",
       "In the component's default props.",
+      "Inside the JSX return expression.",
+      "Inside a `useEffect` (or an event handler) — never during render.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Rendering must stay pure and side-effect-free. Data fetching belongs in a `useEffect` for mount/dependency-driven loads, or in an event handler for user-triggered loads.",
     difficultyWeight: WEIGHT_CORE,
@@ -209,8 +211,8 @@ export const seedQuestions: NewQuestion[] = [
       "Promise.resolve().then(() => console.log('B'))",
       "console.log('C')",
     ].join("\n"),
-    options: ["A, B, C", "A, C, B", "B, A, C", "A, C then nothing"],
-    correctAnswer: 1,
+    options: ["A, B, C", "B, A, C", "A, C, B", "A, C then nothing"],
+    correctAnswer: 2,
     explanation:
       "Synchronous code runs first (`A`, `C`). The `.then` callback is a microtask queued to run after the current synchronous code finishes, so `B` logs last → A, C, B.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -233,12 +235,12 @@ export const seedQuestions: NewQuestion[] = [
       "}",
     ].join("\n"),
     options: [
-      "It re-renders too often.",
       "`value` is initialized once and won't update when the `amount` prop later changes; derive it during render instead.",
+      "It re-renders too often.",
       "`useState` cannot accept a prop as its initial value.",
       "It mutates the parent's state.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "`useState(amount)` only reads `amount` on the first render; later prop changes are ignored. If the value is fully determined by props, render it directly (derived state) rather than mirroring it into state.",
     difficultyWeight: WEIGHT_CORE,
@@ -254,12 +256,12 @@ export const seedQuestions: NewQuestion[] = [
       "Two sibling components must stay in sync with the same value. What is the idiomatic React approach?",
     codeBlock: null,
     options: [
-      "Duplicate the state in each sibling and keep them in sync manually.",
       "Lift the state to their closest common parent and pass it down as props (or via context).",
+      "Duplicate the state in each sibling and keep them in sync manually.",
       "Store it on `window` and read it in both.",
       "Use a module-level mutable variable imported by both.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "When two components need the same changing value, lift it to their nearest common ancestor and pass it down. A single owner keeps them consistent; duplicating state invites drift.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -283,11 +285,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "The interval is too slow; lower the delay.",
-      "`count` is omitted from the dependency array, so the effect closes over the first render's value; include `count` (or use a ref/updater) so it stays current.",
       "`clearInterval` must be called before `setInterval`.",
+      "`count` is omitted from the dependency array, so the effect closes over the first render's value; include `count` (or use a ref/updater) so it stays current.",
       "`console.log` cannot be used inside an effect.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "With `[]`, the closure captures `count` from the first render and never updates. List `count` as a dependency (the effect re-subscribes with fresh values), or read it from a ref, to avoid the stale-closure bug.",
     difficultyWeight: WEIGHT_CORE,
@@ -304,11 +306,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It's a bug in React 18; downgrade to fix it.",
-      "StrictMode intentionally mounts, unmounts, and remounts components in development to surface effects that aren't cleaned up correctly; production runs once.",
       "The component is rendered by two parents.",
+      "StrictMode intentionally mounts, unmounts, and remounts components in development to surface effects that aren't cleaned up correctly; production runs once.",
       "Effects always run twice, in development and production.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "React 18 StrictMode double-invokes effects (setup → cleanup → setup) in development only, to reveal missing or incorrect cleanup. An effect written with proper cleanup is resilient to this and behaves correctly in production, where it runs once.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -355,11 +357,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "`React.memo` only works on class components.",
-      "A new `onClick` function is created every render, so the prop reference differs and `memo`'s shallow comparison fails; stabilize it with `useCallback`.",
-      "`memo` requires a custom comparison to work at all.",
       "The button element forces a re-render.",
+      "`memo` requires a custom comparison to work at all.",
+      "A new `onClick` function is created every render, so the prop reference differs and `memo`'s shallow comparison fails; stabilize it with `useCallback`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`React.memo` skips re-render only when props are shallowly equal. The inline arrow creates a fresh function each render, so `onClick` is never equal. Wrap it in `useCallback` (with correct deps) to keep a stable reference.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -407,12 +409,12 @@ export const seedQuestions: NewQuestion[] = [
       "const posts = await fetchPosts(id)",
     ].join("\n"),
     options: [
-      "~1s; it's already parallel.",
       "~2s because the awaits run sequentially; start both first and `await Promise.all([...])` to overlap them (~1s).",
+      "~1s; it's already parallel.",
       "~2s and it cannot be made faster.",
       "~0s; awaits don't block.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Awaiting the first request before starting the second serializes them (~2s). Since `fetchPosts` doesn't depend on `user`, kick both off and `await Promise.all([fetchUser(id), fetchPosts(id)])` so they run concurrently (~1s).",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -460,11 +462,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "Context always re-renders every consumer on any render.",
-      "The `value` object literal is recreated each render, so its reference changes and all consumers re-render; memoize it with `useMemo`.",
       "`setUser` changes identity every render.",
+      "The `value` object literal is recreated each render, so its reference changes and all consumers re-render; memoize it with `useMemo`.",
       "Consumers must be wrapped in `React.memo` or context won't work.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Context consumers re-render when the provided `value` changes by identity. The inline `{ user, setUser }` is a new object every render, so all consumers update. Wrap it in `useMemo([user])` (and pass a stable `setUser`) to re-render only when `user` actually changes.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -483,11 +485,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "`useEffect`, because it runs before paint.",
-      "`useLayoutEffect`, because it runs synchronously after DOM mutations but before the browser paints, letting you measure and mutate without a visible flash.",
-      "Either one; they run at the same time.",
       "`useMemo`, to cache the measurement.",
+      "Either one; they run at the same time.",
+      "`useLayoutEffect`, because it runs synchronously after DOM mutations but before the browser paints, letting you measure and mutate without a visible flash.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`useEffect` runs after paint, so DOM reads/writes there can flicker. `useLayoutEffect` fires synchronously after mutations and before paint — correct for measuring and adjusting layout — at the cost of blocking paint, so use it sparingly.",
     difficultyWeight: WEIGHT_CORE,
@@ -533,11 +535,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It makes a function execute faster.",
-      "It returns a stable function identity across renders, which matters when that function is a dependency or a prop to a memoized child.",
-      "It memoizes the function's return value.",
       "It prevents the function from ever being recreated in memory.",
+      "It memoizes the function's return value.",
+      "It returns a stable function identity across renders, which matters when that function is a dependency or a prop to a memoized child.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`useCallback(fn, deps)` returns the same function reference until a dependency changes. That referential stability only pays off when the function feeds a `React.memo` child or another hook's dependency array; otherwise it's overhead.",
     difficultyWeight: WEIGHT_CORE,
@@ -554,11 +556,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Wrap the list in `useMemo` so it never re-renders.",
-      "Mark the expensive list update as non-urgent with `useTransition`, so the input stays responsive while the results render at lower priority.",
       "Move rendering into a `useEffect`.",
+      "Mark the expensive list update as non-urgent with `useTransition`, so the input stays responsive while the results render at lower priority.",
       "Increase the debounce until it feels smooth.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`useTransition` lets you flag the costly results update as a transition (non-urgent). React keeps the urgent input update responsive and renders the heavy list without blocking typing, optionally showing an `isPending` state — more robust than tuning a debounce.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -627,12 +629,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "How do you make a text `<input>` a controlled component in React?",
     codeBlock: null,
     options: [
-      "Set only `defaultValue` and read the DOM node when you need the value.",
       "Bind `value` to state and update that state in an `onChange` handler.",
+      "Set only `defaultValue` and read the DOM node when you need the value.",
       "Assign to `input.value` directly inside the render body.",
       "Wrap the input in `useMemo`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "A controlled input derives its `value` from React state and pushes user edits back into state via `onChange`, making React the single source of truth. `defaultValue` alone leaves the input uncontrolled.",
     difficultyWeight: WEIGHT_CORE,
@@ -672,11 +674,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Once, after mount only.",
-      "After every render — the initial mount and every update.",
-      "Never, because there is no dependency array.",
       "Only when props change.",
+      "Never, because there is no dependency array.",
+      "After every render — the initial mount and every update.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Omitting the second argument entirely runs the effect after every completed render. `[]` would run it once after mount; `[dep]` would run it whenever `dep` changes.",
     difficultyWeight: WEIGHT_CORE,
@@ -717,12 +719,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "Which of these causes a React function component to re-render?",
     codeBlock: null,
     options: [
-      "Mutating a plain local variable inside the component.",
-      "Logging to the console during render.",
       "A change to its state (via a setter) or to the props it receives.",
+      "Logging to the console during render.",
+      "Mutating a plain local variable inside the component.",
       "Editing a module-level variable it happens to read.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "A component re-renders when its own state changes through a setter, when its parent re-renders and passes new props, or when a context it consumes changes. Mutating plain variables does not notify React.",
     difficultyWeight: WEIGHT_CORE,
@@ -740,10 +742,10 @@ export const seedQuestions: NewQuestion[] = [
     options: [
       "Only children whose props changed re-render.",
       "No children re-render unless they hold their own state.",
-      "They re-render too, whether or not their props changed — unless memoized.",
       "React throws if the children lack keys.",
+      "They re-render too, whether or not their props changed — unless memoized.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 3,
     explanation:
       "By default React re-renders the whole subtree below a component that re-renders, including children whose props are unchanged. `React.memo` with stable props is what lets a child skip that work.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -761,12 +763,12 @@ export const seedQuestions: NewQuestion[] = [
       "You fetch data on mount and want a spinner until it arrives. What is the standard approach?",
     codeBlock: null,
     options: [
-      "Block rendering with a `while` loop until the data is ready.",
       "Keep a `loading` status in state; show the spinner while it is true and flip it when the fetch settles.",
+      "Block rendering with a `while` loop until the data is ready.",
       "Read `document.readyState` during render.",
       "Fetch synchronously so no spinner is needed.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Track request status in state (e.g. loading / error / data). Render the spinner while loading is true, then set it false in the effect once the promise resolves or rejects, keeping rendering declarative.",
     difficultyWeight: WEIGHT_CORE,
@@ -787,12 +789,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [])",
     ].join("\n"),
     options: [
-      "`await` is not allowed inside effects at all.",
       "An `async` function returns a Promise, but React expects an effect to return nothing or a cleanup function — declare the async function inside and call it.",
+      "`await` is not allowed inside effects at all.",
       "It forces the effect to run twice.",
       "`setData` cannot be called after an `await`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "An `async` function always returns a Promise, which React would mistake for a cleanup function. Declare the async function inside the effect and invoke it — `useEffect(() => { (async () => { ... })() }, [])` — returning a real cleanup if needed.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -814,8 +816,8 @@ export const seedQuestions: NewQuestion[] = [
       "  console.log(count)",
       "}",
     ].join("\n"),
-    options: ["1", "0", "undefined", "It logs twice."],
-    correctAnswer: 1,
+    options: ["1", "It logs twice.", "undefined", "0"],
+    correctAnswer: 3,
     explanation:
       "`setCount` schedules an update; it does not reassign the `count` binding in the current render's scope. `console.log(count)` still sees this render's value (0). The new value is visible on the next render.",
     difficultyWeight: WEIGHT_CORE,
@@ -836,11 +838,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "`push` is asynchronous.",
-      "`setItems` receives the same array reference it already holds, so React bails out of re-rendering; pass a new array instead.",
-      "You must call `setItems` twice.",
       "Arrays cannot be stored in state.",
+      "You must call `setItems` twice.",
+      "`setItems` receives the same array reference it already holds, so React bails out of re-rendering; pass a new array instead.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "React compares the next state to the previous with `Object.is`. Mutating the array in place and passing the same reference looks unchanged, so React skips the render. Create a new array: `setItems([...items, item])`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -862,12 +864,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [{ id }])",
     ].join("\n"),
     options: [
-      "`subscribe` mutates state.",
       "A new object literal `{ id }` is created each render, so its reference always differs and the effect re-runs; depend on the primitive `id` instead.",
+      "`subscribe` mutates state.",
       "Objects cannot be used inside effects.",
       "The dependency array needs a second element.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Dependencies are compared by identity. A fresh object or array literal in the deps array is a new reference every render, so the effect never sees it as equal. Depend on the primitive fields (`[id]`) or memoize the object.",
     difficultyWeight: WEIGHT_CORE,
@@ -883,12 +885,12 @@ export const seedQuestions: NewQuestion[] = [
       "You need to remember a timer id across renders without causing a re-render when it changes. What fits best?",
     codeBlock: null,
     options: [
-      "A `useState` value.",
-      "A module-level variable shared by all instances.",
       "A `useRef` — its `.current` persists across renders and updating it does not trigger a render.",
+      "A module-level variable shared by all instances.",
+      "A `useState` value.",
       "A `useMemo` with an empty dependency array.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "`useRef` gives each component instance a stable, mutable container whose `.current` survives renders and, unlike state, can be updated without scheduling a re-render — ideal for timer ids, previous values, and instance-local bookkeeping.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -906,11 +908,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "the component receives no props.",
-      "it re-renders often with the same props while its render work is non-trivial, and its props keep a stable identity.",
       "you want it to render only once, ever.",
+      "it re-renders often with the same props while its render work is non-trivial, and its props keep a stable identity.",
       "it manages its own local state.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`React.memo` skips a re-render when props are shallowly equal. It pays off for components that would otherwise re-render frequently with unchanged, referentially-stable props. If props change every render (inline objects/functions), memo adds cost without benefit.",
     difficultyWeight: WEIGHT_CORE,
@@ -926,12 +928,12 @@ export const seedQuestions: NewQuestion[] = [
       "A fast-changing input sits beside an expensive chart in the same component, and typing re-renders the chart. What is the cleanest fix?",
     codeBlock: null,
     options: [
-      "Wrap the whole component in `useMemo`.",
       "Move the input and its state into a small child component, so the parent (and the chart) no longer re-render on every keystroke.",
+      "Wrap the whole component in `useMemo`.",
       "Debounce every render of the component.",
       "Store the input value on `window`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "The re-render comes from the input's state living too high in the tree. Colocating that state in a dedicated child limits re-renders to that child, leaving the expensive sibling untouched — a structural fix that beats sprinkling memoization.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -950,11 +952,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "`fetch` retries 5xx responses automatically.",
-      "`fetch` rejects only on network failures; HTTP 4xx/5xx still resolve, so you must check `response.ok` yourself.",
-      "500 responses are served from cache.",
       "You must use `XMLHttpRequest` to catch errors.",
+      "500 responses are served from cache.",
+      "`fetch` rejects only on network failures; HTTP 4xx/5xx still resolve, so you must check `response.ok` yourself.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`fetch` rejects only when the request cannot complete (network error, CORS, abort). An HTTP error status still resolves successfully, so inspect `response.ok` (or `response.status`) and throw to route 4xx/5xx into your error handling.",
     difficultyWeight: WEIGHT_CORE,
@@ -971,11 +973,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "`Promise.all` returns the successes and ignores the failure.",
-      "`Promise.all` rejects as soon as any input rejects, discarding the others; use `Promise.allSettled` to get each result's status independently.",
       "It waits and retries the failed request.",
+      "`Promise.all` rejects as soon as any input rejects, discarding the others; use `Promise.allSettled` to get each result's status independently.",
       "It resolves with `undefined` in place of the failure.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`Promise.all` short-circuits: the first rejection rejects the whole thing and the fulfilled values are lost. `Promise.allSettled` waits for every promise and returns a `{ status, value | reason }` per entry, so partial success is usable.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -995,10 +997,10 @@ export const seedQuestions: NewQuestion[] = [
     options: [
       "`useEffect` combined with `useState`.",
       "`useMemo`.",
-      "`useSyncExternalStore`.",
       "`useReducer`.",
+      "`useSyncExternalStore`.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 3,
     explanation:
       "`useSyncExternalStore` subscribes to an external store and reads its snapshot without tearing — inconsistent reads across a concurrent render. The ad-hoc `useEffect` + `useState` pattern can surface stale or torn values under concurrency.",
     difficultyWeight: WEIGHT_CORE,
@@ -1017,11 +1019,11 @@ export const seedQuestions: NewQuestion[] = [
     ),
     options: [
       "Two — updates outside React events are never batched.",
-      "One — React 18 automatically batches updates from timeouts, promises, and native handlers too.",
-      "Zero until the next user event.",
       "It depends on how deep the component is.",
+      "Zero until the next user event.",
+      "One — React 18 automatically batches updates from timeouts, promises, and native handlers too.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Before React 18, batching applied only inside React's own event handlers, so timeouts and promises caused a render per `setState`. React 18's automatic batching groups these updates as well, yielding a single re-render. Use `flushSync` to opt out.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1040,11 +1042,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "In a `useEffect` that writes the result into separate state.",
-      "Directly during render — optionally wrapped in `useMemo` — with no effect at all.",
       "In a `useLayoutEffect`.",
+      "Directly during render — optionally wrapped in `useMemo` — with no effect at all.",
       "In a ref updated on every render.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Data derived from props/state should be computed during render, not synced into state via an effect. An effect there adds an extra render and a chance for the copy to drift. Compute it inline, reaching for `useMemo` only if the calculation is genuinely expensive.",
     difficultyWeight: WEIGHT_CORE,
@@ -1060,12 +1062,12 @@ export const seedQuestions: NewQuestion[] = [
       "A parent needs to call `.focus()` on a custom `<TextField>` child. Which pair exposes that cleanly?",
     codeBlock: null,
     options: [
-      "`useMemo` and context.",
       "`forwardRef` together with `useImperativeHandle` to expose a limited method surface.",
+      "`useMemo` and context.",
       "A global event bus.",
       "`useState` storing the DOM node.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "`forwardRef` lets the parent's ref reach the child, and `useImperativeHandle(ref, () => ({ focus }))` defines exactly which imperative methods are exposed — a controlled escape hatch instead of leaking the whole DOM node.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1083,12 +1085,12 @@ export const seedQuestions: NewQuestion[] = [
       "A list of 10,000 rows makes the page sluggish. What is the most effective rendering strategy?",
     codeBlock: null,
     options: [
-      "Wrap every row in `React.memo`.",
       "Virtualize the list — render only the rows in and near the viewport, recycling them as the user scrolls.",
+      "Wrap every row in `React.memo`.",
       "Move the list rendering into a `useEffect`.",
       "Re-fetch a page on every scroll pixel.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "The cost is in mounting thousands of DOM nodes. List virtualization (windowing) renders only the visible slice plus a small buffer, keeping the node count small regardless of dataset size. Memoizing rows does not remove the nodes.",
     difficultyWeight: WEIGHT_CORE,
@@ -1105,11 +1107,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "`useMemo`.",
-      "`useDeferredValue`, which returns a deferred copy of the value so the expensive render can lag behind the urgent input update.",
-      "`useRef`.",
       "`useLayoutEffect`.",
+      "`useRef`.",
+      "`useDeferredValue`, which returns a deferred copy of the value so the expensive render can lag behind the urgent input update.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`useDeferredValue(value)` yields a version of the value that updates at lower priority. The input reflects keystrokes immediately while the expensive list re-renders from the deferred value, avoiding jank — the value-based complement to `useTransition`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1128,11 +1130,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "The component renders with `undefined` data.",
-      "The component suspends and React shows the nearest `<Suspense>` boundary's `fallback` until the data resolves.",
       "React throws an unhandled error.",
+      "The component suspends and React shows the nearest `<Suspense>` boundary's `fallback` until the data resolves.",
       "The effect retries silently in the background.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "A component reading not-yet-ready data 'suspends'; React walks up to the nearest `<Suspense>` boundary and renders its `fallback` meanwhile, then swaps in the real content once the data resolves — no manual loading flag in that component.",
     difficultyWeight: WEIGHT_CORE,
@@ -1149,11 +1151,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Nothing; this is already optimal.",
-      "It is a waterfall: each request waits for a parent to render and fetch first; hoist or parallelize the independent fetches (or preload) so they run concurrently.",
-      "Effects cannot fetch, so it never completes.",
       "Only the last request actually runs.",
+      "Effects cannot fetch, so it never completes.",
+      "It is a waterfall: each request waits for a parent to render and fetch first; hoist or parallelize the independent fetches (or preload) so they run concurrently.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Chaining fetches through nested components serializes them into a waterfall, adding a round-trip per level. Kick off independent requests together (lift data loading, `Promise.all`, or route-level preloading) so total latency is one round-trip, not N.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1177,11 +1179,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "One `useState` call is the maximum per component.",
-      "Call `useState` twice — one for `name` and one for `age`.",
       "Store both on a single `useRef`.",
+      "Call `useState` twice — one for `name` and one for `age`.",
       "Wrap each value in its own `useMemo`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "A component may call `useState` as many times as it needs. Two independent values are cleanest as two separate state variables; grouping them in one object works too but then every update must spread the unchanged fields.",
     difficultyWeight: WEIGHT_CORE,
@@ -1197,11 +1199,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "open = !open",
-      "setOpen(open)",
       "setOpen((o) => !o)",
+      "setOpen(open)",
       "open.toggle()",
     ],
-    correctAnswer: 2,
+    correctAnswer: 1,
     explanation:
       "Use the setter with the updater form `setOpen(o => !o)` so the flip is based on the latest value. Reassigning `open` directly does not notify React, and `setOpen(open)` sets it to its current value.",
     difficultyWeight: WEIGHT_CORE,
@@ -1218,11 +1220,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "setCount(count + 1), three times",
-      "setCount((c) => c + 1), three times",
-      "count = count + 3",
       "setCount(count + 3) is the only way",
+      "count = count + 3",
+      "setCount((c) => c + 1), three times",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "The updater form `setCount(c => c + 1)` queues functions that each receive the latest pending value, so three of them accumulate to +3. Passing `count + 1` reads the same render's value three times, collapsing to +1.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1237,12 +1239,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "How do you update just `user.name` and trigger a re-render?",
     codeBlock: "const [user, setUser] = useState({ name: '', age: 0 })",
     options: [
-      "user.name = next",
-      "setUser({ name: next })",
       "setUser({ ...user, name: next })",
+      "setUser({ name: next })",
+      "user.name = next",
       "setUser((user.name = next))",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "Create a new object that copies the old fields and overrides one: `setUser({ ...user, name: next })`. Mutating `user.name` keeps the same reference (no re-render), and `setUser({ name: next })` would drop `age`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1260,11 +1262,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Render JSX conditionally.",
-      "Synchronize a component with an external system or run side effects after render (subscriptions, timers, manual DOM, fetching).",
       "Replace all event handlers.",
+      "Synchronize a component with an external system or run side effects after render (subscriptions, timers, manual DOM, fetching).",
       "Memoize expensive values.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Effects let you step outside React to synchronize with external systems — subscriptions, timers, network, non-React DOM — after the render is committed. Pure rendering and user-event logic do not belong there.",
     difficultyWeight: WEIGHT_CORE,
@@ -1280,11 +1282,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "To return JSX to render.",
-      "To undo what the effect set up — e.g. clear a timer or remove a subscription — before the next run and on unmount.",
-      "To memoize the effect.",
       "It is decorative and has no behavior.",
+      "To memoize the effect.",
+      "To undo what the effect set up — e.g. clear a timer or remove a subscription — before the next run and on unmount.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "The returned cleanup undoes the effect's setup. React runs it before re-running the effect (deps changed) and once at unmount, preventing leaks like dangling intervals or duplicate listeners.",
     difficultyWeight: WEIGHT_CORE,
@@ -1303,12 +1305,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [count])",
     ].join("\n"),
     options: [
-      "Once, after mount only.",
       "After every render where `count` differs from the previous render.",
+      "Once, after mount only.",
       "Never.",
       "Before every render.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "With `[count]`, React runs the effect after the initial mount and then after any render where `count` changed (compared with `Object.is`). Renders that do not change `count` skip it.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1323,12 +1325,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "What happens with this effect?",
     codeBlock: ["useEffect(() => {", "  setCount(count + 1)", "})"].join("\n"),
     options: [
-      "It runs exactly once.",
-      "It never runs.",
       "It loops infinitely: with no dependency array it runs after every render, and each `setCount` triggers another render.",
+      "It never runs.",
+      "It runs exactly once.",
       "React batches it into a single update.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "No dependency array means the effect runs after every render. Calling `setCount` schedules a new render, which runs the effect again — an infinite loop. Add a dependency array (or a condition) so it settles.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1369,11 +1371,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Rebuilds the entire DOM subtree.",
-      "Compares the new elements to the previous ones and updates only what actually changed (often nothing).",
-      "Reloads the page.",
       "Nothing — re-rendering always skips the DOM entirely.",
+      "Reloads the page.",
+      "Compares the new elements to the previous ones and updates only what actually changed (often nothing).",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Re-rendering produces new React elements; React diffs them against the previous tree and commits only real differences. An identical render results in no DOM mutations, though the component function still ran.",
     difficultyWeight: WEIGHT_CORE,
@@ -1389,11 +1391,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Nothing — random keys are the most unique.",
-      "A new key is generated every render, so React cannot match items across renders and remounts them — losing DOM state, focus, and performance.",
       "React rejects numeric keys.",
+      "A new key is generated every render, so React cannot match items across renders and remounts them — losing DOM state, focus, and performance.",
       "It only affects TypeScript types.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Keys must be stable across renders. `Math.random()` produces a different key each render, so React treats every item as brand-new — unmounting and remounting them, discarding input/focus state and doing needless work. Use a stable id.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1415,11 +1417,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "Rows cannot hold state.",
-      "A new `Row` function is created on each `List` render, so React sees a different component type and remounts every row, resetting their state.",
       "Missing keys cause it.",
+      "A new `Row` function is created on each `List` render, so React sees a different component type and remounts every row, resetting their state.",
       "`map` clears state.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Declaring a component inside another creates a brand-new function identity each render. React compares by type, sees a 'different' component, and remounts it — wiping local state. Define components at module scope and pass data via props.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1438,11 +1440,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "A `color` state.",
-      "An `error` state, set in a `catch`, so you can show a message instead of a blank screen.",
       "A `key` state.",
+      "An `error` state, set in a `catch`, so you can show a message instead of a blank screen.",
       "None — failures can be ignored.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Model the request as loading / data / error. Catch rejections and store an error value so the UI can render a message and a retry, rather than hanging on the spinner or crashing.",
     difficultyWeight: WEIGHT_CORE,
@@ -1508,11 +1510,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "The resolved user object.",
-      "A pending Promise, so `user.name` is `undefined` — you forgot to `await fetchUser()`.",
-      "null",
       "The string 'name'.",
+      "null",
+      "A pending Promise, so `user.name` is `undefined` — you forgot to `await fetchUser()`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`fetchUser()` returns a promise; without `await`, `user` is that promise, not the resolved value, so `user.name` is `undefined`. Write `const user = await fetchUser()`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1552,13 +1554,13 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "form.email = next; setForm(form)",
-      "setForm({ email: next })",
       "setForm({ ...form, email: next })",
+      "setForm({ email: next })",
       "setForm((prev) => (prev.email = next))",
     ],
-    correctAnswer: 2,
+    correctAnswer: 1,
     explanation:
-      "Spread the previous object and override the field: `setForm({ ...form, email: next })`. Option 2 drops `prefs`; option 1 mutates the same reference (no re-render); option 4 mutates and returns a string.",
+      "Spread the previous object and override the field: `setForm({ ...form, email: next })`. `setForm({ email: next })` drops `prefs`; `form.email = next; setForm(form)` mutates the existing object and passes the same reference, so React can skip re-rendering; `setForm((prev) => (prev.email = next))` mutates `prev` and returns the assigned value rather than the form object.",
     difficultyWeight: WEIGHT_CORE,
     source: CONTENT_SOURCE.SUDHEERJ_REACT,
   },
@@ -1573,11 +1575,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Clear every state field in an effect on id change.",
-      "Give it a changing `key`: `<Profile key={id} userId={id} />` so React remounts it fresh when id changes.",
       "Call a `forceUpdate` helper.",
+      "Give it a changing `key`: `<Profile key={id} userId={id} />` so React remounts it fresh when id changes.",
       "Move all of its state to the parent.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Changing a component's `key` makes React treat it as a new instance and remount it, discarding its state. `key={id}` cleanly resets `<Profile>` per user — simpler and less bug-prone than manually resetting each field in an effect.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1594,11 +1596,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "State cannot hold arrays.",
-      "`itemCount` is derivable from `items`, so storing it separately creates two sources of truth; compute it during render instead.",
       "It needs `useReducer`.",
+      "`itemCount` is derivable from `items`, so storing it separately creates two sources of truth; compute it during render instead.",
       "The effect dependencies are wrong.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Anything you can compute from existing state/props should not live in its own state. Derive `items.length` during render. Duplicating it means every mutation must update both, and any miss causes drift.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1638,11 +1640,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Disable the lint rule permanently.",
-      "Wrap the function in `useCallback` (or move it inside the effect) so its identity is stable.",
       "Delete the dependency array.",
+      "Wrap the function in `useCallback` (or move it inside the effect) so its identity is stable.",
       "Convert the function to a class method.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "A function declared in the component body is recreated each render, so listing it in deps re-runs the effect constantly. Stabilize it with `useCallback` (correct deps) or define it inside the effect so it is not a dependency.",
     difficultyWeight: WEIGHT_CORE,
@@ -1708,11 +1710,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "A function that executes faster.",
-      "The same function reference across renders until a dependency changes.",
       "The memoized return value of the function.",
+      "The same function reference across renders until a dependency changes.",
       "A debounced version of the function.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`useCallback` preserves a function's identity between renders (until deps change). That referential stability matters when the function is passed to a `React.memo` child or used in another hook's dependency array; otherwise it is overhead.",
     difficultyWeight: WEIGHT_CORE,
@@ -1749,11 +1751,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: ["<Wrapper>", "  <ExpensiveTree />", "</Wrapper>"].join("\n"),
     options: [
       "Children never re-render, ever.",
-      "`<ExpensiveTree />` is created by the parent and passed in as a stable prop, so Wrapper's own re-renders do not recreate it — React reuses the same element.",
       "`Wrapper` is memoized automatically.",
+      "`<ExpensiveTree />` is created by the parent and passed in as a stable prop, so Wrapper's own re-renders do not recreate it — React reuses the same element.",
       "It is a coincidence of timing.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "The element is constructed where it is written (the parent) and handed to Wrapper as `children`. When Wrapper re-renders from its own state, the `children` prop is the same element reference, so React skips that subtree — the 'pass children / move state down' pattern.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1791,12 +1793,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "What does `getValue` return?",
     codeBlock: ["async function getValue() {", "  return 42", "}"].join("\n"),
     options: [
-      "The number 42.",
       "A Promise that resolves to 42.",
+      "The number 42.",
       "undefined",
       "A syntax error.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "An `async` function always returns a Promise; a plain `return 42` resolves that promise with 42. Callers must `await getValue()` (or use `.then`) to read the value.",
     difficultyWeight: WEIGHT_CORE,
@@ -1813,11 +1815,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Yes, always parallelize requests.",
-      "No — the second request depends on the first's result, so they must run sequentially; only independent requests should be parallelized.",
-      "Yes, `Promise.all` handles the dependency for you.",
       "Neither request can be awaited.",
+      "Yes, `Promise.all` handles the dependency for you.",
+      "No — the second request depends on the first's result, so they must run sequentially; only independent requests should be parallelized.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Parallelism helps only for independent work. When the second call needs data from the first, awaiting them in sequence is required. Reserve `Promise.all` for requests that do not depend on each other.",
     difficultyWeight: WEIGHT_CORE,
@@ -1855,11 +1857,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Make the fetch faster.",
-      "Debounce the input — wait until typing pauses (e.g. 300ms) before firing, and cancel the pending request on each new keystroke.",
-      "Use `Promise.all`.",
       "Move the fetch into render.",
+      "Use `Promise.all`.",
+      "Debounce the input — wait until typing pauses (e.g. 300ms) before firing, and cancel the pending request on each new keystroke.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Debouncing delays the request until the user stops typing for a short interval, collapsing a burst of keystrokes into one call. Pair it with cancellation (clear the timer / abort in flight) so only the final query runs.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1897,12 +1899,12 @@ export const seedQuestions: NewQuestion[] = [
       "Is it safe to omit a `useState` setter or `useReducer` `dispatch` from an effect's dependency array?",
     codeBlock: null,
     options: [
-      "No, they change every render.",
       "Yes — React guarantees these functions are stable across renders, so they need not be dependencies.",
+      "No, they change every render.",
       "Only in production.",
       "Only if wrapped in `useCallback`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "React guarantees the identity of `setState` setters and `dispatch` is stable for the component's lifetime, so the lint rule allows omitting them from dependency arrays. Values they close over are not stable, but the functions themselves are.",
     difficultyWeight: WEIGHT_CORE,
@@ -1919,11 +1921,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It is always safe.",
-      "During a concurrent render the store can change mid-render, so different components read different values — 'tearing' (visual inconsistency). `useSyncExternalStore` prevents it.",
-      "It causes hydration to be skipped.",
       "It disables Suspense.",
+      "It causes hydration to be skipped.",
+      "During a concurrent render the store can change mid-render, so different components read different values — 'tearing' (visual inconsistency). `useSyncExternalStore` prevents it.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Concurrent rendering can pause and resume. If an external store mutates between reads, parts of the same render see different snapshots — tearing. `useSyncExternalStore` gives React a consistent snapshot and forces a re-render on change, avoiding it.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1940,11 +1942,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "useMemo",
-      "flushSync(() => setState(...)) from react-dom, used sparingly because it forgoes batching.",
       "useEffect",
+      "flushSync(() => setState(...)) from react-dom, used sparingly because it forgoes batching.",
       "startTransition",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`flushSync` forces React to apply the enclosed updates and commit to the DOM synchronously, so you can measure layout right after. It defeats automatic batching and hurts performance, so it is a last resort — the opposite of `startTransition`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -1984,11 +1986,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Yes, always.",
-      "No — the ref object's identity is stable across renders and reading/writing `.current` is not reactive, so it need not be a dependency.",
-      "Only its `.current` value.",
       "Refs cannot be used in effects.",
+      "Only its `.current` value.",
+      "No — the ref object's identity is stable across renders and reading/writing `.current` is not reactive, so it need not be a dependency.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`useRef` returns the same object every render, and mutating `.current` does not trigger renders or count as a reactive read. So the ref itself is a stable, dependency-free handle — you do not list it, nor does changing `.current` re-run effects.",
     difficultyWeight: WEIGHT_CORE,
@@ -2005,11 +2007,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Add `onMessage` to deps and reconnect on every change.",
-      "Keep the callback in a ref updated each render, and have the stable subscription read `ref.current` — getting the latest without re-subscribing.",
-      "Use `useMemo` on the callback.",
       "Move the subscription into render.",
+      "Use `useMemo` on the callback.",
+      "Keep the callback in a ref updated each render, and have the stable subscription read `ref.current` — getting the latest without re-subscribing.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Store the changing callback in a ref (updated during render or a tiny effect) and have the long-lived subscription call `ref.current`. The subscription stays set up once while always invoking the newest handler — the idea React formalizes as an Effect Event.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2029,12 +2031,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [roomId])",
     ].join("\n"),
     options: [
-      "Nothing; cleanup is optional here.",
       "Each roomId change (and StrictMode remount) adds another subscription without removing the old one — leaking handlers and causing duplicate events.",
+      "Nothing; cleanup is optional here.",
       "The component will not render.",
       "`handler` runs only once.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Without returning `() => socket.unsubscribe(handler)`, every re-run stacks a new subscription on top of the old. Over dependency changes, unmounts, and StrictMode's dev remount, handlers leak and events fire multiple times. Always tear down what you set up.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2052,12 +2054,12 @@ export const seedQuestions: NewQuestion[] = [
       "A page feels slow. What is the disciplined first step before adding memoization?",
     codeBlock: null,
     options: [
-      "Wrap everything in `React.memo`.",
       "Measure with the React DevTools Profiler (and browser performance tools) to find what actually re-renders or costs time.",
+      "Wrap everything in `React.memo`.",
       "Rewrite the components as classes.",
       "Remove all keys.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Optimize from evidence. The React DevTools Profiler shows which components render, how often, and why, so you target the real bottleneck instead of scattering memoization that adds complexity and cost without measured benefit.",
     difficultyWeight: WEIGHT_CORE,
@@ -2074,11 +2076,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "`React.memo` alone is always enough.",
-      "`React.memo` plus stable props — object props via `useMemo` and function props via `useCallback` — so the shallow prop comparison passes.",
-      "A `useEffect` in the child.",
       "A `key` prop on the child.",
+      "A `useEffect` in the child.",
+      "`React.memo` plus stable props — object props via `useMemo` and function props via `useCallback` — so the shallow prop comparison passes.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`React.memo` only skips when props are shallowly equal. If the parent passes new inline objects/functions each render, the comparison fails. Stabilize those props with `useMemo`/`useCallback` so the whole chain aligns and the child can bail out.",
     difficultyWeight: WEIGHT_CORE,
@@ -2094,12 +2096,12 @@ export const seedQuestions: NewQuestion[] = [
       "One big context holds both a fast-changing `mousePos` and a rarely-changing `theme`; all consumers re-render constantly. Best fix?",
     codeBlock: null,
     options: [
-      "Memoize every consumer.",
       "Split into two providers (theme vs mousePos) so components consume only what they need and re-render only when that slice changes.",
+      "Memoize every consumer.",
       "Remove context entirely.",
       "Store both in one `useState`.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Context re-renders all consumers when its value changes. Separating volatile and stable data into distinct contexts means theme consumers do not re-render on every mouse move. Splitting by update frequency is the standard scaling technique.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2138,12 +2140,12 @@ export const seedQuestions: NewQuestion[] = [
       "You call `controller.abort()` in an effect cleanup. What must the fetch's `catch` do?",
     codeBlock: null,
     options: [
-      "Re-throw everything, including the abort.",
       "Detect and ignore the `AbortError` (expected on abort) while still surfacing real errors.",
+      "Re-throw everything, including the abort.",
       "Retry the request immediately.",
       "Call `setState` with the error.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Aborting rejects the fetch with an `AbortError`. That is the expected, benign outcome of cleanup, so branch on `err.name === 'AbortError'` (or check `signal.aborted`) and ignore it; only report genuine network/parse failures.",
     difficultyWeight: WEIGHT_CORE,
@@ -2181,11 +2183,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "useEffect",
-      "The `use()` hook — it unwraps a promise (or context) and, unlike other hooks, may be called inside conditions and loops.",
       "useMemo",
+      "The `use()` hook — it unwraps a promise (or context) and, unlike other hooks, may be called inside conditions and loops.",
       "useSyncExternalStore",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`use(promise)` reads a promise, suspending the component until it settles and integrating with Suspense. It is exempt from the usual top-level hook rule, so it can be used conditionally — handy for reading context or promises down a branch.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2231,11 +2233,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It is the value React uses on every render.",
-      "It permanently locks the state to that value.",
       "It is the initial value, used only on the first render; later renders ignore it.",
+      "It permanently locks the state to that value.",
       "It re-initializes the state after every update.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 1,
     explanation:
       "The argument is the initial state and is read only on the component's first render. On later renders React keeps the current state and ignores the argument.",
     difficultyWeight: WEIGHT_CORE,
@@ -2277,10 +2279,10 @@ export const seedQuestions: NewQuestion[] = [
     options: [
       "{ name: 'Ada', age: 37 } — React merges the objects.",
       "{ name: 'Ada', age: 36 } — the update is ignored.",
-      "{ age: 37 } — the setter replaces the whole value, so `name` is lost.",
       "It throws because the shape changed.",
+      "{ age: 37 } — the setter replaces the whole value, so `name` is lost.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 3,
     explanation:
       "Unlike class `this.setState`, the `useState` setter replaces the state value rather than merging it. Spread the previous state to keep other fields: `setUser((u) => ({ ...u, age: 37 }))`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2324,11 +2326,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Before the component renders.",
-      "Synchronously in the middle of rendering.",
-      "Only when the component unmounts.",
       "After the render is committed to the screen (after paint).",
+      "Only when the component unmounts.",
+      "Synchronously in the middle of rendering.",
     ],
-    correctAnswer: 3,
+    correctAnswer: 1,
     explanation:
       "Effects run after React commits the render to the DOM and the browser paints, so they don't block the visual update. Use `useLayoutEffect` for the rare case you must run before paint.",
     difficultyWeight: WEIGHT_CORE,
@@ -2347,12 +2349,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [/* ? */])",
     ].join("\n"),
     options: [
-      "`[]`, so it only runs once.",
-      "Nothing; effects track dependencies automatically.",
       "`[name]`, so it re-runs whenever `name` changes.",
+      "Nothing; effects track dependencies automatically.",
+      "`[]`, so it only runs once.",
       "`[document.title]`.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "List every reactive value the effect reads. Because the effect uses `name`, `[name]` makes React re-run it whenever `name` changes, keeping the title in sync.",
     difficultyWeight: WEIGHT_CORE,
@@ -2369,11 +2371,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Nothing is needed; React ignores it silently.",
-      "Call `setData` inside the cleanup function.",
-      "Wrap the fetch in `setTimeout`.",
       "Use a cleanup flag (or AbortController) so you don't set state after unmount.",
+      "Wrap the fetch in `setTimeout`.",
+      "Call `setData` inside the cleanup function.",
     ],
-    correctAnswer: 3,
+    correctAnswer: 1,
     explanation:
       "If the component unmounts before the request resolves, updating state is wasted work. Track an `ignore`/`cancelled` flag in the effect and check it before calling `setData`, or abort the request in cleanup.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2395,11 +2397,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "To run the listener immediately.",
-      "To remove the listener on unmount, preventing a leak and duplicate handlers.",
       "To make the effect asynchronous.",
+      "To remove the listener on unmount, preventing a leak and duplicate handlers.",
       "It is optional and has no effect.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "The returned cleanup removes the event listener when the component unmounts (or before the effect re-runs). Without it, listeners accumulate and reference stale scope — a common memory leak.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2418,10 +2420,10 @@ export const seedQuestions: NewQuestion[] = [
     options: [
       "Globally unique across the entire app.",
       "Unique per component type.",
-      "Unique among its siblings in the same list.",
       "It does not need to be unique.",
+      "Unique among its siblings in the same list.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 3,
     explanation:
       "Keys only need to be stable and unique among siblings rendered in the same array. They help React match elements between renders; they are not global ids.",
     difficultyWeight: WEIGHT_CORE,
@@ -2438,11 +2440,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Yes, every re-render is a bug to eliminate.",
-      "Not by itself — re-rendering is normal and usually cheap; optimize only measured slow paths.",
       "Yes, you must wrap everything in React.memo.",
+      "Not by itself — re-rendering is normal and usually cheap; optimize only measured slow paths.",
       "Only if it renders to the DOM.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Re-rendering means React re-runs the function and diffs the result; it does not necessarily touch the DOM and is usually inexpensive. Reach for memoization only when profiling shows a real cost.",
     difficultyWeight: WEIGHT_CORE,
@@ -2459,11 +2461,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It is preserved across the change.",
-      "Only props update; state is untouched.",
       "React unmounts the old instance and mounts a fresh one, resetting its state.",
+      "Only props update; state is untouched.",
       "It throws a key error.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 1,
     explanation:
       "A component's identity is tied to its key and position. Changing the key makes React treat it as a different element — unmounting the old one and mounting a new one with fresh state. This is a deliberate way to reset state.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2506,11 +2508,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Return it from the effect.",
-      "Assign it to a local variable in the component body.",
       "Store it in state via a setter; the state update triggers a re-render that shows it.",
+      "Assign it to a local variable in the component body.",
       "Write it to `window`.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 1,
     explanation:
       "Asynchronously fetched data must be placed into state (e.g. `setData(json)`). The resulting re-render reads the new state and displays it. A plain local variable would be lost on the next render.",
     difficultyWeight: WEIGHT_CORE,
@@ -2582,12 +2584,12 @@ export const seedQuestions: NewQuestion[] = [
       "fetch(url).then((res) => res.json()).then((data) => { /* ... */ })",
     ].join("\n"),
     options: [
-      "They behave differently; only await actually waits.",
       "They are equivalent ways to sequence async steps; await is sugar over promises/then.",
+      "They behave differently; only await actually waits.",
       "B runs synchronously.",
       "A blocks the main thread, B does not.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "`async/await` is built on promises; awaiting a promise is equivalent to chaining `.then`. Both sequence the steps without blocking the main thread — `await` is just more readable for linear flows.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2606,11 +2608,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It makes the state lazy-loaded from the server.",
-      "The initializer runs only on the first render; the inline call runs `expensiveInit()` on every render.",
       "It memoizes the state across components.",
+      "The initializer runs only on the first render; the inline call runs `expensiveInit()` on every render.",
       "Functions cannot be stored in state otherwise.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`useState(fn)` calls `fn` once, on mount. Writing `useState(expensiveInit())` computes the value on every render (even though it is discarded after the first), wasting work. Lazy initialization avoids that.",
     difficultyWeight: WEIGHT_CORE,
@@ -2629,12 +2631,12 @@ export const seedQuestions: NewQuestion[] = [
       "))",
     ].join("\n"),
     options: [
-      "map is faster than indexing.",
-      "Spreading deep-clones the whole list.",
       "It updates immutably: a new array with a new object for the changed item, leaving others by reference.",
+      "Spreading deep-clones the whole list.",
+      "map is faster than indexing.",
       "Direct assignment is not valid JavaScript.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "Immutable updates require new references for what changed. `map` yields a new array, and the spread creates a new object only for the matched item; unchanged items keep their identity, which helps memoized children skip re-rendering.",
     difficultyWeight: WEIGHT_CORE,
@@ -2678,10 +2680,10 @@ export const seedQuestions: NewQuestion[] = [
     options: [
       "Yes, custom hooks create shared/global state.",
       "Only if they have the same props.",
-      "No — each component that calls the hook gets its own independent state.",
       "Yes, until one unmounts.",
+      "No — each component that calls the hook gets its own independent state.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 3,
     explanation:
       "A custom hook is just a function that calls hooks; it does not create shared state. Every component instance that uses it gets its own separate state. To share state, lift it up or use context/an external store.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2701,10 +2703,10 @@ export const seedQuestions: NewQuestion[] = [
     options: [
       "In reverse order.",
       "Alphabetically by dependency.",
-      "Top-to-bottom, in the order they are defined.",
       "Randomly.",
+      "Top-to-bottom, in the order they are defined.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 3,
     explanation:
       "React runs effects in the order they are declared in the component, top to bottom, after commit. Cleanup functions run in the same order before the next run or unmount.",
     difficultyWeight: WEIGHT_CORE,
@@ -2725,11 +2727,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "So the component re-renders when source changes.",
-      "So React re-subscribes (cleanup + re-run) when `source` changes to a new object.",
-      "It is unnecessary; subscriptions ignore deps.",
       "To memoize `onData`.",
+      "It is unnecessary; subscriptions ignore deps.",
+      "So React re-subscribes (cleanup + re-run) when `source` changes to a new object.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "The effect subscribes to `source`, so `source` is a dependency. When it changes, React runs the cleanup (unsubscribe from the old one) and re-runs the effect (subscribe to the new one), keeping the subscription correct.",
     difficultyWeight: WEIGHT_CORE,
@@ -2750,11 +2752,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "To make it run twice.",
-      "So it is not an outside dependency; the effect then depends only on the values it uses (url).",
-      "Functions cannot be declared outside effects.",
       "To avoid using url.",
+      "Functions cannot be declared outside effects.",
+      "So it is not an outside dependency; the effect then depends only on the values it uses (url).",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Declaring the function inside the effect means you do not have to add the function itself to the dependency array (its identity changes each render). The effect then depends only on the reactive values it reads, like `url`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2774,12 +2776,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [query])",
     ].join("\n"),
     options: [
-      "It runs search on every keystroke immediately.",
       "It debounces: each new `query` cancels the pending timer, so search runs 300ms after typing stops.",
+      "It runs search on every keystroke immediately.",
       "It caches search results.",
       "It throttles to one call per render.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "On each `query` change the cleanup clears the previous timeout before setting a new one, so `search` fires only once the user pauses for 300ms. This is the canonical effect-based debounce.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2796,12 +2798,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "What is the difference between `useMemo` and `useCallback`?",
     codeBlock: null,
     options: [
-      "They are identical.",
-      "`useCallback` runs after render, `useMemo` before.",
       "`useMemo` memoizes a computed value; `useCallback` memoizes a function (≡ `useMemo(() => fn, deps)`).",
+      "`useCallback` runs after render, `useMemo` before.",
+      "They are identical.",
       "`useMemo` is only for arrays.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "`useMemo(fn, deps)` caches the return value of `fn`. `useCallback(fn, deps)` caches the function itself so its identity is stable across renders — useful when passing callbacks to memoized children. `useCallback(fn, d)` ≡ `useMemo(() => fn, d)`.",
     difficultyWeight: WEIGHT_CORE,
@@ -2818,11 +2820,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Yes, it is a guaranteed permanent cache.",
-      "No — it is a performance hint; React may discard and recompute it, so don't depend on it for correctness.",
-      "Yes, until the app reloads.",
       "Only for primitives.",
+      "Yes, until the app reloads.",
+      "No — it is a performance hint; React may discard and recompute it, so don't depend on it for correctness.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "`useMemo` may recompute even when deps did not change (e.g. to free memory). Treat it as an optimization, not a semantic guarantee — code must stay correct if the value is recomputed.",
     difficultyWeight: WEIGHT_CORE,
@@ -2842,11 +2844,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "Sorts the props.",
-      "A custom `areEqual` comparator: return true to skip the re-render, false to render.",
-      "Deep-clones props before comparing.",
       "It is a fallback component.",
+      "Deep-clones props before comparing.",
+      "A custom `areEqual` comparator: return true to skip the re-render, false to render.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "By default `React.memo` shallow-compares props. Supplying `areEqual(prev, next)` lets you decide equality; returning `true` means 'props are equal, skip rendering'. Note the inverted return compared to `shouldComponentUpdate`.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2862,12 +2864,12 @@ export const seedQuestions: NewQuestion[] = [
       "A parent holds `hovered` state that only one small child uses, but updating it re-renders the whole subtree. Best fix?",
     codeBlock: null,
     options: [
-      "Wrap every child in React.memo.",
       "Move the `hovered` state down into the small component that uses it (colocation).",
+      "Wrap every child in React.memo.",
       "Lift the state even higher.",
       "Store it in a ref and force updates.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "If only a small part of the tree needs a piece of state, colocate it there. Updates then re-render only that component instead of the whole parent subtree — often simpler and more effective than blanket memoization.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2892,11 +2894,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "HTTP 404 and 500 responses.",
-      "Network/rejection errors from the awaited promises — fetch rejects on network failure, not on HTTP errors.",
       "Nothing; await cannot throw.",
+      "Network/rejection errors from the awaited promises — fetch rejects on network failure, not on HTTP errors.",
       "Syntax errors in the response.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`await` rethrows a rejected promise, so `try/catch` catches network failures and JSON parse errors. Note `fetch` does NOT reject on 4xx/5xx — check `res.ok` separately to treat those as errors.",
     difficultyWeight: WEIGHT_CORE,
@@ -2911,12 +2913,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "What does `Promise.race([a, b])` settle with?",
     codeBlock: null,
     options: [
-      "An array of both results.",
-      "Only after both settle.",
       "The settlement (value or error) of whichever promise settles first.",
+      "Only after both settle.",
+      "An array of both results.",
       "The slower of the two.",
     ],
-    correctAnswer: 2,
+    correctAnswer: 0,
     explanation:
       "`Promise.race` settles as soon as the first input settles, adopting its value or rejection. It is useful for timeouts — race a request against a delayed reject.",
     difficultyWeight: WEIGHT_CORE,
@@ -2959,11 +2961,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Retry immediately in an infinite loop.",
-      "Retry a bounded number of times with increasing (exponential) backoff, then surface the error.",
       "Never retry; always fail.",
+      "Retry a bounded number of times with increasing (exponential) backoff, then surface the error.",
       "Reload the whole page on any error.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Bounded retries with exponential backoff (e.g. 200ms, 400ms, 800ms) smooth over transient failures without hammering the server or looping forever. After the cap, report the error so the user is not stuck.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -2980,12 +2982,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "Which use is React Context best suited for?",
     codeBlock: null,
     options: [
-      "High-frequency state that changes many times per second.",
       "Low-frequency, widely-read values like theme, locale, or the current user.",
+      "High-frequency state that changes many times per second.",
       "Replacing all component props.",
       "Local state of a single component.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "Context broadcasts a value to all consumers and re-renders them when it changes, so it fits relatively static, widely-needed data (theme, auth). For hot, frequently-updating state, an external store with selectors avoids re-rendering every consumer.",
     difficultyWeight: WEIGHT_CORE,
@@ -3002,11 +3004,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Keep everything in one giant switch forever.",
-      "Split it into smaller reducer functions and compose them by state slice.",
       "Replace it with dozens of useState calls.",
+      "Split it into smaller reducer functions and compose them by state slice.",
       "Move the logic into the render body.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "As reducers grow, decompose them by state slice into smaller pure reducers and combine them, mirroring how `combineReducers` works. Each stays focused and testable while the top-level reducer delegates.",
     difficultyWeight: WEIGHT_CORE,
@@ -3043,12 +3045,12 @@ export const seedQuestions: NewQuestion[] = [
       "You need to keep a mutable value (e.g. a WebSocket instance) across renders that should NOT trigger re-renders. What do you use?",
     codeBlock: null,
     options: [
-      "useState.",
       "useRef — its `.current` persists across renders and mutating it does not re-render.",
+      "useState.",
       "A module-level global.",
       "A plain local variable.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "`useRef` gives a stable, mutable container that survives renders without causing them. State is for values that should re-render the UI when they change; refs are for mutable data (timers, sockets, previous values) that should not.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -3070,12 +3072,12 @@ export const seedQuestions: NewQuestion[] = [
       "}, [onScroll])",
     ].join("\n"),
     options: [
-      "Any function with the same name.",
       "The same function reference passed to addEventListener.",
+      "Any function with the same name.",
       "An inline arrow function.",
       "Recreated on every render.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "`removeEventListener` matches by reference. Passing a different function instance (e.g. a fresh inline arrow) leaves the original listener attached. Keep the handler's identity stable and pass the same reference to both calls.",
     difficultyWeight: WEIGHT_CORE,
@@ -3095,11 +3097,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "useState cannot hold strings.",
-      "Hooks must be called unconditionally at the top level so their call order stays stable across renders.",
       "You need useEffect instead.",
+      "Hooks must be called unconditionally at the top level so their call order stays stable across renders.",
       "It re-renders infinitely.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "React tracks hook state by call order. Calling a hook conditionally changes that order between renders and breaks the mapping. Always call hooks at the top level; put the condition inside the hook or in render logic instead.",
     difficultyWeight: WEIGHT_CORE,
@@ -3140,11 +3142,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "It runs the effect on the server.",
-      "It runs synchronously after DOM mutations but before the browser paints, so the user never sees the intermediate position.",
       "It skips the measurement.",
+      "It runs synchronously after DOM mutations but before the browser paints, so the user never sees the intermediate position.",
       "It debounces the layout.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "`useLayoutEffect` fires after DOM updates but before paint, letting you measure and adjust layout in the same frame. With `useEffect` the browser paints the un-repositioned tooltip first, then the correction, producing a flicker.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -3186,11 +3188,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Add more state.",
-      "Throttle/debounce the handler (or batch work into requestAnimationFrame) so it runs less often.",
       "Wrap the component in React.memo.",
+      "Throttle/debounce the handler (or batch work into requestAnimationFrame) so it runs less often.",
       "Move it into useMemo.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "High-frequency events like scroll/resize fire far more often than needed. Throttling (rate-limit) or debouncing (run after quiet), or batching work into `requestAnimationFrame`, keeps the main thread free.",
     difficultyWeight: WEIGHT_CORE,
@@ -3227,11 +3229,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Add useCallback.",
-      "Move the computation off the main thread (e.g. a Web Worker), then update state with the result.",
       "Wrap it in useMemo again.",
+      "Move the computation off the main thread (e.g. a Web Worker), then update state with the result.",
       "Render it inside Suspense.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Memoization only avoids repeat work; it cannot make a single heavy synchronous computation non-blocking. Offloading to a Web Worker keeps the main thread free to render and handle input, posting the result back to update state.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -3250,11 +3252,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "Yes, always.",
-      "No — Suspense is for data read during render; event-handler fetches just update state normally.",
       "Only in development.",
+      "No — Suspense is for data read during render; event-handler fetches just update state normally.",
       "Yes, or React throws.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 2,
     explanation:
       "Suspense suspends components that read a pending resource during render. A fetch kicked off by an event handler resolves and calls a state setter like any async work — no Suspense boundary required.",
     difficultyWeight: WEIGHT_CORE,
@@ -3271,11 +3273,11 @@ export const seedQuestions: NewQuestion[] = [
     codeBlock: null,
     options: [
       "They cancel all but the first randomly.",
-      "They dedupe by caching in-flight requests by key, so concurrent callers share one promise/result.",
-      "They queue them strictly sequentially.",
       "They disable fetching.",
+      "They queue them strictly sequentially.",
+      "They dedupe by caching in-flight requests by key, so concurrent callers share one promise/result.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "Data libraries (React Query, SWR) key requests and share a single in-flight promise plus a cache entry, so simultaneous callers for the same key get one network request and the same cached result.",
     difficultyWeight: WEIGHT_CORE,
@@ -3290,12 +3292,12 @@ export const seedQuestions: NewQuestion[] = [
     prompt: "How does Suspense improve server-side rendering?",
     codeBlock: null,
     options: [
-      "It disables SSR.",
       "It enables streaming: the server sends ready HTML first and streams slower, suspended sections as they resolve.",
+      "It disables SSR.",
       "It renders everything on the client only.",
       "It inlines all data as globals.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 0,
     explanation:
       "With streaming SSR, a `Suspense` boundary lets the server flush the shell and already-ready content immediately, then stream in the slow parts (with their fallbacks shown meanwhile) as their data resolves — improving TTFB and perceived load.",
     difficultyWeight: WEIGHT_ADVANCED,
@@ -3314,11 +3316,11 @@ export const seedQuestions: NewQuestion[] = [
     ].join("\n"),
     options: [
       "They cancel the request.",
-      "They provide a built-in pending state and keep the UI responsive while the async update runs.",
-      "They make fetch synchronous.",
       "They memoize the form.",
+      "They make fetch synchronous.",
+      "They provide a built-in pending state and keep the UI responsive while the async update runs.",
     ],
-    correctAnswer: 1,
+    correctAnswer: 3,
     explanation:
       "React 19 actions build on transitions: wrapping an async update gives you `isPending` for free and lets React keep the app interactive, apply the result, and integrate with `useOptimistic`/form actions — without hand-managing loading flags.",
     difficultyWeight: WEIGHT_ADVANCED,
