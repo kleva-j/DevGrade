@@ -212,6 +212,10 @@ export function AssessmentFlow() {
     send({ type: "CONFIGURE", configuration });
     send({ type: "START" });
   }
+  function reload() {
+    const storageIssue = recovery.reloadIfSafe(() => window.location.reload());
+    if (storageIssue) send({ type: "RELOAD_BLOCKED", storageIssue });
+  }
   function renderScreen() {
     if (isClientUpdateRequired(context.error))
       return (
@@ -223,9 +227,7 @@ export function AssessmentFlow() {
               : UI.recovery.clientUpdateRequired
           }
           retryLabel={UI.status.reload}
-          onRetry={
-            context.storageIssue ? undefined : () => window.location.reload()
-          }
+          onRetry={context.storageIssue ? undefined : reload}
           onCancel={cancel}
         />
       );

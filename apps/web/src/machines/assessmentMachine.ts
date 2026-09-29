@@ -57,6 +57,7 @@ export type AssessmentEvent =
   | { type: "CONFIGURE"; configuration: AssessmentConfiguration }
   | { type: "START" }
   | { type: "REFRESH" }
+  | { type: "RELOAD_BLOCKED"; storageIssue: StorageIssue }
   | { type: "OPEN"; sessionId: string }
   | { type: "RESUME"; sessionId: string }
   | {
@@ -365,6 +366,11 @@ export const assessmentMachine = machineSetup.createMachine({
   }),
   initial: "bootstrap",
   on: {
+    RELOAD_BLOCKED: {
+      guard: ({ context }) =>
+        context.error === ERROR_CODE.CLIENT_UPDATE_REQUIRED,
+      actions: assign({ storageIssue: ({ event }) => event.storageIssue }),
+    },
     HISTORY: { target: ".history", actions: "goHome" },
     CANCEL: { target: ".history.ready", actions: "goHome" },
     OPEN: { target: ".viewing.restoring", actions: ["goHome", "open"] },

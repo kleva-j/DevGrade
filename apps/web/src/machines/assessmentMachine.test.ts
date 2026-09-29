@@ -120,6 +120,43 @@ function fixture(t: TestContext, initial: TestSession[] = []) {
   };
 }
 
+test(
+  "reload blocked after a contract mismatch updates the existing warning without retrying",
+  { timeout: 3000 },
+  async (t) => {
+    const session = makeSession();
+    const h = fixture(t, [session]);
+    await h.boot();
+    h.resume(session);
+    await until(h.actor, { attempting: "answering" });
+    h.server.api.getSession = async () => {
+      throw clientFailure(ERROR_CODE.CLIENT_UPDATE_REQUIRED);
+    };
+    h.actor.send({ type: "REFRESH" });
+    await until(h.actor, { attempting: "readFailed" });
+    assert.equal(h.actor.getSnapshot().context.storageIssue, null);
+    h.port.removeItem(SESSION_STORAGE_PREFIX + session.credential.sessionId);
+    // A storage event in this failure state does not run discovery or rewrite the key.
+    h.actor.send({ type: "REFRESH" });
+    const calls = { ...h.server.calls };
+    const reload = t.mock.fn();
+    const storageIssue = h.recovery.reloadIfSafe(reload);
+    assert.ok(storageIssue);
+    h.actor.send({ type: "RELOAD_BLOCKED", storageIssue });
+    const state = h.actor.getSnapshot();
+    assert.ok(state.matches({ attempting: "readFailed" }));
+    assert.equal(state.context.error, ERROR_CODE.CLIENT_UPDATE_REQUIRED);
+    assert.equal(state.context.storageIssue, STORAGE_ISSUE.UNAVAILABLE);
+    assert.equal(state.context.sessionId, session.credential.sessionId);
+    assert.equal(reload.mock.callCount(), 0);
+    assert.equal(
+      h.port.getItem(SESSION_STORAGE_PREFIX + session.credential.sessionId),
+      null,
+    );
+    assert.deepEqual(h.server.calls, calls);
+  },
+);
+
 test("SSR/bootstrap and CONFIGURE have no storage/network effects until BOOTSTRAP or explicit Start", async (t) => {
   const h = fixture(t);
   const scan = t.mock.method(h.storage, "scan");
