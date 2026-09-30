@@ -76,8 +76,8 @@ function fixture(count = 8) {
     timeSpentSeconds: 5,
     selectedOptionId:
       i < count / 2
-        ? q.correctAnswer
-        : (q.correctAnswer + 1) % q.options.length,
+        ? q.correctOptionId
+        : q.options.find(({ id }) => id !== q.correctOptionId)!.id,
   }));
   return { questions, pillars, ids, snapshot, answers };
 }
@@ -137,7 +137,7 @@ for (const count of ASSESSMENT_LENGTHS) {
   test(`${count}: grading and report presentation follow selected order, not answer order`, () => {
     const f = fixture(count);
     const report = reportFrom(f);
-    assert.equal(f.snapshot.version, 1);
+    assert.equal(f.snapshot.version, QUESTION_SNAPSHOT_FORMAT.V2);
     assert.equal(f.snapshot.scoringVersion, SCORING_VERSION.V1);
     assert.equal(report.version, 1);
     assert.equal(report.scoringVersion, SCORING_VERSION.V1);
@@ -168,14 +168,7 @@ for (const count of ASSESSMENT_LENGTHS) {
         f.ids,
         configuration,
       ),
-      {
-        ...f.snapshot,
-        questions: f.questions.map((q, i) => ({
-          ...q,
-          options: q.options.map(({ text }, id) => ({ id, text })),
-          correctOptionId: i % 4,
-        })),
-      },
+      f.snapshot,
     );
   });
 }
@@ -198,7 +191,7 @@ test("private content and awarded report are detached from bank edits and each o
   f.pillars[0]!.description = "edited guidance";
   assert.deepEqual(f.snapshot, saved);
   assert.deepEqual(reportFrom(f), awarded);
-  f.snapshot.questions[0]!.options[0] = "mutated private data";
+  f.snapshot.questions[0]!.options[0]!.text = "mutated private data";
   f.snapshot.pillars[0]!.displayName = "mutated private metadata";
   assert.deepEqual(report, awarded);
 });
@@ -267,7 +260,7 @@ test("missing, malformed and future-version private snapshots fail closed", () =
     null,
     undefined,
     {},
-    { ...f.snapshot, version: 2 }, // V1 content cannot be relabeled as V2.
+    { ...f.snapshot, version: 1 }, // V2 content cannot be relabeled as V1.
     { ...f.snapshot, version: 3 },
     { ...f.snapshot, version: "1" },
     { ...f.snapshot, scoringVersion: "weighted-v2" },
@@ -281,7 +274,7 @@ test("missing, malformed and future-version private snapshots fail closed", () =
       ...f.snapshot,
       questions: f.snapshot.questions.map((q) => ({
         ...q,
-        correctAnswer: q.options.length,
+        correctOptionId: 1, // An array index is not necessarily a saved ID.
       })),
     },
     {
@@ -322,14 +315,14 @@ test("missing, malformed and future-version private snapshots fail closed", () =
   }
 });
 
-test("completion requires the exact answer-ID set and valid saved option indices", () => {
+test("completion requires the exact answer-ID set and valid saved option IDs", () => {
   const f = fixture();
   for (const answers of [
     f.answers.slice(1),
     [...f.answers, f.answers[0]!],
     f.answers.map(() => f.answers[0]!),
     f.answers.map((a, i) => (i ? a : { ...a, questionId: "foreign-question" })),
-    ...[-1, 0.5, 4, 30, NaN].map((selectedOptionId) =>
+    ...[-1, 0.5, 1, 4, 999, NaN].map((selectedOptionId) =>
       f.answers.map((a) => ({ ...a, selectedOptionId })),
     ),
   ]) {
@@ -445,6 +438,23 @@ test("frozen V1 uses saved indices, accepts historical options, and awards the u
   };
   assert.deepEqual(reportFrom({ snapshot, ids, answers }), expected);
   assert.deepEqual(parseReportSnapshot(expected), expected);
+  for (const invalid of [
+    { ...snapshot, version: 2 },
+    { ...snapshot, questions: [...snapshot.questions].reverse() },
+    ...[-1, 0.5, 3].map((correctAnswer) => ({
+      ...snapshot,
+      questions: snapshot.questions.map((q) => ({ ...q, correctAnswer })),
+    })),
+    {
+      ...snapshot,
+      questions: snapshot.questions.map((q) => ({ ...q, options: [""] })),
+    },
+  ]) {
+    assert.throws(
+      () => parseQuestionSnapshot(invalid, ids, configuration),
+      snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+    );
+  }
   assert.deepEqual(snapshot, before);
   parsed.questions[0]!.options[0]!.text = "runtime edit";
   parsed.pillars[0]!.displayName = "runtime edit";
@@ -465,40 +475,132 @@ test("frozen V1 uses saved indices, accepts historical options, and awards the u
   );
 });
 
-test("Stage 1 writer saves text and correct position, never stable bank ID or private runtime fields", () => {
+test("Stage 2 writer preserves supplied question/option order and stable IDs in detached V2 storage", () => {
   const f = v2Fixture();
-  const before = structuredClone(f.questions);
-  const snapshot = createQuestionSnapshot(
+  const before = structuredClone(f);
+  const snapshot: QuestionSnapshotV2 = createQuestionSnapshot(
     f.ids,
     f.questions,
     f.pillars,
     configuration,
   );
-  assert.equal(snapshot.version, QUESTION_SNAPSHOT_FORMAT.V1);
-  assert.deepEqual(f.questions, before);
+  assert.equal(snapshot.version, QUESTION_SNAPSHOT_FORMAT.V2);
+  assert.equal(snapshot.scoringVersion, SCORING_VERSION.V1);
+  assert.deepEqual(snapshot, f.snapshot);
+  assert.deepEqual(f, before);
+  assert.notEqual(snapshot.questions, f.questions);
+  assert.notEqual(snapshot.pillars, f.pillars);
   for (const [i, saved] of snapshot.questions.entries()) {
-    const canonical = f.questions[i]!;
-    assert.deepEqual(
-      saved.options,
-      canonical.options.map(({ text }) => text),
-    );
+    const supplied = f.questions[i]!;
+    assert.notEqual(saved, supplied);
+    assert.notEqual(saved.options, supplied.options);
+    for (const [index, option] of saved.options.entries()) {
+      assert.notEqual(option, supplied.options[index]);
+    }
+    assert.equal(saved.correctOptionId, supplied.correctOptionId);
     assert.equal(
-      saved.correctAnswer,
-      canonical.options.findIndex(({ id }) => id === canonical.correctOptionId),
+      saved.options.find(({ id }) => id === saved.correctOptionId)!.text,
+      supplied.options.find(({ id }) => id === supplied.correctOptionId)!.text,
     );
-    assert.equal(
-      saved.options[saved.correctAnswer],
-      canonical.options.find(({ id }) => id === canonical.correctOptionId)!
-        .text,
-    );
-    assert.equal("correctOptionId" in saved, false);
+    assert.equal("correctAnswer" in saved, false);
   }
-  assert.equal(snapshot.questions[0]!.correctAnswer, 1);
-  assert.equal(f.questions[0]!.correctOptionId, 30);
-  const parsed = parseQuestionSnapshot(snapshot, f.ids, configuration);
-  assert.equal(parsed.questions[0]!.correctOptionId, 1);
-  f.questions[0]!.options[1]!.text = "bank edit";
-  assert.equal(snapshot.questions[0]!.options[1], "First");
+  for (const [i, pillar] of snapshot.pillars.entries()) {
+    assert.notEqual(pillar, f.pillars[i]);
+  }
+  assert.deepEqual(
+    snapshot.questions.map(({ id }) => id),
+    f.ids,
+  );
+  assert.deepEqual(
+    snapshot.questions[0]!.options.map(({ id }) => id),
+    [90, 30, 0, 7],
+  );
+  assert.equal(snapshot.questions[0]!.correctOptionId, 30);
+  assert.deepEqual(
+    parseQuestionSnapshot(
+      JSON.parse(JSON.stringify(snapshot)),
+      f.ids,
+      configuration,
+    ),
+    snapshot,
+  );
+  assert.deepEqual(reportFrom({ ...f, snapshot }), reportFrom(f));
+
+  snapshot.questions[0]!.options[1]!.text = "snapshot edit";
+  snapshot.questions[0]!.options[1]!.id = 999;
+  snapshot.questions[0]!.options.reverse();
+  snapshot.questions[0]!.correctOptionId = 999;
+  snapshot.questions.reverse();
+  snapshot.pillars[0]!.displayName = "snapshot edit";
+  snapshot.pillars.reverse();
+  assert.deepEqual(f, before);
+});
+
+test("V2 writer strips unknown fields and legacy positional keys recursively", () => {
+  const f = v2Fixture();
+  const snapshot = createQuestionSnapshot(
+    f.ids,
+    f.questions.map((q) => ({
+      ...q,
+      correctAnswer: 1,
+      sessionToken: "not snapshot content",
+      options: q.options.map((option) => ({ ...option, isCorrect: true })),
+    })),
+    f.pillars.map((pillar) => ({ ...pillar, sessionToken: "not metadata" })),
+    configuration,
+  );
+  assert.deepEqual(snapshot, f.snapshot);
+});
+
+test("V2 writer rejects invalid selections, configuration, content and pillars", () => {
+  const f = v2Fixture();
+  const before = structuredClone(f);
+  const input = { ...f, configuration };
+  for (const invalid of [
+    { ...input, ids: [...f.ids].reverse() },
+    { ...input, questions: [...f.questions].reverse() },
+    { ...input, questions: f.questions.slice(1) },
+    { ...input, ids: f.ids.slice(1), questions: f.questions.slice(1) },
+    {
+      ...input,
+      ids: f.ids.map(() => f.ids[0]!),
+      questions: f.questions.map((q) => ({ ...q, id: f.ids[0]! })),
+    },
+    {
+      ...input,
+      configuration: { ...configuration, framework: FRAMEWORK.VUE },
+    },
+    {
+      ...input,
+      configuration: { ...configuration, targetLevel: DIFFICULTY.SENIOR },
+    },
+    {
+      ...input,
+      questions: f.questions.map((q) => ({ ...q, source: "" })),
+    },
+    {
+      ...input,
+      questions: f.questions.map((q) => ({ ...q, difficultyWeight: 0 })),
+    },
+    { ...input, pillars: [] },
+    { ...input, pillars: f.pillars.map(() => f.pillars[0]!) },
+    {
+      ...input,
+      pillars: f.pillars.map((pillar) => ({ ...pillar, displayName: "" })),
+    },
+  ]) {
+    assert.throws(
+      () =>
+        createQuestionSnapshot(
+          invalid.ids,
+          invalid.questions,
+          invalid.pillars,
+          invalid.configuration,
+        ),
+      snapshotError(SNAPSHOT_ERROR_CODE.INVALID_QUESTIONS),
+    );
+  }
+  assert.deepEqual(f, before);
 });
 
 test("V2 reordered noncontiguous IDs grade identically to V1 with ordered string-only reports", () => {
@@ -520,17 +622,36 @@ test("V2 reordered noncontiguous IDs grade identically to V1 with ordered string
     "Fourth",
     "Second",
   ]);
-  const v1 = createQuestionSnapshot(
-    f.ids,
-    f.questions,
-    f.pillars,
-    configuration,
-  );
-  const positionalAnswers = f.answers.map((answer, i) => ({
-    ...answer,
-    selectedOptionId: f.questions[i]!.options.findIndex(
-      ({ id }) => id === answer.selectedOptionId,
-    ),
+  // Frozen positional storage, independent of the evolving writer/V2 fixture.
+  const v1: QuestionSnapshotV1 = {
+    version: 1,
+    scoringVersion: SCORING_VERSION.V1,
+    questions: Array.from({ length: 8 }, (_, i) => ({
+      id: `question-${8 - i}`,
+      framework: FRAMEWORK.REACT,
+      difficulty: DIFFICULTY.MID,
+      skillCategory: SKILL_CATEGORIES[i % 4]!,
+      title: `Title ${i}`,
+      prompt: `Prompt ${i}`,
+      codeBlock: i % 2 ? null : "const value = 1;",
+      options: ["Third", "First", "Fourth", "Second"],
+      correctAnswer: [1, 3, 0, 2][i % 4]!,
+      explanation: `Explanation ${i}`,
+      difficultyWeight: i % 2 ? 2 : 1,
+      source: CONTENT_SOURCE.SUDHEERJ_REACT,
+    })),
+    pillars: SKILL_CATEGORIES.map((skillCategory) => ({
+      skillCategory,
+      ...SKILL_CATEGORY_META[skillCategory],
+    })),
+  };
+  const positionalAnswers = v1.questions.map((q, i) => ({
+    questionId: q.id,
+    selectedOptionId:
+      i < 4
+        ? q.correctAnswer
+        : q.options.findIndex((_, index) => index !== q.correctAnswer),
+    timeSpentSeconds: 5,
   }));
   assert.deepEqual(
     reportFrom({ ...f, snapshot: v1, answers: positionalAnswers }),
@@ -544,7 +665,7 @@ test("V2 reordered noncontiguous IDs grade identically to V1 with ordered string
   );
 });
 
-test("V2 reader and Stage 1 writer accept the PostgreSQL maximum ID for correct options and distractors", () => {
+test("V2 reader and writer accept the PostgreSQL maximum ID for correct options and distractors", () => {
   for (const index of [0, 1, 2, 3]) {
     const f = v2Fixture();
     const question = f.questions[0]!;
@@ -557,15 +678,15 @@ test("V2 reader and Stage 1 writer accept the PostgreSQL maximum ID for correct 
 
     const parsed = parseQuestionSnapshot(f.snapshot, f.ids, configuration);
     assert.deepEqual(parsed.questions[0], question);
-    const v1 = createQuestionSnapshot(
+    const snapshot = createQuestionSnapshot(
       f.ids,
       f.questions,
       f.pillars,
       configuration,
     );
-    assert.equal(v1.questions[0]!.correctAnswer, 1);
+    assert.deepEqual(snapshot.questions[0], question);
     assert.equal(
-      reportFrom(f).result.questionResults[0]!.isCorrect,
+      reportFrom({ ...f, snapshot }).result.questionResults[0]!.isCorrect,
       index === 1,
     );
   }
@@ -591,7 +712,7 @@ test("V2 parsing and public projections detach option objects and strip both pri
   assert.deepEqual(f.snapshot, before);
 });
 
-test("V2 reader and Stage 1 writer reject invalid new-content option identities and text", () => {
+test("V2 reader and writer reject invalid new-content option identities and text", () => {
   const f = v2Fixture();
   const original = f.questions[0]!;
   const invalidQuestions = [

@@ -6,69 +6,19 @@
  *      truth for pillar labels/order).
  *   2. `questions` — the starter React bank in `seedData.ts`.
  *
- * Safe to run repeatedly: categories use `onConflictDoNothing`, and questions
- * upsert on their primary key so edits to `seedData.ts` are picked up on re-run.
+ * Safe to run repeatedly: categories and questions upsert on their primary keys
+ * so edits to pillar metadata and `seedData.ts` are picked up on re-run.
  *
  * Run: `pnpm --filter web db:seed` (requires `DATABASE_URL`; see docker-compose).
  */
 
-import { sql } from "drizzle-orm";
-
-import { SKILL_CATEGORY_META } from "@/domain/constants";
-import { skillCategories, questions } from "./schema";
-import { seedQuestions } from "./seedData";
 import { getDb } from "./client";
+import { seedContent } from "./seedContent";
 
 async function seed(): Promise<void> {
-  const db = getDb();
-
-  const categoryRows = Object.entries(SKILL_CATEGORY_META).map(
-    ([name, meta]) => ({
-      name,
-      displayName: meta.displayName,
-      description: meta.description,
-      pillarOrder: meta.order,
-    }),
-  );
-
-  // Upsert categories so edits to SKILL_CATEGORY_META propagate on re-seed.
-  await db
-    .insert(skillCategories)
-    .values(categoryRows)
-    .onConflictDoUpdate({
-      target: skillCategories.name,
-      set: {
-        displayName: sql`excluded.display_name`,
-        description: sql`excluded.description`,
-        pillarOrder: sql`excluded.pillar_order`,
-      },
-    });
-
-  // Upsert questions so re-seeding applies content edits without duplicating.
-  await db
-    .insert(questions)
-    .values(seedQuestions)
-    .onConflictDoUpdate({
-      target: questions.id,
-      set: {
-        framework: sql`excluded.framework`,
-        difficulty: sql`excluded.difficulty`,
-        skillCategory: sql`excluded.skill_category`,
-        title: sql`excluded.title`,
-        prompt: sql`excluded.prompt`,
-        codeBlock: sql`excluded.code_block`,
-        options: sql`excluded.options`,
-        correctAnswer: sql`excluded.correct_answer`,
-        explanation: sql`excluded.explanation`,
-        difficultyWeight: sql`excluded.difficulty_weight`,
-        source: sql`excluded.source`,
-        isActive: sql`excluded.is_active`,
-        updatedAt: new Date(),
-      },
-    });
-
+  const counts = await seedContent(getDb());
   console.log(
-    `Seeded ${categoryRows.length} skill categories and ${seedQuestions.length} questions.`,
+    `Seeded ${counts.categories} skill categories and ${counts.questions} questions.`,
   );
 }
 

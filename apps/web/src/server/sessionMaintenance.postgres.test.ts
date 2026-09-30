@@ -23,6 +23,7 @@ import { seedQuestions } from "@/db/seedData";
 import {
   DIFFICULTY,
   FRAMEWORK,
+  QUESTION_SNAPSHOT_FORMAT,
   SESSION_DISCOVERY,
   SESSION_STATUS,
   SESSION_STATUSES,
@@ -154,12 +155,13 @@ async function setup(t: TestContext) {
     });
   const answerAll = async (credential: SessionCredential) => {
     const row = await session(f.db, credential);
-    assert.ok(row);
-    for (const questionId of row.selectedQuestionIds) {
+    assert.ok(row?.questionSnapshot);
+    assert.equal(row.questionSnapshot.version, QUESTION_SNAPSHOT_FORMAT.V2);
+    for (const question of row.questionSnapshot.questions) {
       await service.submitAnswer(credential.sessionId, {
         sessionToken: credential.sessionToken,
-        questionId,
-        selectedOptionId: 0,
+        questionId: question.id,
+        selectedOptionId: question.options[0]!.id,
         timeSpentSeconds: 1,
       });
     }
@@ -273,7 +275,10 @@ test(
       sessionToken: created.sessionToken,
       rating: 5,
     });
-    assert.ok((await session(f.db, created))?.questionSnapshot);
+    assert.equal(
+      (await session(f.db, created))?.questionSnapshot?.version,
+      QUESTION_SNAPSHOT_FORMAT.V2,
+    );
     const [award] = await f.db
       .select()
       .from(sessionResults)
@@ -408,7 +413,7 @@ test(
       await f.service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId: created.questions[0]!.id,
-        selectedOptionId: 0,
+        selectedOptionId: created.questions[0]!.options[0]!.id,
         timeSpentSeconds: 1,
       });
       await f.db
@@ -583,7 +588,7 @@ for (const action of ["resume", "answer"] as const) {
           : service.submitAnswer(created.sessionId, {
               sessionToken: created.sessionToken,
               questionId: created.questions[0]!.id,
-              selectedOptionId: 0,
+              selectedOptionId: created.questions[0]!.options[0]!.id,
               timeSpentSeconds: 1,
             }),
       );
@@ -643,7 +648,7 @@ for (const action of ["resume", "answer"] as const) {
           : service.submitAnswer(created.sessionId, {
               sessionToken: created.sessionToken,
               questionId: created.questions[0]!.id,
-              selectedOptionId: 0,
+              selectedOptionId: created.questions[0]!.options[0]!.id,
               timeSpentSeconds: 1,
             }),
       );
