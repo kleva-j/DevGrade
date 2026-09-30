@@ -104,6 +104,8 @@ Rather than pulling purely random questions, the engine selects the requested co
 
 Each pair contains one core question (weight **1**) and one advanced question (weight **2**). Sample without replacement within each pillar's exact weight classes; other weights cannot substitute. If any active pillar pool lacks the required core or advanced count, fail closed with `insufficient_questions`. Never substitute classes, repeat questions, or silently shorten a session. Malformed options or a missing correct-option ID in any active row in the selected framework/level pool also fail closed with `insufficient_questions`, before session insertion; repair or retire that row rather than silently skipping it.
 
+After sampling, reuse the same session-seeded RNG to shuffle each selected question's options exactly once, in sampled question order. Persist that order in the V2 private snapshot. Reads, resume, answer retries, and reports reuse the saved order, never the live bank or a fresh shuffle. Option IDs identify answers independently of presentation position.
+
 **Quick (8-question) example:** the diagram below shows two questions per pillar; Standard and Deep scale every pillar equally as above.
 
 ```
@@ -211,8 +213,8 @@ CREATE TABLE questions (
     title VARCHAR(255) NOT NULL,
     prompt TEXT NOT NULL,
     code_block TEXT,                       -- optional syntax-highlighted snippet
-    options JSONB NOT NULL,                -- string[] (4 options for MVP)
-    correct_answer INT NOT NULL,           -- index into options; server-only
+    options JSONB NOT NULL,                -- {id: integer, text: string}[]; four options
+    correct_answer INT NOT NULL,           -- question-local option ID; server-only
     explanation TEXT NOT NULL,             -- server-only until completion
     difficulty_weight REAL NOT NULL DEFAULT 1.0, -- 1.0 core / 2.0 advanced (granularity, #3)
     source VARCHAR(100) NOT NULL DEFAULT 'original', -- content provenance for licensing (§10.1)
@@ -248,7 +250,7 @@ CREATE TABLE session_answers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES test_sessions(id) ON DELETE CASCADE,
     question_id VARCHAR(50) NOT NULL REFERENCES questions(id),
-    selected_answer INT NOT NULL,
+    selected_answer INT NOT NULL,          -- saved option ID; V1 sessions retain saved indices
     time_spent_seconds INT NOT NULL,
     is_correct BOOLEAN NOT NULL,
     answered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -406,9 +408,11 @@ Existing-session inputs require `sessionId` (canonical 36-character UUID, normal
 | `resumeSessionFn` | ID/token, optional `assessmentContract` | `SessionView`; reactivate only an eligible unfinished attempt |
 | `deleteSessionFn` | ID/token, `expectedState` | `deleted` or `changed_state` with `currentState` |
 
-**Option-ID compatibility (Stage 1):** the current client sends `assessmentContract: "option_ids_v1"` on creation/get/resume. These responses and ID-based answer acknowledgements echo the marker; public options are `{ id: number, text: string }`, with unique IDs scoped to the saved question and bounded to PostgreSQL's nonnegative `integer` range (0–2,147,483,647). New submissions use `selectedOptionId`. Requests without the marker retain V1 string options and legacy `selectedAnswer` payloads; submitting both answer fields is invalid. Positional clients cannot access unfinished V2 sessions or submit their answers (`client_update_required`, without activity/answer writes). Completed sessions remain readable through get/resume by either contract: V1 reports and persisted legacy summaries need no option-ID adaptation, and resume does not refresh activity. Completed answer submissions still fail with `session_completed`; authentication and seven-day access checks always apply. New clients show a refresh action rather than repeatedly retry that error, preserving recovery credentials and warning instead of offering reload when storage is unsafe. Clicking the app's refresh action synchronously rechecks that every in-memory credential still has a matching readable stored handle. Missing, corrupt, conflicting, or unreadable storage blocks reload and shows the existing warning; this check never recreates cleared handles or calls the server.
+**Option-ID compatibility:** the current client sends `assessmentContract: "option_ids_v1"` on creation/get/resume. These responses and ID-based answer acknowledgements echo the marker; public options are `{ id: number, text: string }`, with unique IDs scoped to the saved question and bounded to PostgreSQL's nonnegative `integer` range (0–2,147,483,647). New submissions use `selectedOptionId`. Creation without the marker returns `client_update_required` before opening a transaction or inserting a session. Existing V1 sessions still support unmarked reads/resume and legacy positional `selectedAnswer` payloads; submitting both answer fields is invalid. Positional clients cannot access unfinished V2 sessions or submit their answers (`client_update_required`, without activity/answer writes). Completed sessions remain readable through get/resume by either contract: V1 reports and persisted legacy summaries need no option-ID adaptation, and resume does not refresh activity. Completed answer submissions still fail with `session_completed`; authentication and seven-day access checks always apply. New clients show a refresh action rather than repeatedly retry that error, preserving recovery credentials and warning instead of offering reload when storage is unsafe. Clicking the app's refresh action synchronously rechecks that every in-memory credential still has a matching readable stored handle. Missing, corrupt, conflicting, or unreadable storage blocks reload and shows the existing warning; this check never recreates cleared handles or calls the server.
 
-Bank rows and new private snapshots **remain V1 and unshuffled in Stage 1**. Readers normalize saved V1 indices into IDs and also understand V2 option objects. The compatibility writer maps a bank's correct ID back to its saved position when writing V1; all responses and scoring use the saved snapshot. Report snapshots remain V1 with ordered string options and unchanged weighted-v1 scoring. Stage 2 bank conversion and one-time option shuffling are not enabled; see [implementation plan](plans/001-option-ids-and-shuffling.md).
+**Stage 2 source behavior:** authored bank options have explicit stable IDs, and new private snapshots use **V2** with once-shuffled option arrays. Readers still normalize V1 indices using only the saved V1 array; historical JSON and accepted answers are never rewritten. Application properties `correctOptionId` / `selectedOptionId` map to the unchanged physical columns `correct_answer` / `selected_answer`. Report snapshots remain V1 with saved ordered string options and unchanged weighted-v1 scoring.
+
+Migration `0003_stable_option_ids.sql` validates all active and inactive bank rows before converting legacy strings to IDs from their original zero-based positions. It aborts malformed data, blocks concurrent bank writes during conversion, leaves valid canonical arrays untouched, and changes no session/answer/report rows or timestamps. The bank reader retains string/object compatibility for rollout. **Migration, seeding, and Stage 2 deployment are not yet applied to Aiven/production.** Stage 1 readers are the rollback floor; see [implementation and rollout plan](plans/001-option-ids-and-shuffling.md).
 
 Creation accepts exact numeric **8/16/32**, missing → 8, without coercion. `rawClientId` has length 1–1024 and is stored only as a rate-limit hash. Known/discovery lists have a **1,000-entry maximum**, processed in **100-entry batches**, never truncated. Creation locks all authenticated known parents in deterministic order before child reads/fresh-time gating; it rejects unfinished attempts below 24 hours irrespective of settings/inactivity/restorability (§4.5), rather than trusting earlier discovery. There is no global ownership lookup.
 
@@ -540,7 +544,7 @@ The active wire failure is **`{ ok: false, error: { code, message } }`**, with `
 
 **Quality Assurance:**
 
-- **Answer-position balance (MVP):** balance the authored four-option bank by difficulty level, by pillar within each level, and by core/advanced weight class within both. Counts per correct-answer position must differ by at most one (enforced by `db/__tests__/seedData.test.ts`). The current 12-item buckets have three correct answers in each position; six-item weight subsets have one or two per position. Avoid a repeating placement pattern and refer to answer content rather than option numbers in explanations. This is a content-only rule: options remain in their authored order, with no runtime option shuffling or guaranteed position balance in an individual sampled assessment. Re-seeding applies corrections to future assessments; existing assessments retain their saved snapshots.
+- **Answer-position balance (MVP):** balance the authored four-option bank by difficulty level, by pillar within each level, and by core/advanced weight class within both. Counts per correct-answer position must differ by at most one (enforced by `db/__tests__/seedData.test.ts`). The current 12-item buckets have three correct answers in each position; six-item weight subsets have one or two per position. Avoid a repeating placement pattern and refer to answer content rather than option numbers in explanations. This is a content-only rule: count the correct option's authored array position by finding its stable ID, not by treating that ID as an index. New assessments shuffle options once; no exact position balance or different permutation is guaranteed for an individual assessment. Keep IDs attached to their text when reordering seed content; never regenerate them from presentation positions. Re-seeding applies corrections to future assessments; existing assessments retain their saved snapshots.
 - Cross-reference explanations with official documentation (React.dev)
 - Statistical analysis of question difficulty (pass rates by level)
 - A/B testing of question clarity and effectiveness

@@ -13,6 +13,7 @@ import {
   DIFFICULTY,
   FRAMEWORK,
   PROFICIENCY,
+  QUESTION_SNAPSHOT_FORMAT,
   SESSION_STATUS,
   SESSION_VIEW,
   SKILL_CATEGORIES,
@@ -64,8 +65,13 @@ async function setup(t: TestContext) {
       title: `Original ${skillCategory}-${difficultyWeight}`,
       prompt: "Original prompt",
       codeBlock: "const original = true;",
-      options: ["Original A", "Original B", "Original C", "Original D"],
-      correctAnswer: 2,
+      options: [
+        { id: 10, text: "Original A" },
+        { id: 30, text: "Original B" },
+        { id: 20, text: "Original C" },
+        { id: 40, text: "Original D" },
+      ],
+      correctOptionId: 20,
       explanation: `Original explanation ${skillCategory}-${difficultyWeight}`,
       difficultyWeight,
       source: CONTENT_SOURCE.SUDHEERJ_REACT,
@@ -83,6 +89,7 @@ async function setup(t: TestContext) {
     .from(testSessions)
     .where(eq(testSessions.id, created.sessionId));
   assert.ok(session?.questionSnapshot);
+  assert.equal(session.questionSnapshot.version, QUESTION_SNAPSHOT_FORMAT.V2);
   return { db, service, created, session };
 }
 
@@ -129,12 +136,12 @@ test(
       framework: FRAMEWORK.VUE,
       difficulty: DIFFICULTY.SENIOR,
       skillCategory: SKILL_CATEGORY.ASYNC,
-      correctAnswer: 0,
+      correctOptionId: 99,
       difficultyWeight: 999,
       title: "Replacement title",
       prompt: "Replacement prompt",
       codeBlock: null,
-      options: ["Only live option"],
+      options: [{ id: 99, text: "Only live option" }],
       explanation: "Replacement explanation",
       source: CONTENT_SOURCE.ORIGINAL,
       isActive: false,
@@ -145,15 +152,18 @@ test(
       pillarOrder: 99,
     });
 
-    await assert.rejects(
-      service.submitAnswer(created.sessionId, {
-        sessionToken: created.sessionToken,
-        questionId: created.questions[0]!.id,
-        selectedOptionId: 4,
-        timeSpentSeconds: 1,
-      }),
-      expectError(ERROR_CODE.BAD_REQUEST),
-    );
+    for (const selectedOptionId of [0, 1, 2, 3, 99]) {
+      await assert.rejects(
+        service.submitAnswer(created.sessionId, {
+          sessionToken: created.sessionToken,
+          questionId: created.questions[0]!.id,
+          selectedOptionId,
+          timeSpentSeconds: 1,
+        }),
+        expectError(ERROR_CODE.BAD_REQUEST),
+      );
+    }
+    assert.deepEqual(await db.select().from(sessionAnswers), []);
 
     for (const [index, question] of [...snapshot.questions]
       .reverse()
@@ -161,7 +171,7 @@ test(
       const accepted = await service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId: question.id,
-        selectedOptionId: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+        selectedOptionId: question.difficultyWeight === WEIGHT_CORE ? 10 : 20,
         timeSpentSeconds: index + 1,
       });
       assert.deepEqual(accepted, {
@@ -169,14 +179,14 @@ test(
         sessionComplete: index === snapshot.questions.length - 1,
         acceptedAnswer: {
           questionId: question.id,
-          selectedOptionId: question.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+          selectedOptionId: question.difficultyWeight === WEIGHT_CORE ? 10 : 20,
           timeSpentSeconds: index + 1,
         },
         acceptedAnswers: snapshot.questions
           .slice(-index - 1)
           .map((q, offset) => ({
             questionId: q.id,
-            selectedOptionId: q.difficultyWeight === WEIGHT_CORE ? 0 : 2,
+            selectedOptionId: q.difficultyWeight === WEIGHT_CORE ? 10 : 20,
             timeSpentSeconds: index + 1 - offset,
           })),
         answeredCount: index + 1,
@@ -200,6 +210,10 @@ test(
       const question: QuestionSnapshot["questions"][number] | undefined =
         snapshot.questions.find((q) => q.id === answer.questionId);
       assert.ok(question);
+      assert.equal(
+        answer.selectedOptionId,
+        question.difficultyWeight === WEIGHT_CORE ? 10 : 20,
+      );
       assert.equal(
         answer.isCorrect,
         question.difficultyWeight === WEIGHT_ADVANCED,
@@ -243,6 +257,7 @@ test(
     assert.ok(storedResult?.reportSnapshot);
     assert.ok(completed?.completedAt);
     const report = parseReportSnapshot(storedResult.reportSnapshot);
+    assert.equal(report.version, 1);
     assert.deepEqual(report, view.reportSnapshot);
     assert.deepEqual(
       report.questions,
@@ -315,7 +330,7 @@ test(
     const input = {
       sessionToken: created.sessionToken,
       questionId: created.questions[0]!.id,
-      selectedOptionId: 2,
+      selectedOptionId: 20,
       timeSpentSeconds: 1,
     };
     await assert.rejects(
@@ -336,14 +351,14 @@ test(
       session.selectedQuestionIds.map((questionId) => ({
         sessionId: created.sessionId,
         questionId,
-        selectedAnswer: 2,
+        selectedOptionId: 20,
         isCorrect: true,
         timeSpentSeconds: 1,
       })),
     );
     const invalidSnapshots = [
       null,
-      { ...session.questionSnapshot, version: 2 },
+      { ...session.questionSnapshot, version: 999 },
       {
         ...session.questionSnapshot,
         questions: [...session.questionSnapshot.questions].reverse(),
@@ -405,7 +420,7 @@ test(
       await service.submitAnswer(created.sessionId, {
         sessionToken: created.sessionToken,
         questionId,
-        selectedOptionId: 2,
+        selectedOptionId: 20,
         timeSpentSeconds: 1,
       });
     }

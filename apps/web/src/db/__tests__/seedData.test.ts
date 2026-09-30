@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   ASSESSMENT_LENGTHS,
+  QUESTION_OPTION_COUNT,
+  OPTION_ID_MAX,
   MIN_ADVANCED_PER_BUCKET,
   MIN_CORE_PER_BUCKET,
   WEIGHT_ADVANCED,
@@ -14,7 +16,11 @@ import {
 } from "@/domain/constants";
 import { seedQuestions } from "@/db/seedData";
 
-const OPTION_COUNT = 4;
+function authoredCorrectPosition(q: (typeof seedQuestions)[number]) {
+  const position = q.options.findIndex(({ id }) => id === q.correctOptionId);
+  assert.notEqual(position, -1, `${q.id}: correct option ID missing`);
+  return position;
+}
 
 /**
  * Id convention: `react-{level}-{pillar}-{core|adv}` with an optional two-digit
@@ -54,17 +60,27 @@ describe("seedQuestions bank integrity", () => {
       assert.ok(q.prompt.trim().length > 0, `${q.id}: empty prompt`);
       assert.ok(q.explanation.trim().length > 0, `${q.id}: empty explanation`);
 
-      assert.equal(q.options.length, OPTION_COUNT, `${q.id}: option count`);
-      assert.ok(
-        q.options.every((o) => o.trim().length > 0),
-        `${q.id}: blank option`,
+      assert.equal(
+        q.options.length,
+        QUESTION_OPTION_COUNT,
+        `${q.id}: option count`,
+      );
+      assert.equal(
+        new Set(q.options.map(({ id }) => id)).size,
+        QUESTION_OPTION_COUNT,
+        `${q.id}: duplicate option ID`,
       );
       assert.ok(
-        Number.isInteger(q.correctAnswer) &&
-          q.correctAnswer >= 0 &&
-          q.correctAnswer < q.options.length,
-        `${q.id}: correctAnswer out of range`,
+        q.options.every(
+          ({ id, text }) =>
+            Number.isInteger(id) &&
+            id >= 0 &&
+            id <= OPTION_ID_MAX &&
+            text.trim().length > 0,
+        ),
+        `${q.id}: invalid option ID or blank text`,
       );
+      authoredCorrectPosition(q);
 
       assert.ok(
         q.difficultyWeight === WEIGHT_CORE ||
@@ -91,8 +107,9 @@ describe("seedQuestions bank integrity", () => {
               (weight === undefined || q.difficultyWeight === weight),
           );
           const counts = Array.from(
-            { length: OPTION_COUNT },
-            (_, index) => group.filter((q) => q.correctAnswer === index).length,
+            { length: QUESTION_OPTION_COUNT },
+            (_, index) =>
+              group.filter((q) => authoredCorrectPosition(q) === index).length,
           );
 
           // Six-item weight pools cannot divide evenly across four positions.
@@ -103,6 +120,28 @@ describe("seedQuestions bank integrity", () => {
         }
       }
     }
+  });
+
+  test("answer balance counts authored positions, not noncontiguous option IDs", () => {
+    const q = seedQuestions[0]!;
+    const reordered = {
+      ...q,
+      options: [
+        { id: 100, text: "First" },
+        { id: 0, text: "Second" },
+        { id: OPTION_ID_MAX, text: "Third" },
+        { id: 7, text: "Fourth" },
+      ],
+      correctOptionId: OPTION_ID_MAX,
+    };
+    assert.equal(authoredCorrectPosition(reordered), 2);
+    assert.equal(
+      authoredCorrectPosition({
+        ...reordered,
+        options: [...reordered.options].reverse(),
+      }),
+      1,
+    );
   });
 
   test("seed depth leaves a reserve beyond every preset quota", () => {

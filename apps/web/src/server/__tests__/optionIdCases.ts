@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { QuestionRow, TestSessionRow } from "@/db/schema";
-import type { QuestionSnapshotV2 } from "@/domain/sessionSnapshots";
+import type {
+  QuestionSnapshotV1,
+  QuestionSnapshotV2,
+} from "@/domain/sessionSnapshots";
 
 import {
   CONTENT_SOURCE,
@@ -14,7 +17,7 @@ import {
   WEIGHT_ADVANCED,
   WEIGHT_CORE,
 } from "@/domain/constants";
-import { createQuestionSnapshot } from "@/domain/sessionSnapshots";
+
 import { rowToQuestion } from "../assessmentService";
 
 export const configuration = {
@@ -36,8 +39,8 @@ export function bankRows(): QuestionRow[] {
       title: "Saved title",
       prompt: "Saved prompt",
       codeBlock: null,
-      options: bankOptions.map((option) => option.text),
-      correctAnswer: 2,
+      options: bankOptions.map((option) => ({ ...option })),
+      correctOptionId: 100,
       explanation: "Private explanation",
       difficultyWeight,
       source: CONTENT_SOURCE.ORIGINAL,
@@ -58,20 +61,32 @@ export function snapshotV2(): QuestionSnapshotV2 {
     version: QUESTION_SNAPSHOT_FORMAT.V2,
     scoringVersion: SCORING_VERSION.V1,
     questions: bankRows().map((row) => ({
-      ...rowToQuestion({ ...row, options: bankOptions, correctAnswer: 100 }),
+      ...rowToQuestion(row),
       source: row.source,
     })),
     pillars,
   };
 }
-export function snapshotV1() {
-  const snapshot = snapshotV2();
-  return createQuestionSnapshot(
-    snapshot.questions.map((q) => q.id),
-    snapshot.questions,
-    snapshot.pillars,
-    configuration,
-  );
+export function snapshotV1(): QuestionSnapshotV1 {
+  return {
+    version: QUESTION_SNAPSHOT_FORMAT.V1,
+    scoringVersion: SCORING_VERSION.V1,
+    questions: bankRows().map((row) => ({
+      id: row.id,
+      framework: row.framework,
+      difficulty: row.difficulty,
+      skillCategory: rowToQuestion(row).skillCategory,
+      title: row.title,
+      prompt: row.prompt,
+      codeBlock: row.codeBlock,
+      options: ["Option 42", "Option 7", "Option 100", "Option 9"],
+      correctAnswer: 2,
+      explanation: row.explanation,
+      difficultyWeight: row.difficultyWeight,
+      source: row.source,
+    })),
+    pillars,
+  };
 }
 export function sessionRow(
   questionSnapshot: TestSessionRow["questionSnapshot"] = snapshotV2(),
