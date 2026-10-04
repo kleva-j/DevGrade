@@ -57,7 +57,11 @@ function isError(code: AssessmentError["code"]) {
 
 test("bank bridge normalizes strings and preserves object IDs; raw V1 rebases to saved indices", () => {
   const row = bankRows()[0]!;
-  const legacy = rowToQuestion(row);
+  const legacy = rowToQuestion({
+    ...row,
+    options: bankOptions.map((option) => option.text),
+    correctOptionId: 2,
+  });
   assert.deepEqual(
     legacy.options.map((option) => option.id),
     [0, 1, 2, 3],
@@ -66,7 +70,7 @@ test("bank bridge normalizes strings and preserves object IDs; raw V1 rebases to
   const canonical = rowToQuestion({
     ...row,
     options: bankOptions,
-    correctAnswer: 100,
+    correctOptionId: 100,
   });
   assert.deepEqual(canonical.options, bankOptions);
   assert.equal(canonical.correctOptionId, 100);
@@ -85,9 +89,9 @@ test("bank bridge normalizes strings and preserves object IDs; raw V1 rebases to
     [0, 1, 2, 3],
   );
   assert.equal(parsed.questions[0]!.correctOptionId, 2);
-  for (const correctAnswer of [-1, 1.5, 4, 99])
+  for (const correctOptionId of [-1, 1.5, 4, 99])
     assert.throws(
-      () => rowToQuestion({ ...row, options: bankOptions, correctAnswer }),
+      () => rowToQuestion({ ...row, options: bankOptions, correctOptionId }),
       isError(ERROR_CODE.INSUFFICIENT_QUESTIONS),
     );
   for (const options of [
@@ -107,7 +111,7 @@ test("malformed bank content returns a safe availability failure, not an interna
   const row = bankRows()[0]!;
   for (const invalid of [
     { ...row, options: ["Private invalid content"] },
-    { ...row, correctAnswer: 99 },
+    { ...row, correctOptionId: 99 },
   ]) {
     assert.deepEqual(
       await assessmentEnvelope(async () => rowToQuestion(invalid)),
@@ -151,13 +155,38 @@ test("completed V2 sessions bypass only the format gate, not answer or retention
   );
 });
 
-test("future snapshot writers fail closed for legacy creation; canonical callers can use V2", () => {
+test("snapshot format gate permits legacy V1 and canonical V2 only", () => {
   requireCompatibleSnapshot(QUESTION_SNAPSHOT_FORMAT.V1, true);
   requireCompatibleSnapshot(QUESTION_SNAPSHOT_FORMAT.V2, false);
   assert.throws(
     () => requireCompatibleSnapshot(QUESTION_SNAPSHOT_FORMAT.V2, true),
     isError(ERROR_CODE.CLIENT_UPDATE_REQUIRED),
   );
+});
+
+test("legacy creation fails before opening a database transaction", async (t) => {
+  const { db, service } = serviceFixture(t);
+  const transaction = t.mock.method(db, "transaction", async () => {
+    throw new Error("Unexpected database access");
+  });
+  const handlers = createAssessmentHandlers(
+    () => service,
+    () => {},
+  );
+  assert.deepEqual(
+    await handlers.createSession({
+      ...configuration,
+      rawClientId: "anonymous",
+    }),
+    {
+      ok: false,
+      error: {
+        code: ERROR_CODE.CLIENT_UPDATE_REQUIRED,
+        message: MESSAGES.clientUpdateRequired,
+      },
+    },
+  );
+  assert.equal(transaction.mock.callCount(), 0);
 });
 
 test("wire boundary projects legacy views/answers and discriminates canonical responses without casts", async (t) => {

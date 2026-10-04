@@ -181,8 +181,8 @@ export const QUESTION_OPTION_COUNT = 4;
 /** Canonical option IDs are persisted in PostgreSQL signed integer columns. */
 export const OPTION_ID_MAX = 2_147_483_647;
 export const QUESTION_SNAPSHOT_FORMAT = { V1: 1, V2: 2 } as const;
-/** Stage 1 keeps writing positional V1 snapshots until all readers support IDs. */
-export const QUESTION_SNAPSHOT_VERSION = QUESTION_SNAPSHOT_FORMAT.V1;
+/** Stage 2 writes stable option IDs and supplied order; deployed readers retain V1 support. */
+export const QUESTION_SNAPSHOT_VERSION = QUESTION_SNAPSHOT_FORMAT.V2;
 export const REPORT_SNAPSHOT_VERSION = 1;
 
 /** Above the legitimate same-browser weekly maximum (5 × 24 × 7 = 840). */

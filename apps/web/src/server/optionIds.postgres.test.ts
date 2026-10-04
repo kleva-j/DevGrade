@@ -16,6 +16,7 @@ import {
 } from "@/db/schema";
 import {
   ASSESSMENT_CONTRACT,
+  DEFAULT_ASSESSMENT_LENGTH,
   OPTION_ID_MAX,
   QUESTION_SNAPSHOT_FORMAT,
   SESSION_RETENTION_DAYS,
@@ -23,7 +24,9 @@ import {
   SESSION_VIEW,
 } from "@/domain/constants";
 import { createAssessmentHandlers } from "./assessmentHandlers";
-import { createAssessmentService } from "./assessmentService";
+import { createAssessmentService, rowToQuestion } from "./assessmentService";
+import { createRng, seedFromString, shuffle } from "@/domain/random";
+import { stratifiedSample } from "@/domain/sampling";
 import { AssessmentError, ERROR_CODE } from "./errors";
 import { MESSAGES } from "./messages";
 import { createPostgresFixture } from "./__tests__/postgresFixture";
@@ -81,114 +84,170 @@ function isError(code: AssessmentError["code"]) {
 }
 
 test(
-  "object bank creation still saves V1; all views and grading use saved indices, not bank IDs",
+  "creation saves a once-shuffled V2; reads, resume, retries and reports retain option IDs and order",
   options,
   async (t) => {
     const { db, service, handlers } = await setup(t);
-    await db.update(questions).set({
-      options: sql`${JSON.stringify(bankOptions)}::jsonb`,
-      correctAnswer: 100,
-    });
-    for (const assessmentContract of [
-      undefined,
-      ASSESSMENT_CONTRACT.OPTION_IDS,
-    ]) {
-      const response = await handlers.createSession({
+    const originalBank = await db
+      .select()
+      .from(questions)
+      .orderBy(questions.id);
+    const beforeLegacyCreation = await storedState(db);
+    assert.deepEqual(
+      await handlers.createSession({
         ...configuration,
         rawClientId: randomUUID(),
-        assessmentContract,
-      });
-      assert.ok(response.ok);
-      const created = response.data;
-      const credential = {
-        sessionId: created.sessionId,
-        sessionToken: created.sessionToken,
-      };
-      const [saved] = await db
-        .select()
-        .from(testSessions)
-        .where(eq(testSessions.id, created.sessionId));
-      assert.ok(saved?.questionSnapshot);
-      assert.equal(saved.questionSnapshot.version, QUESTION_SNAPSHOT_FORMAT.V1);
-      assert.equal(saved.questionSnapshot.questions[0]!.correctAnswer, 2);
+      }),
+      {
+        ok: false,
+        error: {
+          code: ERROR_CODE.CLIENT_UPDATE_REQUIRED,
+          message: MESSAGES.clientUpdateRequired,
+        },
+      },
+    );
+    assert.deepEqual(await storedState(db), beforeLegacyCreation);
+    const response = await handlers.createSession({
+      ...configuration,
+      rawClientId: randomUUID(),
+      assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+    });
+    assert.ok(response.ok);
+    assert.equal(
+      response.data.assessmentContract,
+      ASSESSMENT_CONTRACT.OPTION_IDS,
+    );
+    const created = response.data;
+    const credential = {
+      sessionId: created.sessionId,
+      sessionToken: created.sessionToken,
+    };
+    const [saved] = await db
+      .select()
+      .from(testSessions)
+      .where(eq(testSessions.id, created.sessionId));
+    assert.ok(saved?.questionSnapshot);
+    assert.equal(saved.questionSnapshot.version, QUESTION_SNAPSHOT_FORMAT.V2);
+    const rng = createRng(seedFromString(created.sessionToken));
+    const sampled = stratifiedSample(
+      originalBank.map(rowToQuestion),
+      DEFAULT_ASSESSMENT_LENGTH,
+      rng,
+    );
+    const expected = sampled.questions.map((question) => ({
+      ...question,
+      options: shuffle(question.options, rng),
+    }));
+    assert.deepEqual(
+      saved.selectedQuestionIds,
+      expected.map((question) => question.id),
+    );
+    for (const [
+      index,
+      question,
+    ] of saved.questionSnapshot.questions.entries()) {
+      assert.equal(question.correctOptionId, 100);
+      assert.deepEqual(question.options, expected[index]!.options);
+      assert.deepEqual(created.questions[index]!.options, question.options);
       assert.deepEqual(
-        saved.questionSnapshot.questions[0]!.options,
-        bankOptions.map((option) => option.text),
-      );
-      const canonical = await service.getSession(credential);
-      assert.equal(canonical.kind, SESSION_VIEW.ASSESSMENT);
-      assert.deepEqual(
-        canonical.questions[0]!.options.map((option) => option.id),
-        [0, 1, 2, 3],
-      );
-      for (const handler of [handlers.getSession, handlers.resumeSession]) {
-        const legacy = await handler(credential);
-        assert.ok(legacy.ok);
-        assert.equal(legacy.data.assessmentContract, undefined);
-        assert.equal(legacy.data.kind, SESSION_VIEW.ASSESSMENT);
-        assert.deepEqual(
-          legacy.data.questions[0]!.options,
-          bankOptions.map((option) => option.text),
-        );
-        const modern = await handler({
-          ...credential,
-          assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
-        });
-        assert.ok(modern.ok);
-        assert.equal(
-          modern.data.assessmentContract,
-          ASSESSMENT_CONTRACT.OPTION_IDS,
-        );
-        assert.equal(modern.data.kind, SESSION_VIEW.ASSESSMENT);
-        assert.deepEqual(modern.data.questions, canonical.questions);
-      }
-      const before = await storedState(db);
-      await assert.rejects(
-        service.submitAnswer(created.sessionId, {
-          ...credential,
-          questionId: canonical.questions[0]!.id,
-          selectedOptionId: 100,
-          timeSpentSeconds: 1,
-        }),
-        isError(ERROR_CODE.BAD_REQUEST),
-      );
-      assert.deepEqual(await storedState(db), before);
-      for (const question of canonical.questions) {
-        const legacy = await handlers.submitAnswer({
-          ...credential,
-          questionId: question.id,
-          selectedAnswer: 2,
-          timeSpentSeconds: 7,
-        });
-        assert.ok(legacy.ok);
-        assert.equal(legacy.data.assessmentContract, undefined);
-        assert.equal(legacy.data.acceptedAnswer.selectedAnswer, 2);
-        const accepted = await storedState(db);
-        const retry = await handlers.submitAnswer({
-          ...credential,
-          questionId: question.id,
-          selectedOptionId: 2,
-          timeSpentSeconds: 999,
-        });
-        assert.ok(retry.ok);
-        assert.equal(
-          retry.data.assessmentContract,
-          ASSESSMENT_CONTRACT.OPTION_IDS,
-        );
-        assert.equal(retry.data.acceptedAnswer.timeSpentSeconds, 7);
-        assert.deepEqual(await storedState(db), accepted);
-      }
-      const completed = await service.completeSession(
-        created.sessionId,
-        credential,
-      );
-      assert.equal(completed.kind, SESSION_VIEW.REPORT);
-      assert.equal(completed.reportSnapshot.result.totalScore, 100);
-      assert.deepEqual(
-        completed.reportSnapshot.questions[0]!.options,
-        bankOptions.map((option) => option.text),
+        [...question.options].sort((a, b) => a.id - b.id),
+        [...bankOptions].sort((a, b) => a.id - b.id),
       );
     }
+    assert.deepEqual(
+      await db.select().from(questions).orderBy(questions.id),
+      originalBank,
+    );
+    const canonical = await service.getSession(credential);
+    assert.equal(canonical.kind, SESSION_VIEW.ASSESSMENT);
+    assert.deepEqual(canonical.questions, created.questions);
+    assert.doesNotMatch(
+      JSON.stringify(created),
+      /"(?:correctAnswer|correctOptionId|explanation)"\s*:/,
+    );
+    for (const handler of [handlers.getSession, handlers.resumeSession]) {
+      const beforeLegacyRead = await storedState(db);
+      assert.deepEqual(await handler(credential), {
+        ok: false,
+        error: {
+          code: ERROR_CODE.CLIENT_UPDATE_REQUIRED,
+          message: MESSAGES.clientUpdateRequired,
+        },
+      });
+      assert.deepEqual(await storedState(db), beforeLegacyRead);
+      const modern = await handler({
+        ...credential,
+        assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
+      });
+      assert.ok(modern.ok);
+      assert.equal(
+        modern.data.assessmentContract,
+        ASSESSMENT_CONTRACT.OPTION_IDS,
+      );
+      assert.equal(modern.data.kind, SESSION_VIEW.ASSESSMENT);
+      assert.deepEqual(modern.data.questions, canonical.questions);
+    }
+    const before = await storedState(db);
+    await assert.rejects(
+      service.submitAnswer(created.sessionId, {
+        ...credential,
+        questionId: canonical.questions[0]!.id,
+        selectedOptionId: 2,
+        timeSpentSeconds: 1,
+      }),
+      isError(ERROR_CODE.BAD_REQUEST),
+    );
+    assert.deepEqual(await storedState(db), before);
+    for (const question of canonical.questions) {
+      const submitted = await handlers.submitAnswer({
+        ...credential,
+        questionId: question.id,
+        selectedOptionId: 100,
+        timeSpentSeconds: 7,
+      });
+      assert.ok(submitted.ok);
+      assert.equal(
+        submitted.data.assessmentContract,
+        ASSESSMENT_CONTRACT.OPTION_IDS,
+      );
+      assert.equal(submitted.data.acceptedAnswer.selectedOptionId, 100);
+      const accepted = await storedState(db);
+      const retry = await handlers.submitAnswer({
+        ...credential,
+        questionId: question.id,
+        selectedOptionId: 100,
+        timeSpentSeconds: 999,
+      });
+      assert.ok(retry.ok);
+      assert.equal(
+        retry.data.assessmentContract,
+        ASSESSMENT_CONTRACT.OPTION_IDS,
+      );
+      assert.equal(retry.data.acceptedAnswer.timeSpentSeconds, 7);
+      assert.deepEqual(await storedState(db), accepted);
+      const reread = await service.getSession(credential);
+      assert.equal(reread.kind, SESSION_VIEW.ASSESSMENT);
+      assert.deepEqual(reread.questions, created.questions);
+    }
+    const completed = await service.completeSession(
+      created.sessionId,
+      credential,
+    );
+    assert.equal(completed.kind, SESSION_VIEW.REPORT);
+    assert.equal(completed.reportSnapshot.result.totalScore, 100);
+    assert.equal(completed.reportSnapshot.version, 1);
+    for (const [
+      index,
+      question,
+    ] of completed.reportSnapshot.questions.entries())
+      assert.deepEqual(
+        question.options,
+        created.questions[index]!.options.map((option) => option.text),
+      );
+    assert.deepEqual(
+      (await storedState(db)).sessions[0]!.questionSnapshot,
+      saved.questionSnapshot,
+    );
   },
 );
 
@@ -265,7 +324,7 @@ test(
     });
     assert.equal(accepted.acceptedAnswer.selectedOptionId, 100);
     const after = await storedState(db);
-    assert.equal(after.answers[0]!.selectedAnswer, 100);
+    assert.equal(after.answers[0]!.selectedOptionId, 100);
     assert.equal(after.answers[0]!.isCorrect, true);
     assert.deepEqual(
       await service.submitAnswer(row.id, {
@@ -308,7 +367,7 @@ test(
     // All rows exist, but a positional value in V2 is still not a valid answer.
     await db
       .update(sessionAnswers)
-      .set({ selectedAnswer: 2 })
+      .set({ selectedOptionId: 2 })
       .where(eq(sessionAnswers.questionId, firstId));
     const invalidComplete = await storedState(db);
     await assert.rejects(
@@ -318,7 +377,7 @@ test(
     assert.deepEqual(await storedState(db), invalidComplete);
     await db
       .update(sessionAnswers)
-      .set({ selectedAnswer: 100 })
+      .set({ selectedOptionId: 100 })
       .where(eq(sessionAnswers.questionId, firstId));
     const completed = await service.completeSession(row.id, credential);
     assert.equal(completed.kind, SESSION_VIEW.REPORT);
@@ -408,27 +467,28 @@ test(
     const extra = { ...bankRows()[0]!, id: "invalid-extra" };
     await db.insert(questions).values(extra);
     for (const invalid of [
-      { options: ["Only one option"], correctAnswer: 0 },
-      { options: ["A", "B", "C", " "], correctAnswer: 0 },
-      { options: bankOptions, correctAnswer: 99 },
+      { options: ["Only one option"], correctOptionId: 0 },
+      { options: ["A", "B", "C", " "], correctOptionId: 0 },
+      { options: bankOptions, correctOptionId: 99 },
       {
         options: bankOptions.map((option, index) =>
           index === 0 ? { ...option, id: OPTION_ID_MAX + 1 } : option,
         ),
-        correctAnswer: 100,
+        correctOptionId: 100,
       },
     ]) {
       await db
         .update(questions)
         .set({
           options: sql`${JSON.stringify(invalid.options)}::jsonb`,
-          correctAnswer: invalid.correctAnswer,
+          correctOptionId: invalid.correctOptionId,
         })
         .where(eq(questions.id, extra.id));
       const before = await storedState(db);
       assert.deepEqual(
         await handlers.createSession({
           ...configuration,
+          assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
           rawClientId: randomUUID(),
         }),
         {
@@ -448,6 +508,7 @@ test(
       .where(eq(questions.id, extra.id));
     const created = await handlers.createSession({
       ...configuration,
+      assessmentContract: ASSESSMENT_CONTRACT.OPTION_IDS,
       rawClientId: randomUUID(),
     });
     assert.ok(created.ok);

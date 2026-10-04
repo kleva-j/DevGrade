@@ -27,6 +27,8 @@ import type {
   ReportSnapshot,
 } from "@/domain/sessionSnapshots";
 
+import type { QuestionOption } from "@/domain/types";
+
 import {
   PROFICIENCY_LEVELS,
   SESSION_STATUSES,
@@ -61,8 +63,8 @@ export const questions = pgTable(
     title: varchar("title", { length: 255 }).notNull(),
     prompt: text("prompt").notNull(),
     codeBlock: text("code_block"),
-    options: jsonb("options").$type<string[]>().notNull(),
-    correctAnswer: integer("correct_answer").notNull(),
+    options: jsonb("options").$type<QuestionOption[]>().notNull(),
+    correctOptionId: integer("correct_answer").notNull(),
     explanation: text("explanation").notNull(),
     /** 1.0 = core, 2.0 = advanced; drives weighted scoring + sampling spread (#3). */
     difficultyWeight: real("difficulty_weight").notNull().default(1),
@@ -139,7 +141,7 @@ export const sessionAnswers = pgTable(
     questionId: varchar("question_id", { length: 50 })
       .notNull()
       .references(() => questions.id),
-    selectedAnswer: integer("selected_answer").notNull(),
+    selectedOptionId: integer("selected_answer").notNull(),
     timeSpentSeconds: integer("time_spent_seconds").notNull(),
     isCorrect: boolean("is_correct").notNull(),
     answeredAt: timestamp("answered_at", { withTimezone: true })

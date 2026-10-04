@@ -239,7 +239,7 @@ export async function acceptedAnswers(tx: Transaction, sessionId: string) {
   return tx
     .select({
       questionId: sessionAnswers.questionId,
-      selectedOptionId: sessionAnswers.selectedAnswer,
+      selectedOptionId: sessionAnswers.selectedOptionId,
       timeSpentSeconds: sessionAnswers.timeSpentSeconds,
     })
     .from(sessionAnswers)

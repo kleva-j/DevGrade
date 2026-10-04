@@ -46,7 +46,7 @@ import {
   SESSION_STATUS,
   SESSION_VIEW,
 } from "@/domain/constants";
-import { createRng, seedFromString } from "@/domain/random";
+import { createRng, seedFromString, shuffle } from "@/domain/random";
 import { stratifiedSample } from "@/domain/sampling";
 import {
   createQuestionSnapshot,
@@ -106,7 +106,7 @@ export function rowToQuestion(
     );
   }
   // The legacy column holds an index for string banks and an ID for object banks.
-  const correctOptionId = row.correctAnswer;
+  const correctOptionId = row.correctOptionId;
   if (!options.some((option) => option.id === correctOptionId))
     throw new AssessmentError(
       ERROR_CODE.INSUFFICIENT_QUESTIONS,
@@ -189,10 +189,11 @@ export function createAssessmentService(db: Db) {
           )
           .orderBy(questionsTable.id);
         const sessionToken = randomBytes(32).toString("hex");
+        const rng = createRng(seedFromString(sessionToken));
         const { questions, shortfalls } = stratifiedSample(
           poolRows.map(rowToQuestion),
           questionCount,
-          createRng(seedFromString(sessionToken)),
+          rng,
         );
         if (shortfalls.length || questions.length !== questionCount)
           throw new AssessmentError(
@@ -210,7 +211,11 @@ export function createAssessmentService(db: Db) {
         );
         const questionSnapshot = createQuestionSnapshot(
           selectedQuestionIds,
-          questions.map((q) => ({ ...q, source: rowsById.get(q.id)!.source })),
+          questions.map((q) => ({
+            ...q,
+            options: shuffle(q.options, rng),
+            source: rowsById.get(q.id)!.source,
+          })),
           pillarRows
             .filter((row) => selectedCategories.has(row.name as SkillCategory))
             .map((row) => ({
@@ -372,7 +377,7 @@ export function createAssessmentService(db: Db) {
           };
           await tx.insert(sessionAnswers).values({
             questionId: accepted.questionId,
-            selectedAnswer: accepted.selectedOptionId,
+            selectedOptionId: accepted.selectedOptionId,
             timeSpentSeconds: accepted.timeSpentSeconds,
             sessionId: session.id,
             isCorrect: data.selectedOptionId === question.correctOptionId,

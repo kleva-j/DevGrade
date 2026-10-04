@@ -215,16 +215,16 @@ export function parseQuestionSnapshot(
   return snapshot;
 }
 
-/** Validate canonical bank input, but keep Stage 1 writes in detached raw V1. */
+/** Validate and detach V2 storage, preserving caller-supplied option IDs and order. */
 export function createQuestionSnapshot(
   selectedQuestionIds: readonly string[],
   questions: readonly SnapshotQuestion[],
   pillars: readonly SnapshotPillar[],
   configuration: SnapshotConfiguration,
-): QuestionSnapshotV1 {
+): QuestionSnapshotV2 {
   const snapshot = parseQuestionSnapshot(
     {
-      version: QUESTION_SNAPSHOT_FORMAT.V2,
+      version: QUESTION_SNAPSHOT_VERSION,
       scoringVersion: SCORING_VERSION.V1,
       questions,
       pillars,
@@ -232,17 +232,7 @@ export function createQuestionSnapshot(
     selectedQuestionIds,
     configuration,
   );
-  return {
-    version: QUESTION_SNAPSHOT_VERSION,
-    scoringVersion: snapshot.scoringVersion,
-    questions: snapshot.questions.map(({ options, correctOptionId, ...q }) => ({
-      ...q,
-      options: options.map(({ text }) => text),
-      // V1 identity is the saved position, which need not equal the bank's ID.
-      correctAnswer: options.findIndex(({ id }) => id === correctOptionId),
-    })),
-    pillars: snapshot.pillars,
-  };
+  return { ...snapshot, version: QUESTION_SNAPSHOT_VERSION };
 }
 
 /** Read without rescoring or consulting the private snapshot/current bank. */

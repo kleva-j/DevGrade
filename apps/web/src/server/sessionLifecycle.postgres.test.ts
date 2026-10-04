@@ -30,6 +30,7 @@ import {
   FRAMEWORK,
   MAX_KNOWN_SESSION_CREDENTIALS,
   PROFICIENCY,
+  QUESTION_SNAPSHOT_FORMAT,
   SESSION_DISCOVERY,
   SESSION_STATUS,
   SESSION_VIEW,
@@ -90,8 +91,13 @@ async function setup(t: TestContext) {
             difficultyWeight,
             title: "Saved title",
             prompt: "Saved prompt",
-            options: ["A", "B", "C", "D"],
-            correctAnswer: 2,
+            options: [
+              { id: 10, text: "A" },
+              { id: 20, text: "B" },
+              { id: 30, text: "C" },
+              { id: 40, text: "D" },
+            ],
+            correctOptionId: 30,
             explanation: "Private explanation",
           })),
         ),
@@ -122,7 +128,7 @@ async function answerAll(f: Fixture, credential: SessionCredential) {
     await f.service.submitAnswer(credential.sessionId, {
       sessionToken: credential.sessionToken,
       questionId,
-      selectedOptionId: 2,
+      selectedOptionId: 30,
       timeSpentSeconds: 7,
     });
   }
@@ -194,11 +200,15 @@ test(
         async () => {
           const created = await f.create(length);
           const initial = await parent(f.db, created);
+          assert.equal(
+            initial.questionSnapshot?.version,
+            QUESTION_SNAPSHOT_FORMAT.V2,
+          );
           const lastId = created.questions.at(-1)!.id;
           const input = {
             sessionToken: created.sessionToken,
             questionId: lastId,
-            selectedOptionId: 2,
+            selectedOptionId: 30,
             timeSpentSeconds: 11,
           };
           const accepted = await f.service.submitAnswer(
@@ -224,7 +234,7 @@ test(
           await assert.rejects(
             f.service.submitAnswer(created.sessionId, {
               ...input,
-              selectedOptionId: 1,
+              selectedOptionId: 20,
             }),
             errorCode(ERROR_CODE.CONFLICT),
           );
@@ -234,7 +244,7 @@ test(
           assert.equal(view.effectiveStatus, SESSION_STATUS.ABANDONED);
           assert.deepEqual(view.questions, created.questions);
           assert.deepEqual(view.acceptedAnswers, [
-            { questionId: lastId, selectedOptionId: 2, timeSpentSeconds: 11 },
+            { questionId: lastId, selectedOptionId: 30, timeSpentSeconds: 11 },
           ]);
           assert.equal(view.nextQuestionId, created.questions[0]!.id);
           assert.equal(view.configuration.questionCount, length);
@@ -245,9 +255,12 @@ test(
           const resumed = await f.service.resumeSession(created);
           assert.equal(resumed.kind, SESSION_VIEW.ASSESSMENT);
           assert.equal(resumed.effectiveStatus, SESSION_STATUS.IN_PROGRESS);
+          assert.deepEqual(resumed.questions, created.questions);
+          assert.deepEqual(resumed.acceptedAnswers, view.acceptedAnswers);
           const active = await parent(f.db, created);
           assert.ok(active.lastActivityAt >= afterAnswer.lastActivityAt);
           assert.deepEqual(active.createdAt, initial.createdAt);
+          assert.deepEqual(active.questionSnapshot, initial.questionSnapshot);
           await answerAll(f, created);
           const full = await f.service.getSession(created);
           assert.equal(
@@ -340,7 +353,7 @@ test(
       .entries()) {
       const answer = {
         questionId: question.id,
-        selectedOptionId: index % 3,
+        selectedOptionId: question.options[index % question.options.length]!.id,
         timeSpentSeconds: index + 1,
       };
       expected.unshift(answer);
@@ -438,7 +451,7 @@ test(
       const input = {
         sessionToken: created.sessionToken,
         questionId: created.questions[0]!.id,
-        selectedOptionId: 2,
+        selectedOptionId: 30,
         timeSpentSeconds: 99,
       };
       assert.equal(
@@ -893,7 +906,7 @@ test(
     await f.db.insert(sessionAnswers).values({
       sessionId: created.sessionId,
       questionId: extra.id,
-      selectedAnswer: 2,
+      selectedOptionId: 30,
       isCorrect: true,
       timeSpentSeconds: 1,
     });
@@ -909,7 +922,7 @@ test(
     await f.service.submitAnswer(created.sessionId, {
       ...created,
       questionId: created.questions[0]!.id,
-      selectedOptionId: 2,
+      selectedOptionId: 30,
       timeSpentSeconds: 1,
     });
     await assert.rejects(
@@ -933,7 +946,7 @@ test(
           const input = {
             ...created,
             questionId: created.questions[0]!.id,
-            selectedOptionId: 2,
+            selectedOptionId: 30,
             timeSpentSeconds: 7,
           };
           const race = await orderedRace(
@@ -947,7 +960,7 @@ test(
             (db) =>
               createAssessmentService(db).submitAnswer(created.sessionId, {
                 ...input,
-                selectedOptionId: same ? 2 : 1,
+                selectedOptionId: same ? 30 : 20,
                 timeSpentSeconds: 999,
               }),
           );
@@ -964,7 +977,7 @@ test(
             .from(sessionAnswers)
             .where(eq(sessionAnswers.sessionId, created.sessionId));
           assert.equal(answer!.timeSpentSeconds, 7);
-          assert.equal(answer!.selectedAnswer, 2);
+          assert.equal(answer!.selectedOptionId, 30);
           assert.deepEqual(
             (await parent(f.db, created)).lastActivityAt,
             answer!.answeredAt,
@@ -1097,7 +1110,7 @@ test(
             createAssessmentService(db).submitAnswer(created.sessionId, {
               ...created,
               questionId,
-              selectedOptionId: 2,
+              selectedOptionId: 30,
               timeSpentSeconds: 9,
             });
           const complete = (db: Db) =>
@@ -1244,7 +1257,7 @@ test(
           createAssessmentService(db).submitAnswer(c.sessionId, {
             ...c,
             questionId: id,
-            selectedOptionId: 2,
+            selectedOptionId: 30,
             timeSpentSeconds: 1,
           }),
       },

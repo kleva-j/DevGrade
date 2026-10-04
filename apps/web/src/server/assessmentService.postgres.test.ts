@@ -17,6 +17,7 @@ import {
   FRAMEWORK,
   FRAMEWORKS,
   PROFICIENCY,
+  QUESTION_SNAPSHOT_FORMAT,
   SESSION_STATUS,
   SESSION_VIEW,
   SKILL_CATEGORIES,
@@ -25,7 +26,7 @@ import {
   WEIGHT_ADVANCED,
   WEIGHT_CORE,
 } from "@/domain/constants";
-import { createRng, seedFromString } from "@/domain/random";
+import { createRng, seedFromString, shuffle } from "@/domain/random";
 import { stratifiedSample } from "@/domain/sampling";
 import { rowToQuestion } from "./assessmentService";
 
@@ -45,6 +46,12 @@ const {
   sessionCategoryScores,
 } = tables;
 type CreatedSession = Awaited<ReturnType<AssessmentService["createSession"]>>;
+const questionOptions = [
+  { id: 10, text: "Option A" },
+  { id: 30, text: "Option B" },
+  { id: 20, text: "Option C" },
+  { id: 40, text: "Option D" },
+];
 
 /** Six active + two inactive per weight; unrelated levels/frameworks and off-class decoys. */
 function questionFixtures(): NewQuestion[] {
@@ -65,8 +72,9 @@ function questionFixtures(): NewQuestion[] {
               title: `Fixture ${id}`,
               prompt: `Choose an option for ${id}.`,
               codeBlock: index % 2 === 0 ? "const answer = 42;" : null,
-              options: ["Option A", "Option B", "Option C", "Option D"],
-              correctAnswer: index % 4,
+              options: questionOptions,
+              correctOptionId:
+                questionOptions[index % questionOptions.length]!.id,
               explanation: `Server-only explanation for ${id}`,
               difficultyWeight,
               isActive: index < 6,
@@ -128,7 +136,7 @@ async function assertCreatedSession(
   );
   const byId = new Map(selectedRows.map((row) => [row.id, row]));
   assert.ok(stored.questionSnapshot);
-  assert.equal(stored.questionSnapshot.version, 1);
+  assert.equal(stored.questionSnapshot.version, QUESTION_SNAPSHOT_FORMAT.V2);
   assert.deepEqual(
     stored.questionSnapshot.questions.map((question) => question.id),
     publicIds,
@@ -136,7 +144,17 @@ async function assertCreatedSession(
   for (const question of stored.questionSnapshot.questions) {
     const row = byId.get(question.id);
     assert.ok(row);
-    assert.equal(question.correctAnswer, row.correctAnswer);
+    assert.equal(question.correctOptionId, row.correctOptionId);
+    assert.deepEqual(
+      row.options,
+      questionOptions,
+      "creation must not reorder the bank",
+    );
+    assert.deepEqual(
+      [...question.options].sort((a, b) => a.id - b.id),
+      [...row.options].sort((a, b) => a.id - b.id),
+      "shuffling preserves every option ID/text pair",
+    );
     assert.equal(question.explanation, row.explanation);
     assert.equal(question.difficultyWeight, row.difficultyWeight);
     assert.equal(question.source, row.source);
@@ -185,7 +203,9 @@ async function assertCreatedSession(
       title: row.title,
       prompt: row.prompt,
       codeBlock: row.codeBlock,
-      options: row.options.map((text, id) => ({ id, text })),
+      options: stored.questionSnapshot.questions.find(
+        (saved) => saved.id === row.id,
+      )!.options,
     });
   }
   assert.doesNotMatch(
@@ -206,8 +226,8 @@ async function assertCreatedSession(
     }
   }
 
-  // The domain sampler is covered independently. Replaying its public contract
-  // detects a service query lacking stable id ordering (fixtures are inserted backwards).
+  // Replay sampling before option shuffles with one RNG. Fixtures are inserted
+  // backwards to expose missing stable query ordering; a shuffle may be unchanged.
   const orderedPool = await db
     .select()
     .from(questions)
@@ -219,15 +239,26 @@ async function assertCreatedSession(
       ),
     )
     .orderBy(questions.id);
+  const rng = createRng(seedFromString(created.sessionToken));
   const replay = stratifiedSample(
     orderedPool.map(rowToQuestion),
     questionCount,
-    createRng(seedFromString(created.sessionToken)),
+    rng,
   );
   assert.deepEqual(replay.shortfalls, []);
   assert.deepEqual(
     publicIds,
     replay.questions.map((question) => question.id),
+  );
+  const replayedQuestions = replay.questions.map((question) => ({
+    ...question,
+    options: shuffle(question.options, rng),
+    source: byId.get(question.id)!.source,
+  }));
+  assert.deepEqual(stored.questionSnapshot.questions, replayedQuestions);
+  assert.deepEqual(
+    created.questions.map((question) => question.options),
+    replayedQuestions.map((question) => question.options),
   );
   return { stored, byId };
 }
@@ -302,8 +333,8 @@ async function answerAndComplete(
     const row = byId.get(questionId);
     assert.ok(row);
     const selectedOptionId = answerCorrectly(row)
-      ? row.correctAnswer
-      : (row.correctAnswer + 1) % row.options.length;
+      ? row.correctOptionId
+      : row.options.find((option) => option.id !== row.correctOptionId)!.id;
     const response = await service.submitAnswer(created.sessionId, {
       sessionToken: created.sessionToken,
       questionId,
@@ -342,6 +373,12 @@ async function answerAndComplete(
   for (const answer of answers) {
     const row = byId.get(answer.questionId);
     assert.ok(row);
+    assert.equal(
+      answer.selectedOptionId,
+      acceptedAnswers.find(
+        (accepted) => accepted.questionId === answer.questionId,
+      )!.selectedOptionId,
+    );
     assert.equal(
       answer.isCorrect,
       answerCorrectly(row),
@@ -429,6 +466,7 @@ async function answerAndComplete(
   assert.ok(persistedResult);
   assert.ok(persistedResult.reportSnapshot);
   assert.ok(stored.questionSnapshot);
+  assert.equal(persistedResult.reportSnapshot.version, 1);
   assert.deepEqual(persistedResult.reportSnapshot, view.reportSnapshot);
   assert.deepEqual(
     persistedResult.reportSnapshot.questions,
